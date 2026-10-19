@@ -45,3 +45,18 @@ test('migrazione 001 su un database con lo schema "vecchio": applica tutto, è i
   await db.query(fs.readFileSync(new URL('../../db/migrazioni/001-revisione.sql', import.meta.url), 'utf8'));   // rilancio diretto
   await db.end();
 });
+
+test('preparaDatabase: su un database vuoto crea lo schema, poi non fa nulla; su uno già migrato non ripete', async () => {
+  const { preparaDatabase } = await import('../src/migrazioni.js');
+  const { creaPool } = await import('../src/db.js');
+  const adm = new pg.Client({ connectionString: ADMIN_URL }); await adm.connect();
+  await adm.query('drop database if exists garecri_vuoto'); await adm.query('create database garecri_vuoto'); await adm.end();
+  const pool = creaPool(ADMIN_URL.replace(/\/[^/]*$/, '/garecri_vuoto'));
+  const log = []; const l = (m) => log.push(m);
+  await preparaDatabase(pool, l); await preparaDatabase(pool, l);
+  assert.deepEqual(log, ['schema creato', 'schema già aggiornato']);
+  assert.equal((await pool.query('select count(*)::int n from schema_migrazioni')).rows[0].n, 3);
+  assert.equal((await pool.query(`select count(*)::int n from pg_enum e join pg_type t on t.oid=e.enumtypid where t.typname='ruolo_utente' and enumlabel='giudice_master'`)).rows[0].n, 1);
+  await Promise.all([preparaDatabase(pool, l), preparaDatabase(pool, l)]);   // due avvii contemporanei non si pestano i piedi
+  await pool.end();
+});

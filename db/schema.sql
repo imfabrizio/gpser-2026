@@ -8,7 +8,7 @@
 
 create extension if not exists pgcrypto;
 
-create type ruolo_utente as enum ('admin', 'organizzazione', 'giudice');
+create type ruolo_utente as enum ('admin', 'organizzazione', 'giudice', 'giudice_master');
 create type livello      as enum ('MB', 'BE', 'SU', 'IN', 'NE');
 create type stato_scheda as enum ('bozza', 'completata', 'verificata');
 create type origine_dato as enum ('carta', 'tablet_online', 'tablet_offline');
@@ -45,6 +45,7 @@ create table squadra (
   evento_id  uuid not null references evento(id) on delete cascade,
   numero     int  not null,                      -- il vecchio SquadraID, non si riusa mai
   nome       text not null,
+  comitato   text,                               -- comitato con cui la squadra gareggia (i componenti possono venire da comitati diversi)
   attiva     boolean not null default true,
   updated_at timestamptz not null default now(),
   unique (evento_id, numero)
@@ -59,6 +60,7 @@ create table partecipante (
   codice_fiscale text unique,
   email         text,
   comitato      text,
+  provincia     text,
   note          text,
   created_at    timestamptz not null default now()
 );
@@ -236,6 +238,13 @@ create table assegnazione (
   primary key (scheda_id, utente_id)
 );
 
+-- ───────── giudice master: comanda la scena (vede e corregge tutte le sue schede, chiude/verifica) ─────────
+create table scena_master (
+  scena_id  uuid not null references scena(id) on delete cascade,
+  utente_id uuid not null references utente(id) on delete cascade,
+  primary key (scena_id, utente_id)
+);
+
 -- ───────── versione dello schema ─────────
 create table schema_migrazioni (nome text primary key, applicata_at timestamptz not null default now());
-insert into schema_migrazioni (nome) values ('001-revisione.sql');   -- lo schema qui sopra le include già tutte
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql');   -- lo schema qui sopra le include già tutte

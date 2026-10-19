@@ -36,6 +36,12 @@ Classifiche: Generale, SEP (voci `is_sep`), BLS (schede `is_bls`), Master (sched
 * **organizzazione**: tutto sull'evento (squadre, scene, stampa, verifica, riapertura, trascrizione).
 * **admin**: come organizzazione + gestione utenti (creazione, ruolo, password, disattivazione). La libreria (voci, scale, patologie) è modificabile anche dall'organizzazione.
 
+### Giudice master e visibilità dei punti
+* **giudice master** (`giudice_master`): assegnato a una o più **scene** (Gestione → Scene → «Giudice master…»). Vede e può correggere **tutte** le schede della sua scena, le **verifica/chiude** («Verifica e chiudi») e può riaprirle. Le sue scritture prevalgono su quelle dei giudici; ogni correzione a una scheda compilata da altri finisce nel registro modifiche (`audit_log`, azione `correzione_master`, voce per voce: prima → dopo).
+* Flusso con i tablet: il giudice compila e preme «Completa» (se mancano voci, vengono evidenziate in rosso e chiede conferma); la scheda resta **«in attesa»**; il master la verifica e la chiude. Una scheda chiusa è di sola lettura per i giudici.
+* **Chi inserisce i dati non vede mai i punti**: il server non invia i valori ai giudici (solo i livelli consentiti), né la libreria delle scale, né classifica e monitor.
+* **Anagrafica** (scheda «Persone», solo organizzazione/admin): cognome, nome, data di nascita, codice fiscale (facoltativo), email, comitato, provincia, note. Le squadre hanno un **comitato** e i **componenti** (da anagrafica, anche di comitati diversi).
+
 ## 3b. Interfaccia di gestione (`web/admin.html`)
 Schede: **Evento** (crea, modifica, attiva, archivia, stampa PDF per scena/squadre), **Squadre** (aggiungi, rinomina, disattiva), **Scene e schede** (crea scena, aggiungi scheda da patologia, parametri simulatore, punteggi e SEP per singola voce solo per quella scena, assegnazione giudici, duplica in un altro evento, elimina se senza valutazioni), **Libreria** (editor patologie con riordino voci, scale di punteggio), **Utenti** (solo admin). Eliminare una scena/scheda con valutazioni già inserite è bloccato dal server.
 

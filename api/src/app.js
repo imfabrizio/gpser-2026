@@ -44,7 +44,10 @@ export function buildApp(pool, { logger = false } = {}) {
   // il giudice accede solo alle schede che gli sono assegnate
   const accessoScheda = async (utente, schedaId) => {
     if (RUOLI_ORG.includes(utente.ruolo)) return;
-    const { rowCount } = await pool.query('select 1 from assegnazione where scheda_id=$1 and utente_id=$2', [schedaId, utente.id]);
+    const { rowCount } = await pool.query(
+      `select 1 from assegnazione where scheda_id=$1 and utente_id=$2
+       union all select 1 from scena_master m join scena_scheda s on s.scena_id = m.scena_id
+        where s.id=$1 and m.utente_id=$2 and $3::text = 'giudice_master'`, [schedaId, utente.id, utente.ruolo]);
     if (!rowCount) throw httpErr(403, 'scheda non assegnata');
   };
 
@@ -81,17 +84,18 @@ export function buildApp(pool, { logger = false } = {}) {
     return { ok: true };
   }));
   app.get('/api/eventi/:id/squadre', async (req) =>
-    (await pool.query('select id, numero, nome, attiva from squadra where evento_id=$1 order by numero', [req.params.id])).rows);
+    (await pool.query('select id, numero, nome, comitato, attiva from squadra where evento_id=$1 order by numero', [req.params.id])).rows);
   app.post('/api/eventi/:id/squadre', { preHandler: soloOrg }, async (req) => {
     // il numero non si riusa mai (nel vecchio sistema Max+1 poteva riprendere un ID cancellato)
     return (await pool.query(
-      `insert into squadra (evento_id, numero, nome)
-       select $1, coalesce(max(numero),0)+1, $2 from squadra where evento_id=$1 returning *`,
-      [req.params.id, req.body.nome])).rows[0];
+      `insert into squadra (evento_id, numero, nome, comitato)
+       select $1, coalesce(max(numero),0)+1, $2, $3 from squadra where evento_id=$1 returning *`,
+      [req.params.id, req.body.nome, (req.body.comitato || '').trim() || null])).rows[0];
   });
   app.patch('/api/squadre/:id', { preHandler: soloOrg }, async (req) =>
-    (await pool.query(`update squadra set nome=coalesce($2,nome), attiva=coalesce($3,attiva), updated_at=now() where id=$1 returning *`,
-      [req.params.id, req.body.nome ?? null, req.body.attiva ?? null])).rows[0]);
+    (await pool.query(`update squadra set nome=coalesce($2,nome), attiva=coalesce($3,attiva),
+         comitato = case when $4::boolean then nullif(trim($5),'') else comitato end, updated_at=now() where id=$1 returning *`,
+      [req.params.id, req.body.nome ?? null, req.body.attiva ?? null, 'comitato' in req.body, req.body.comitato ?? ''])).rows[0]);
 
   app.get('/api/eventi/:id/scene', async (req) => {
     const { rows } = await pool.query(
@@ -100,7 +104,9 @@ export function buildApp(pool, { logger = false } = {}) {
             from scena_scheda s
             where s.scena_id = sc.id
               and ($2::text in ('admin','organizzazione') or exists
-                   (select 1 from assegnazione a where a.scheda_id = s.id and a.utente_id = $3::uuid))) as schede
+                   (select 1 from assegnazione a where a.scheda_id = s.id and a.utente_id = $3::uuid)
+                  or ($2::text = 'giudice_master' and exists
+                   (select 1 from scena_master m where m.scena_id = sc.id and m.utente_id = $3::uuid)))) as schede
        from scena sc where sc.evento_id=$1 order by sc.ordine, sc.codice`,
       [req.params.id, req.utente.ruolo, req.utente.id]);
     return rows;
@@ -119,7 +125,15 @@ export function buildApp(pool, { logger = false } = {}) {
     const { rows: [s] } = await pool.query('select * from scena_scheda where id=$1', [req.params.id]);
     if (!s) throw httpErr(404, 'scheda inesistente');
     await accessoScheda(req.utente, s.id);
-    s.voci = (await pool.query('select * from scena_scheda_voce where scheda_id=$1 order by ordine', [s.id])).rows;
+    const voci = (await pool.query('select * from scena_scheda_voce where scheda_id=$1 order by ordine', [s.id])).rows;
+    const LIVELLI = ['mb', 'be', 'su', 'in', 'ne'];
+    s.voci = voci.map((v) => {
+      const consentiti = LIVELLI.filter((l) => v[l] !== null).map((l) => l.toUpperCase());
+      if (!RUOLI_ORG.includes(req.utente.ruolo)) {      // chi inserisce i dati non deve conoscere il valore dei punti
+        return { id: v.id, scheda_id: v.scheda_id, ordine: v.ordine, sezione: v.sezione, testo: v.testo, consentiti };
+      }
+      return { ...v, consentiti };
+    });
     return s;
   });
   // override per scena: solo i campi presenti nel corpo vengono cambiati (null = livello non consentito)
@@ -149,12 +163,12 @@ export function buildApp(pool, { logger = false } = {}) {
   }));
 
   // ── libreria ──
-  app.get('/api/libreria/scale', async () => (await pool.query('select * from scala_punteggio order by codice')).rows);
-  app.get('/api/libreria/voci', async (req) => (await pool.query(
+  app.get('/api/libreria/scale', { preHandler: soloOrg }, async () => (await pool.query('select * from scala_punteggio order by codice')).rows);
+  app.get('/api/libreria/voci', { preHandler: soloOrg }, async (req) => (await pool.query(
     `select * from voce where $1::text is null or testo ilike '%'||$1||'%' order by testo limit 200`, [req.query.q ?? null])).rows);
-  app.get('/api/libreria/patologie', async () => (await pool.query(
+  app.get('/api/libreria/patologie', { preHandler: soloOrg }, async () => (await pool.query(
     `select p.*, (select count(*) from patologia_voce where patologia_id=p.id) as voci from patologia p order by nome`)).rows);
-  app.get('/api/libreria/patologie/:id', async (req) => (await pool.query(
+  app.get('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => (await pool.query(
     `select pv.ordine, pv.sezione, v.testo, sp.codice as scala, pv.is_sep from patologia_voce pv
        join voce v on v.id=pv.voce_id join scala_punteggio sp on sp.id=pv.scala_id
       where pv.patologia_id=$1 order by pv.ordine`, [req.params.id])).rows);
@@ -205,7 +219,7 @@ export function buildApp(pool, { logger = false } = {}) {
   }));
 
   // ── classifiche, monitor, stampa ──
-  app.get('/api/eventi/:id/classifica', async (req) => {
+  app.get('/api/eventi/:id/classifica', { preHandler: soloOrg }, async (req) => {   // i giudici non vedono punteggi né classifica
     const tipo = { generale: 'totale', sep: 'sep', bls: 'bls', master: 'master' }[req.query.tipo || 'generale'];
     if (!tipo) throw httpErr(400, 'tipo: generale|sep|bls|master');
     const { rows } = await pool.query(

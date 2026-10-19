@@ -29,6 +29,7 @@ export async function sincronizza(db, utente, payload) {
   if (!Array.isArray(risposte) || risposte.length > 500) throw httpErr(400, 'risposte: elenco (max 500)');
   if (payload.stato && !(payload.stato in RANGO)) throw httpErr(400, 'stato non valido');
   const isOrg = ORG.includes(utente.ruolo);
+  const isMasterRuolo = utente.ruolo === 'giudice_master';
 
   const { rows: [ctx] } = await db.query(
     `select s.id as scheda, sc.evento_id as ev_scheda, sq.evento_id as ev_squadra, sq.attiva, e.archiviato
@@ -40,10 +41,14 @@ export async function sincronizza(db, utente, payload) {
   if (ctx.ev_scheda !== ctx.ev_squadra) throw httpErr(400, 'scheda e squadra appartengono a eventi diversi');
   if (!ctx.attiva) throw httpErr(409, 'squadra disattivata');
   if (ctx.archiviato) throw httpErr(409, 'evento archiviato');
+  let isMasterScena = false;   // giudice master della scena a cui appartiene la scheda
   if (!isOrg) {
+    isMasterScena = isMasterRuolo && (await db.query(
+      `select 1 from scena_master m join scena_scheda s on s.scena_id = m.scena_id where s.id=$1 and m.utente_id=$2`, [scheda_id, utente.id])).rowCount > 0;
     const { rowCount } = await db.query('select 1 from assegnazione where scheda_id=$1 and utente_id=$2', [scheda_id, utente.id]);
-    if (!rowCount) throw httpErr(403, 'scheda non assegnata a questo giudice');
+    if (!rowCount && !isMasterScena) throw httpErr(403, 'scheda non assegnata a questo giudice');
   }
+  const prioritario = isOrg || isMasterScena;   // le scritture di organizzazione e giudice master prevalgono su quelle dei giudici
 
   await db.query(
     `insert into compilazione (id, scheda_id, squadra_id, origine, giudice, giudice_id, iniziata_at)
@@ -55,6 +60,7 @@ export async function sincronizza(db, utente, payload) {
   if (c.stato === 'verificata' && !isOrg) throw httpErr(409, 'scheda verificata: modifica non consentita');
 
   let scritte = 0, scartate = 0;
+  const correzioni = [];   // solo per il master: cosa ha cambiato nelle schede compilate da altri
   for (const r of risposte) {
     if (!r || typeof r !== 'object') throw httpErr(400, 'risposta non valida');
     if (!UUID.test(r.voce_id || '')) throw httpErr(400, 'voce_id non valido');
@@ -69,6 +75,7 @@ export async function sincronizza(db, utente, payload) {
     //  - organizzazione/admin (da_org) prevale sul giudice; tra scritture della stessa categoria vince la più recente
     //  - l'orario del dispositivo non supera mai quello del server
     //  - livello null = annullo, registrato come riga (tombstone): un dato vecchio non lo fa risorgere
+    const prima = isMasterScena ? (await db.query('select livello from risposta where compilazione_id=$1 and voce_id=$2', [c.id, r.voce_id])).rows[0]?.livello ?? null : null;
     const { rowCount } = await db.query(
       `insert into risposta (compilazione_id, voce_id, livello, updated_at, updated_by, da_org)
        values ($1,$2,$3::livello, least(coalesce($4::timestamptz, now()), now()), $5, $6)
@@ -76,13 +83,13 @@ export async function sincronizza(db, utente, payload) {
          set livello = excluded.livello, updated_at = excluded.updated_at, updated_by = excluded.updated_by, da_org = excluded.da_org
          where (excluded.da_org and not risposta.da_org)
             or (excluded.da_org = risposta.da_org and risposta.updated_at <= excluded.updated_at)`,
-      [c.id, r.voce_id, r.livello, ts, utente.id, isOrg]);
-    rowCount ? scritte++ : scartate++;
+      [c.id, r.voce_id, r.livello, ts, utente.id, prioritario]);
+    if (rowCount) { scritte++; if (isMasterScena && prima !== r.livello) correzioni.push({ voce_id: r.voce_id, prima, dopo: r.livello }); } else scartate++;
   }
 
   let stato = c.stato;
   if (payload.stato && RANGO[payload.stato] > RANGO[c.stato]) {
-    if (payload.stato === 'verificata' && !isOrg) throw httpErr(403, 'solo l\'organizzazione verifica');
+    if (payload.stato === 'verificata' && !isOrg && !isMasterScena) throw httpErr(403, 'solo l\'organizzazione o il giudice master verificano');
     stato = payload.stato;
   }
   await db.query(
@@ -95,12 +102,22 @@ export async function sincronizza(db, utente, payload) {
     await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'modifica_scheda_chiusa','compilazione',$2,$3)`,
       [utente.id, c.id, JSON.stringify({ stato_prima: c.stato, stato_dopo: stato, voci_modificate: scritte })]);
   }
+  // il giudice master può correggere le schede degli altri giudici: ogni correzione resta nel registro, voce per voce
+  if (isMasterScena && c.giudice_id && c.giudice_id !== utente.id && (correzioni.length || stato !== c.stato)) {
+    await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'correzione_master','compilazione',$2,$3)`,
+      [utente.id, c.id, JSON.stringify({ giudice: c.giudice, stato_prima: c.stato, stato_dopo: stato, correzioni })]);
+  }
   return { compilazione_id: c.id, stato, scritte, scartate };
 }
 
 export async function riapri(db, utente, compilazioneId) {
-  if (!ORG.includes(utente.ruolo)) throw httpErr(403, 'solo organizzazione/admin');
   if (!UUID.test(compilazioneId || '')) throw httpErr(400, 'id non valido');
+  if (!ORG.includes(utente.ruolo)) {       // il giudice master può riaprire solo le schede della propria scena
+    const ok = utente.ruolo === 'giudice_master' && (await db.query(
+      `select 1 from compilazione c join scena_scheda s on s.id = c.scheda_id join scena_master m on m.scena_id = s.scena_id
+        where c.id=$1 and m.utente_id=$2`, [compilazioneId, utente.id])).rowCount > 0;
+    if (!ok) throw httpErr(403, 'solo organizzazione, admin o giudice master della scena');
+  }
   const { rowCount } = await db.query(
     `update compilazione set stato='bozza', verificata_at=null, verificata_da=null, updated_at=now() where id=$1`, [compilazioneId]);
   if (!rowCount) throw httpErr(404, 'compilazione inesistente');

@@ -70,7 +70,7 @@ test('il giudice vede solo le schede assegnate', async () => {
   sc = json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['giu@t'] }));
   assert.equal(sc[0].schede.length, 1);
   squadra = json(await chiama('GET', `/api/eventi/${ev}/squadre`, { token: tok['giu@t'] })).find((s) => s.numero === 4).id;
-  voci = json(await chiama('GET', `/api/schede/${scheda}`, { token: tok['giu@t'] })).voci;
+  voci = json(await chiama('GET', `/api/schede/${scheda}`, { token: tok['org@t'] })).voci;   // l'organizzazione vede i punteggi
   assert.equal(voci.length, 26);
 });
 
@@ -395,4 +395,106 @@ test('REV2-5 la rete di sicurezza: tutte le rotte /api (tranne login) rifiutano 
     ['GET', `/api/eventi/${U(1)}/stampa.pdf`], ['POST', '/api/libreria/scale'], ['HEAD', '/api/eventi'], ['OPTIONS', '/api/eventi']];
   for (const [m, u] of metodi) assert.ok([401, 404].includes((await chiama(m, u)).statusCode), `${m} ${u}`);
   for (const [m, u] of metodi.filter(([m]) => !['HEAD', 'OPTIONS'].includes(m))) assert.equal((await chiama(m, u)).statusCode, 401, `${m} ${u}`);
+});
+
+// ───────── giudice master, punteggi nascosti, anagrafica ─────────
+import { randomUUID } from 'node:crypto';
+const nuovoUtente = async (email, ruolo) => {
+  const { rows: [u] } = await pool.query('insert into utente (email, nome, ruolo, password_hash) values ($1,$2,$3,$4) returning id', [email, email, ruolo, hashPassword('pw')]);
+  tok[email] = json(await chiama('POST', '/api/login', { body: { email, password: 'pw' } })).token;
+  return u.id;
+};
+
+test('M-1 chi inserisce i dati non vede i punti: né nella scheda, né nella libreria, né in classifica', async () => {
+  const j = json(await chiama('GET', `/api/schede/${scheda}`, { token: tok['giu@t'] }));
+  assert.ok(j.voci.length === 26);
+  for (const v of j.voci) { for (const k of ['mb', 'be', 'su', 'in', 'ne', 'is_sep', 'scala']) assert.ok(!(k in v), `campo ${k} esposto al giudice`); assert.ok(Array.isArray(v.consentiti) && v.consentiti.length >= 1); }
+  const o = json(await chiama('GET', `/api/schede/${scheda}`, { token: tok['org@t'] }));
+  assert.ok('mb' in o.voci[0] && o.voci[0].consentiti.length >= 1);                       // l'organizzazione sì
+  // i livelli consentiti coincidono con quelli non nulli
+  for (const v of o.voci) assert.deepEqual(v.consentiti, ['mb', 'be', 'su', 'in', 'ne'].filter((l) => v[l] !== null).map((l) => l.toUpperCase()));
+  for (const u of ['/api/libreria/scale', '/api/libreria/patologie', '/api/libreria/voci', `/api/eventi/${ev}/classifica`, `/api/eventi/${ev}/monitor`])
+    assert.equal((await chiama('GET', u, { token: tok['giu@t'] })).statusCode, 403, u);
+});
+
+test('M-2 giudice master: vede e corregge tutte le schede della sua scena, verifica, riapre; correzioni nel registro; prevale sul giudice', async () => {
+  const masterId = await nuovoUtente('mas@t', 'giudice_master');
+  const altroId = await nuovoUtente('mas2@t', 'giudice_master');
+  const scene = json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['org@t'] }));
+  const scenaA = scene[0].id;
+  const schedaB = scene[0].schede.find((s) => s.id !== scheda).id;                    // una scheda NON assegnata né al giudice né al master
+  // senza assegnazione di scena il master è come un giudice: non vede nulla
+  assert.equal(json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['mas@t'] }))[0].schede, null);
+  assert.equal((await chiama('GET', `/api/schede/${schedaB}`, { token: tok['mas@t'] })).statusCode, 403);
+  // solo utenti con ruolo giudice_master possono essere master di scena
+  assert.equal((await chiama('PUT', `/api/scene/${scenaA}/master`, { token: tok['org@t'], body: { utenti: [(await pool.query(`select id from utente where email='giu@t'`)).rows[0].id] } })).statusCode, 400);
+  assert.equal((await chiama('PUT', `/api/scene/${scenaA}/master`, { token: tok['giu@t'], body: { utenti: [masterId] } })).statusCode, 403);
+  assert.equal((await chiama('PUT', `/api/scene/${scenaA}/master`, { token: tok['org@t'], body: { utenti: [masterId] } })).statusCode, 200);
+  assert.equal(json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['mas@t'] }))[0].schede.length, scene[0].schede.length);   // ora le vede tutte
+  assert.equal((await chiama('GET', `/api/schede/${schedaB}`, { token: tok['mas@t'] })).statusCode, 200);
+  assert.equal((await chiama('GET', `/api/schede/${schedaB}`, { token: tok['mas2@t'] })).statusCode, 403);   // altro master: non della sua scena
+  const mio = json(await chiama('GET', `/api/schede/${schedaB}`, { token: tok['mas@t'] }));
+  assert.ok(!('mb' in mio.voci[0]));                                                  // anche il master non vede i punti
+
+  // il giudice compila la Master, il master corregge
+  const sq = json(await chiama('POST', `/api/eventi/${ev}/squadre`, { token: tok['org@t'], body: { nome: 'Squadra master', comitato: 'Modena' } }));
+  const vs = json(await chiama('GET', `/api/schede/${scheda}`, { token: tok['org@t'] })).voci;
+  const std = vs.find((v) => v.scala === 'Standard');
+  const idc = randomUUID();
+  const base = { id: idc, scheda_id: scheda, squadra_id: sq.id };
+  const w = async (t, livello, extra = {}) => json(await chiama('POST', '/api/sync', { token: tok[t], body: { ...base, risposte: [{ voce_id: std.id, livello }], ...extra } }));
+  assert.equal((await w('giu@t', 'IN', { stato: 'completata' }))[0].stato, 'completata');
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, stato: 'verificata', risposte: [] } })).statusCode, 403);   // il giudice non chiude
+  const corr = await w('mas@t', 'MB');
+  assert.equal(corr[0].scritte, 1);
+  assert.equal((await w('giu@t', 'NE'))[0].scartate, 1);                              // il giudice non scavalca il master
+  const { rows: [a] } = await pool.query(`select dettaglio from audit_log where azione='correzione_master' order by id desc limit 1`);
+  assert.equal(a.dettaglio.correzioni[0].prima, 'IN'); assert.equal(a.dettaglio.correzioni[0].dopo, 'MB');
+  // il master chiude la scheda
+  assert.equal((await w('mas@t', 'MB', { stato: 'verificata' }))[0].stato, 'verificata');
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, risposte: [{ voce_id: std.id, livello: 'BE' }] } })).statusCode, 409);
+  // riapertura: il master della scena sì, un altro master no
+  const { rows: [c] } = await pool.query('select id from compilazione where scheda_id=$1 and squadra_id=$2', [scheda, sq.id]);
+  assert.equal((await chiama('POST', `/api/compilazioni/${c.id}/riapri`, { token: tok['mas2@t'] })).statusCode, 403);
+  assert.equal((await chiama('POST', `/api/compilazioni/${c.id}/riapri`, { token: tok['mas@t'] })).statusCode, 200);
+  assert.equal((await pool.query('select stato from compilazione where id=$1', [c.id])).rows[0].stato, 'bozza');
+  void altroId;
+});
+
+test('M-3 anagrafica: persone, squadre con comitato e componenti; solo organizzazione', async () => {
+  const P = (b) => chiama('POST', '/api/persone', { token: tok['org@t'], body: b });
+  assert.equal((await chiama('GET', '/api/persone', { token: tok['giu@t'] })).statusCode, 403);
+  assert.equal((await P({ cognome: 'Rossi' })).statusCode, 400);                                           // nome mancante
+  assert.equal((await P({ cognome: 'Rossi', nome: 'Mario', codice_fiscale: 'corto' })).statusCode, 400);
+  assert.equal((await P({ cognome: 'Rossi', nome: 'Mario', email: 'non-una-email' })).statusCode, 400);
+  const m = json(await P({ cognome: 'Rossi', nome: 'Mario', data_nascita: '1990-05-17', codice_fiscale: 'rssmra90e17f257x', email: 'm@x.it', comitato: 'Modena', provincia: 'mo' }));
+  assert.equal(m.codice_fiscale, 'RSSMRA90E17F257X'); assert.equal(m.provincia, 'MO'); assert.equal(m.data_nascita, '1990-05-17');
+  assert.equal((await P({ cognome: 'Bis', nome: 'Doppio', codice_fiscale: 'RSSMRA90E17F257X' })).statusCode, 409);   // CF già presente
+  const l = json(await P({ cognome: 'Verdi', nome: 'Luca' }));                                             // CF, email e data non obbligatori
+  assert.equal(l.codice_fiscale, null);
+  assert.equal((await P({ cognome: 'Neri', nome: 'Ada' })).statusCode, 200);                              // due senza CF: consentito
+  const ricerca = json(await chiama('GET', '/api/persone?q=ross', { token: tok['org@t'] }));
+  assert.equal(ricerca.length, 1);
+  const up = json(await chiama('PATCH', `/api/persone/${l.id}`, { token: tok['org@t'], body: { cognome: 'Verdi', nome: 'Luca', comitato: 'Parma', provincia: 'PR' } }));
+  assert.equal(up.comitato, 'Parma');
+  // squadra: comitato e componenti (anche di comitati diversi)
+  const sq = json(await chiama('POST', `/api/eventi/${ev}/squadre`, { token: tok['org@t'], body: { nome: 'Mista', comitato: 'Reggio Emilia' } }));
+  assert.equal(sq.comitato, 'Reggio Emilia');
+  const r = await chiama('PATCH', `/api/squadre/${sq.id}`, { token: tok['org@t'], body: { comitato: 'Reggio nell\'Emilia' } });
+  assert.equal(json(r).comitato, "Reggio nell'Emilia"); assert.equal(json(r).nome, 'Mista');               // il nome non cambia
+  assert.equal(json(await chiama('PATCH', `/api/squadre/${sq.id}`, { token: tok['org@t'], body: { nome: 'Mista 2' } })).comitato, "Reggio nell'Emilia");   // senza comitato nel corpo resta
+  assert.equal((await chiama('PUT', `/api/squadre/${sq.id}/membri`, { token: tok['org@t'], body: { membri: [{ partecipante_id: m.id, ruolo: 'capo squadra' }, { partecipante_id: l.id }] } })).statusCode, 200);
+  const mem = json(await chiama('GET', `/api/squadre/${sq.id}/membri`, { token: tok['org@t'] }));
+  assert.deepEqual(mem.map((x) => x.comitato).sort(), ['Modena', 'Parma']);
+  assert.equal((await chiama('PUT', `/api/squadre/${sq.id}/membri`, { token: tok['org@t'], body: { membri: [{ partecipante_id: m.id }, { partecipante_id: m.id }] } })).statusCode, 400);   // doppione
+  assert.equal((await chiama('DELETE', `/api/persone/${m.id}`, { token: tok['org@t'] })).statusCode, 409);   // è in una squadra
+  await chiama('PUT', `/api/squadre/${sq.id}/membri`, { token: tok['org@t'], body: { membri: [] } });
+  assert.equal((await chiama('DELETE', `/api/persone/${m.id}`, { token: tok['org@t'] })).statusCode, 200);
+});
+
+test('M-4 il nuovo ruolo giudice_master è accettato dalla gestione utenti e assegnabile alle schede', async () => {
+  const u = json(await chiama('POST', '/api/utenti', { token: tok['adm@t'], body: { email: 'gm@t', nome: 'GM', ruolo: 'giudice_master', password: 'password-lunga' } }));
+  assert.equal(u.ruolo, 'giudice_master');
+  const g = json(await chiama('GET', '/api/giudici', { token: tok['org@t'] }));
+  assert.ok(g.some((x) => x.email === 'gm@t' && x.ruolo === 'giudice_master'));
 });

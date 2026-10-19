@@ -6,7 +6,8 @@ Condizioni dei piani gratuiti: verificale sui siti prima di affidarti (cambiano)
 1. Crea un progetto su neon.com (regione Europa, Postgres 16).
 2. Copia l'indirizzo di connessione (**Connection string**, con password). Deve terminare con `?sslmode=require`. Usa quello *non pooled* se Neon ne mostra due.
 
-## 2. Crea lo schema e il primo utente (dal tuo computer)
+## 2. Crea lo schema e il primo utente
+Il server, all'avvio, **crea lo schema se il database è vuoto e applica da solo le migrazioni mancanti** (disattivabile con `AUTO_MIGRAZIONI=0`). Il primo utente amministratore va creato a mano: o con il comando qui sotto, o incollando nell'SQL Editor di Neon il file `neon-installazione.sql` fornito a parte.
 ```bash
 git clone <il-tuo-repository> && cd garecri && npm ci
 export DATABASE_URL='postgresql://...neon.tech/neondb?sslmode=require'

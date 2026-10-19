@@ -36,6 +36,12 @@
   dialog::backdrop { background:#0006; }
   .voci td input, .voci td select { padding:6px; font-size:14px; }
   .num { width:56px !important; text-align:center; }
+  table.punteggi { table-layout:fixed; }
+  table.punteggi th, table.punteggi td { text-align:center; padding:6px 2px; }
+  table.punteggi th:first-child, table.punteggi td:first-child { text-align:left; }
+  table.punteggi .num { width:100% !important; max-width:56px; margin:0 auto; display:block; }
+  table.punteggi input[type=checkbox] { display:block; margin:0 auto; }
+  .griglia { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; }
   small, .nota { color:#666; font-size:12px; }
   @media (max-width:640px) { .voci { font-size:13px; } }
 </style>
@@ -70,7 +76,9 @@ window.chiudi = chiudi;
 
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
-const TABS = [['evento', 'Evento'], ['squadre', 'Squadre'], ['scene', 'Scene e schede'], ['libreria', 'Libreria'], ['utenti', 'Utenti']];
+const TABS = [['evento', 'Evento'], ['squadre', 'Squadre'], ['persone', 'Persone'], ['scene', 'Scene e schede'], ['libreria', 'Libreria'], ['utenti', 'Utenti']];
+const RUOLI = ['giudice', 'giudice_master', 'organizzazione', 'admin'];
+const RUOLO_ET = { giudice: 'giudice', giudice_master: 'giudice master', organizzazione: 'organizzazione', admin: 'admin' };
 function disegnaTabs() {
   const vis = TABS.filter(([k]) => k !== 'utenti' || me.ruolo === 'admin');
   $('#tabs').innerHTML = vis.map(([k, n]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${n}</button>`).join('');
@@ -131,26 +139,87 @@ async function tSquadre() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima un evento.</div>'; return; }
   const sq = await api(`/eventi/${ev.id}/squadre`);
   $('#app').innerHTML = selettoreEvento() + `<div class="card"><h3>Squadre (${sq.filter((s) => s.attiva).length} attive)</h3>
-    <table>${sq.map((s) => `<tr><td>${s.numero}</td><td><input data-id="${s.id}" class="nm" value="${esc(s.nome)}"></td>
+    <table><tr><th>N.</th><th>Squadra</th><th>Comitato</th><th></th><th></th></tr>${sq.map((s) => `<tr><td>${s.numero}</td><td><input data-id="${s.id}" class="nm" value="${esc(s.nome)}"></td>
+      <td><input data-id="${s.id}" class="cm" placeholder="comitato" value="${esc(s.comitato || '')}"></td>
       <td><span class="tag ${s.attiva ? 'ok' : 'no'}">${s.attiva ? 'attiva' : 'disattivata'}</span></td>
-      <td><button class="s p tg" data-sq="${s.id}" data-a="${s.attiva}">${s.attiva ? 'Disattiva' : 'Riattiva'}</button></td></tr>`).join('')}</table>
+      <td style="white-space:nowrap"><button class="s p mb" data-sq="${s.id}" data-n="${esc(s.nome)}">Componenti…</button>
+        <button class="s p tg" data-sq="${s.id}" data-a="${s.attiva}">${s.attiva ? 'Disattiva' : 'Riattiva'}</button></td></tr>`).join('')}</table>
     <p class="nota">Le squadre non si cancellano: si disattivano, così il numero non viene mai riusato e le valutazioni restano.</p></div>
-    <div class="card"><h3>Nuova squadra</h3><div class="riga"><input id="ns" placeholder="Nome squadra"><div class="stretto"><button class="b" id="ns_ok">Aggiungi</button></div></div></div>`;
+    <div class="card"><h3>Nuova squadra</h3><div class="riga"><input id="ns" placeholder="Nome squadra"><input id="ns_c" placeholder="Comitato"><div class="stretto"><button class="b" id="ns_ok">Aggiungi</button></div></div></div>`;
   legaSelettore();
   document.querySelectorAll('.nm').forEach((i) => { i.onchange = () => fai(() => api(`/squadre/${i.dataset.id}`, { method: 'PATCH', body: { nome: i.value } }), 'Nome aggiornato'); });
+  document.querySelectorAll('.cm').forEach((i) => { i.onchange = () => fai(() => api(`/squadre/${i.dataset.id}`, { method: 'PATCH', body: { comitato: i.value } }), 'Comitato aggiornato'); });
   document.querySelectorAll('.tg').forEach((b) => { b.onclick = () => fai(() => api(`/squadre/${b.dataset.sq}`, { method: 'PATCH', body: { attiva: b.dataset.a !== 'true' } })); });
-  $('#ns_ok').onclick = () => { const n = $('#ns').value.trim(); if (n) fai(() => api(`/eventi/${ev.id}/squadre`, { body: { nome: n } }), 'Squadra aggiunta'); };
+  document.querySelectorAll('.mb').forEach((b) => { b.onclick = () => apriComponenti(b.dataset.sq, b.dataset.n); });
+  $('#ns_ok').onclick = () => { const n = $('#ns').value.trim(); if (n) fai(() => api(`/eventi/${ev.id}/squadre`, { body: { nome: n, comitato: $('#ns_c').value.trim() } }), 'Squadra aggiunta'); };
+}
+
+async function apriComponenti(squadraId, nomeSquadra) {
+  const [membri, persone] = await Promise.all([api(`/squadre/${squadraId}/membri`), api('/persone')]);
+  let lista = membri.map((m) => ({ partecipante_id: m.partecipante_id, ruolo: m.ruolo || '', cognome: m.cognome, nome: m.nome, comitato: m.comitato, provincia: m.provincia }));
+  const disegna = () => {
+    $('#dlg').innerHTML = `<h3>Componenti · ${esc(nomeSquadra)}</h3>
+      <p class="nota">Le persone vengono dall'anagrafica (scheda «Persone»). I componenti possono appartenere a comitati diversi dalla squadra.</p>
+      <table>${lista.length ? lista.map((m, i) => `<tr><td>${esc(m.cognome)} ${esc(m.nome)}<br><small>${esc(m.comitato || '—')}${m.provincia ? ' (' + esc(m.provincia) + ')' : ''}</small></td>
+        <td><input class="mr" data-i="${i}" placeholder="ruolo (es. capo squadra)" value="${esc(m.ruolo)}"></td><td><button class="x p mx" data-i="${i}">✕</button></td></tr>`).join('') : '<tr><td><em>Nessun componente</em></td></tr>'}</table>
+      <div class="riga" style="margin-top:10px"><div style="flex:3"><label>Aggiungi persona</label><select id="mp"><option value="">— scegli —</option>
+        ${persone.filter((p) => !lista.some((m) => m.partecipante_id === p.id)).map((p) => `<option value="${p.id}">${esc(p.cognome)} ${esc(p.nome)} · ${esc(p.comitato || '—')}</option>`).join('')}</select></div>
+        <div class="stretto"><button class="s" id="mpa">Aggiungi</button></div></div>
+      <p><button class="b" id="mps">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`;
+    document.querySelectorAll('#dlg .mr').forEach((i) => { i.oninput = () => { lista[i.dataset.i].ruolo = i.value; }; });
+    document.querySelectorAll('#dlg .mx').forEach((b) => { b.onclick = () => { lista.splice(Number(b.dataset.i), 1); disegna(); }; });
+    $('#mpa').onclick = () => { const p = persone.find((x) => x.id === $('#mp').value); if (!p) return;
+      lista.push({ partecipante_id: p.id, ruolo: '', cognome: p.cognome, nome: p.nome, comitato: p.comitato, provincia: p.provincia }); disegna(); };
+    $('#mps').onclick = () => { const body = { membri: lista.map((m) => ({ partecipante_id: m.partecipante_id, ruolo: m.ruolo.trim() || null })) }; chiudi();
+      fai(() => api(`/squadre/${squadraId}/membri`, { method: 'PUT', body }), 'Componenti salvati'); };
+  };
+  $('#dlg').showModal(); disegna();
+}
+
+// ───────── PERSONE (anagrafica) ─────────
+async function tPersone() {
+  const q = (cache.qPersone || '').trim();
+  const lista = await api('/persone' + (q ? '?q=' + encodeURIComponent(q) : ''));
+  $('#app').innerHTML = `<div class="card"><h3>Anagrafica persone (${lista.length}${lista.length === 500 ? '+' : ''})</h3>
+    <div class="riga"><input id="pq" placeholder="Cerca per cognome, nome, comitato, codice fiscale" value="${esc(q)}"><div class="stretto"><button class="s" id="pqc">Cerca</button> <button class="b" id="pn">Nuova persona</button></div></div>
+    <table style="margin-top:8px"><tr><th>Cognome e nome</th><th>Nascita</th><th>Comitato</th><th>Prov.</th><th>Squadre</th><th></th></tr>
+    ${lista.map((p) => `<tr><td>${esc(p.cognome)} ${esc(p.nome)}<br><small>${esc(p.email || '')}${p.codice_fiscale ? ' · ' + esc(p.codice_fiscale) : ''}</small></td>
+      <td>${esc(p.data_nascita || '')}</td><td>${esc(p.comitato || '')}</td><td>${esc(p.provincia || '')}</td><td>${p.squadre}</td>
+      <td style="white-space:nowrap"><button class="s p pe" data-id="${p.id}">Modifica</button> <button class="x p pd" data-id="${p.id}">Elimina</button></td></tr>`).join('') || '<tr><td colspan="6"><em>Nessuna persona.</em></td></tr>'}</table>
+    <p class="nota">Dati personali: visibili solo a organizzazione e admin. Codice fiscale, email e data di nascita sono facoltativi.</p></div>`;
+  const cerca = () => { cache.qPersone = $('#pq').value; render(); };
+  $('#pqc').onclick = cerca; $('#pq').onkeydown = (e) => { if (e.key === 'Enter') cerca(); };
+  $('#pn').onclick = () => formPersona(null);
+  document.querySelectorAll('.pe').forEach((b) => { b.onclick = () => formPersona(lista.find((p) => p.id === b.dataset.id)); });
+  document.querySelectorAll('.pd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la persona dall\'anagrafica?')) fai(() => api(`/persone/${b.dataset.id}`, { method: 'DELETE' }), 'Persona eliminata'); }; });
+}
+function formPersona(p) {
+  const f = (id, et, v = '', tipo = 'text', extra = '') => `<div><label>${et}</label><input id="${id}" type="${tipo}" value="${esc(v)}" ${extra}></div>`;
+  dlg(`<h3>${p ? 'Modifica' : 'Nuova'} persona</h3><div class="griglia">
+    ${f('f_cog', 'Cognome *', p?.cognome)}${f('f_nom', 'Nome *', p?.nome)}${f('f_dn', 'Data di nascita', p?.data_nascita, 'date')}
+    ${f('f_cf', 'Codice fiscale (facoltativo)', p?.codice_fiscale, 'text', 'maxlength="16"')}${f('f_em', 'Email (sarà anche il login)', p?.email, 'email')}
+    ${f('f_cm', 'Comitato di appartenenza', p?.comitato)}${f('f_pr', 'Provincia (sigla)', p?.provincia, 'text', 'maxlength="2"')}</div>
+    <label>Note</label><textarea id="f_no" rows="2">${esc(p?.note || '')}</textarea>
+    <p><button class="b" id="f_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+  $('#f_ok').onclick = () => {
+    const body = { cognome: $('#f_cog').value, nome: $('#f_nom').value, data_nascita: $('#f_dn').value || null, codice_fiscale: $('#f_cf').value, email: $('#f_em').value,
+      comitato: $('#f_cm').value, provincia: $('#f_pr').value, note: $('#f_no').value };
+    if (!body.cognome.trim() || !body.nome.trim()) return alert('Cognome e nome sono obbligatori');
+    chiudi();
+    fai(() => p ? api(`/persone/${p.id}`, { method: 'PATCH', body }) : api('/persone', { body }), 'Persona salvata');
+  };
 }
 
 // ───────── SCENE E SCHEDE ─────────
 async function tScene() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima un evento.</div>'; return; }
-  const [scene, pat, ass] = await Promise.all([api(`/eventi/${ev.id}/scene`), api('/libreria/patologie'), api(`/eventi/${ev.id}/assegnazioni`)]);
+  const [scene, pat, ass, mas] = await Promise.all([api(`/eventi/${ev.id}/scene`), api('/libreria/patologie'), api(`/eventi/${ev.id}/assegnazioni`), api(`/eventi/${ev.id}/master`)]);
   const schede = {};
   for (const s of scene) for (const k of s.schede || []) schede[k.id] = (await api(`/schede/${k.id}`));
   cache = { schede, giudici: null };
   const nomiAss = (id) => ass.filter((a) => a.scheda_id === id).map((a) => esc(a.nome)).join(', ') || '<em>nessuno</em>';
   $('#app').innerHTML = selettoreEvento() + scene.map((s) => `<div class="card"><h3>Scena ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
+    <p>Giudice master: <strong>${mas.filter((m) => m.scena_id === s.id).map((m) => esc(m.nome)).join(', ') || '<em>nessuno</em>'}</strong> <button class="s p mas-b" data-id="${s.id}">Giudice master…</button></p>
     <p><button class="s p dup" data-id="${s.id}">Duplica in un altro evento…</button> <button class="x p delsc" data-id="${s.id}">Elimina scena</button></p>
     ${(s.schede || []).map((k) => { const d = schede[k.id]; const p = d.parametri || {}; return `<div class="scheda">
       <div class="riga"><div style="flex:2"><strong>${esc(d.titolo)}</strong> <span class="tag">slot ${d.slot}</span><span class="tag">sim. ${esc(d.simulatore)}</span>
@@ -187,11 +256,20 @@ async function tScene() {
     <p><button class="b" id="d_ok">Duplica</button> <button class="s" onclick="chiudi()">Annulla</button></p>`) || ($('#d_ok').onclick = () => { const cod = $('#d_cod').value.trim().toUpperCase();
       if (!cod) return; chiudi(); fai(() => api(`/scene/${b.dataset.id}/duplica`, { body: { eventoDestId: $('#d_ev').value, nuovoCodice: cod } }), 'Scena duplicata'); }); });
   document.querySelectorAll('.ass-b').forEach((b) => { b.onclick = () => apriAssegnazioni(b.dataset.id, ass); });
+  document.querySelectorAll('.mas-b').forEach((b) => { b.onclick = () => apriMaster(b.dataset.id, mas); });
   document.querySelectorAll('.voci-b').forEach((b) => { b.onclick = () => apriVociScheda(b.dataset.id); });
+}
+async function apriMaster(scenaId, mas) {
+  const g = (await api('/giudici')).filter((x) => x.ruolo === 'giudice_master'); const sel = new Set(mas.filter((m) => m.scena_id === scenaId).map((m) => m.utente_id));
+  dlg(`<h3>Giudice master della scena</h3><p class="nota">Il master comanda la scena: vede e può correggere tutte le sue schede, le verifica e le chiude. Ogni sua correzione resta nel registro modifiche.</p>
+    ${g.length ? g.map((x) => `<label style="font-size:15px;color:inherit"><input type="checkbox" value="${x.id}" ${sel.has(x.id) ? 'checked' : ''}> ${esc(x.nome)} <small>${esc(x.email)}</small></label>`).join('') : '<p>Nessun utente con ruolo «giudice master». Un admin può crearlo (o cambiare il ruolo di un giudice) in «Utenti».</p>'}
+    <p><button class="b" id="ms_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+  $('#ms_ok').onclick = () => { const ids = [...document.querySelectorAll('#dlg input:checked')].map((i) => i.value); chiudi();
+    fai(() => api(`/scene/${scenaId}/master`, { method: 'PUT', body: { utenti: ids } }), 'Giudice master salvato'); };
 }
 async function apriAssegnazioni(schedaId, ass) {
   const giud = await api('/giudici'); const sel = new Set(ass.filter((a) => a.scheda_id === schedaId).map((a) => a.utente_id));
-  dlg(`<h3>Giudici della scheda</h3>${giud.length ? giud.map((g) => `<label style="font-size:15px;color:inherit"><input type="checkbox" value="${g.id}" ${sel.has(g.id) ? 'checked' : ''}> ${esc(g.nome)} <small>${esc(g.email)}</small></label>`).join('') : '<p>Nessun utente con ruolo giudice. Un admin può crearli in "Utenti".</p>'}
+  dlg(`<h3>Giudici della scheda</h3>${giud.length ? giud.map((g) => `<label style="font-size:15px;color:inherit"><input type="checkbox" value="${g.id}" ${sel.has(g.id) ? 'checked' : ''}> ${esc(g.nome)} <small>${esc(g.email)}${g.ruolo === 'giudice_master' ? ' · master' : ''}</small></label>`).join('') : '<p>Nessun utente con ruolo giudice. Un admin può crearli in "Utenti".</p>'}
     <p><button class="b" id="as_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
   $('#as_ok').onclick = () => { const ids = [...document.querySelectorAll('#dlg input:checked')].map((i) => i.value); chiudi();
     fai(() => api(`/schede/${schedaId}/assegnazioni`, { method: 'PUT', body: { utenti: ids } }), 'Assegnazioni salvate'); };
@@ -200,7 +278,8 @@ function apriVociScheda(id) {
   const d = cache.schede[id]; let sezione = null;
   dlg(`<h3>${esc(d.titolo)} · voci e punteggi <small>(solo per questa scena)</small></h3>
     <p class="nota">Lascia vuoto un livello per renderlo non selezionabile (cella nera). Le modifiche non toccano la libreria.</p>
-    <table class="voci"><tr><th>Voce</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th>SEP</th><th></th></tr>
+    <table class="voci punteggi"><colgroup><col><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:52px"><col style="width:76px"></colgroup>
+    <tr><th>Voce</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th>SEP</th><th></th></tr>
     ${d.voci.map((v) => { let h = ''; if (v.sezione !== sezione) { sezione = v.sezione; h = `<tr><td colspan="8" style="background:var(--grigio)"><strong>${esc(sezione)}</strong></td></tr>`; }
       return h + `<tr data-o="${v.ordine}"><td>${esc(v.testo)} <small>${esc(v.scala)}</small></td>${LIV.map((l) => `<td><input class="num" data-l="${l}" value="${v[l] ?? ''}"></td>`).join('')}
         <td><input type="checkbox" class="sep" ${v.is_sep ? 'checked' : ''}></td><td><button class="b p sv">Salva</button></td></tr>`; }).join('')}</table>
@@ -220,7 +299,7 @@ async function tLibreria() {
     <td><button class="s p ed" data-id="${p.id}">Modifica</button> <button class="x p del" data-id="${p.id}">Elimina</button></td></tr>`).join('')}</table>
     <p><button class="b" id="np">Nuova patologia</button></p>
     <p class="nota">Modificare una patologia non cambia le scene già create: ognuna ne conserva una copia.</p></div>
-    <div class="card"><h3>Scale di punteggio</h3><table><tr><th>Scala</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th></th></tr>
+    <div class="card"><h3>Scale di punteggio</h3><table class="punteggi"><colgroup><col><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:76px"></colgroup><tr><th>Scala</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th></th></tr>
     ${scale.map((s) => `<tr data-c="${esc(s.codice)}"><td>${esc(s.codice)}</td>${LIV.map((l) => `<td><input class="num" data-l="${l}" value="${s[l] ?? ''}"></td>`).join('')}<td><button class="b p ss">Salva</button></td></tr>`).join('')}
     <tr id="nsc"><td><input id="nsc_c" placeholder="nuova scala"></td>${LIV.map((l) => `<td><input class="num" data-l="${l}"></td>`).join('')}<td><button class="b p" id="nsc_ok">Crea</button></td></tr></table>
     <p class="nota">Vuoto = livello non consentito. Cambiare una scala vale solo per le patologie e le scene create da ora in poi.</p></div>`;
@@ -264,11 +343,11 @@ function editorPatologia(p, voci) {
 async function tUtenti() {
   const u = await api('/utenti');
   $('#app').innerHTML = `<div class="card"><h3>Utenti</h3><table>${u.map((x) => `<tr><td>${esc(x.nome)}<br><small>${esc(x.email)}</small></td>
-    <td><select class="ru" data-id="${x.id}">${['giudice', 'organizzazione', 'admin'].map((r) => `<option ${r === x.ruolo ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
+    <td><select class="ru" data-id="${x.id}">${RUOLI.map((r) => `<option value="${r}" ${r === x.ruolo ? 'selected' : ''}>${RUOLO_ET[r]}</option>`).join('')}</select></td>
     <td><span class="tag ${x.attivo ? 'ok' : 'no'}">${x.attivo ? 'attivo' : 'disattivato'}</span></td>
     <td><button class="s p pw" data-id="${x.id}">Password</button> <button class="s p at" data-id="${x.id}" data-a="${x.attivo}">${x.attivo ? 'Disattiva' : 'Riattiva'}</button></td></tr>`).join('')}</table></div>
     <div class="card"><h3>Nuovo utente</h3><div class="riga"><div><label>Nome</label><input id="u_n"></div><div><label>Email</label><input id="u_e" type="email"></div>
-    <div><label>Ruolo</label><select id="u_r"><option>giudice</option><option>organizzazione</option><option>admin</option></select></div>
+    <div><label>Ruolo</label><select id="u_r">${RUOLI.map((r) => `<option value="${r}">${RUOLO_ET[r]}</option>`).join('')}</select></div>
     <div><label>Password (min. 8)</label><input id="u_p" type="text"></div><div class="stretto"><button class="b" id="u_ok">Crea</button></div></div></div>`;
   document.querySelectorAll('.ru').forEach((s) => { s.onchange = () => fai(() => api(`/utenti/${s.dataset.id}`, { method: 'PATCH', body: { ruolo: s.value } }), 'Ruolo aggiornato'); });
   document.querySelectorAll('.at').forEach((b) => { b.onclick = () => fai(() => api(`/utenti/${b.dataset.id}`, { method: 'PATCH', body: { attivo: b.dataset.a !== 'true' } })); });
@@ -279,7 +358,7 @@ async function tUtenti() {
 async function render() {
   try {
     if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
-    else if (tab === 'libreria') await tLibreria(); else if (tab === 'utenti') await tUtenti();
+    else if (tab === 'persone') await tPersone(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'utenti') await tUtenti();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
 }
 (async () => {

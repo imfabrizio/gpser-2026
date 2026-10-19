@@ -3,7 +3,7 @@ import { hashPassword } from './auth.js';
 import { inTransazione } from './db.js';
 import { httpErr } from './services/compilazioni.js';
 
-const RUOLI = ['admin', 'organizzazione', 'giudice'];
+const RUOLI = ['admin', 'organizzazione', 'giudice', 'giudice_master'];
 
 export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   // ── utenti (solo admin) ──
@@ -33,7 +33,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     return u;
   });
   app.get('/api/giudici', { preHandler: soloOrg }, async () =>
-    (await pool.query(`select id, nome, email from utente where attivo and ruolo='giudice' order by nome`)).rows);
+    (await pool.query(`select id, nome, email, ruolo from utente where attivo and ruolo in ('giudice','giudice_master') order by nome`)).rows);
 
   // ── assegnazioni giudici → schede ──
   app.get('/api/eventi/:id/assegnazioni', { preHandler: soloOrg }, async (req) =>
@@ -45,11 +45,85 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.put('/api/schede/:id/assegnazioni', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const ids = req.body?.utenti || [];
     if (!Array.isArray(ids)) throw httpErr(400, 'utenti: elenco di id');
-    const { rows: ok } = await db.query(`select id from utente where id = any($1::uuid[]) and ruolo='giudice' and attivo`, [ids]);
-    if (ok.length !== new Set(ids).size) throw httpErr(400, 'solo utenti attivi con ruolo giudice');
+    const { rows: ok } = await db.query(`select id from utente where id = any($1::uuid[]) and ruolo in ('giudice','giudice_master') and attivo`, [ids]);
+    if (ok.length !== new Set(ids).size) throw httpErr(400, 'solo utenti attivi con ruolo giudice o giudice master');
     await db.query('delete from assegnazione where scheda_id=$1', [req.params.id]);
     for (const u of new Set(ids)) await db.query('insert into assegnazione values ($1,$2)', [req.params.id, u]);
     return { ok: true, assegnati: ids.length };
+  }));
+
+  // ── giudice master: uno o più per scena (comanda la scena, vede e corregge tutte le sue schede, la chiude) ──
+  app.get('/api/eventi/:id/master', { preHandler: soloOrg }, async (req) =>
+    (await pool.query(
+      `select m.scena_id, m.utente_id, u.nome from scena_master m join utente u on u.id = m.utente_id
+         join scena sc on sc.id = m.scena_id where sc.evento_id = $1`, [req.params.id])).rows);
+  app.put('/api/scene/:id/master', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    const ids = req.body?.utenti || [];
+    if (!Array.isArray(ids)) throw httpErr(400, 'utenti: elenco di id');
+    const { rows: ok } = await db.query(`select id from utente where id = any($1::uuid[]) and ruolo='giudice_master' and attivo`, [ids]);
+    if (ok.length !== new Set(ids).size) throw httpErr(400, 'solo utenti attivi con ruolo giudice master');
+    const { rowCount } = await db.query('select 1 from scena where id=$1', [req.params.id]);
+    if (!rowCount) throw httpErr(404, 'scena inesistente');
+    await db.query('delete from scena_master where scena_id=$1', [req.params.id]);
+    for (const u of new Set(ids)) await db.query('insert into scena_master values ($1,$2)', [req.params.id, u]);
+    return { ok: true, master: ids.length };
+  }));
+
+  // ── anagrafica persone (solo organizzazione/admin: contiene dati personali) ──
+  const testo = (x) => (typeof x === 'string' && x.trim() ? x.trim() : null);
+  const persona = (b) => {
+    const cf = testo(b.codice_fiscale)?.toUpperCase() ?? null;
+    if (cf && !/^[A-Z0-9]{16}$/.test(cf)) throw httpErr(400, 'codice fiscale: 16 caratteri (lettere e cifre)');
+    const em = testo(b.email);
+    if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) throw httpErr(400, 'email non valida');
+    if (b.data_nascita && !/^\d{4}-\d{2}-\d{2}$/.test(b.data_nascita)) throw httpErr(400, 'data di nascita non valida');
+    return { cognome: testo(b.cognome), nome: testo(b.nome), data_nascita: b.data_nascita || null, cf, email: em,
+             comitato: testo(b.comitato), provincia: testo(b.provincia)?.toUpperCase() ?? null, note: testo(b.note) };
+  };
+  const COL_PERSONA = `id, cognome, nome, to_char(data_nascita,'YYYY-MM-DD') as data_nascita, codice_fiscale, email, comitato, provincia, note`;
+  app.get('/api/persone', { preHandler: soloOrg }, async (req) => (await pool.query(
+    `select ${COL_PERSONA}, (select count(*) from squadra_membro m where m.partecipante_id = p.id)::int as squadre
+       from partecipante p
+      where $1::text is null or cognome ilike '%'||$1||'%' or nome ilike '%'||$1||'%' or comitato ilike '%'||$1||'%' or codice_fiscale ilike '%'||$1||'%'
+      order by cognome, nome limit 500`, [testo(req.query.q)])).rows);
+  app.post('/api/persone', { preHandler: soloOrg }, async (req) => {
+    const p = persona(req.body || {});
+    if (!p.cognome || !p.nome) throw httpErr(400, 'cognome e nome obbligatori');
+    return (await pool.query(
+      `insert into partecipante (cognome, nome, data_nascita, codice_fiscale, email, comitato, provincia, note)
+       values ($1,$2,$3,$4,$5,$6,$7,$8) returning ${COL_PERSONA}`,
+      [p.cognome, p.nome, p.data_nascita, p.cf, p.email, p.comitato, p.provincia, p.note])).rows[0];
+  });
+  app.patch('/api/persone/:id', { preHandler: soloOrg }, async (req) => {
+    const p = persona(req.body || {});
+    if (!p.cognome || !p.nome) throw httpErr(400, 'cognome e nome obbligatori');
+    const { rows: [r] } = await pool.query(
+      `update partecipante set cognome=$2, nome=$3, data_nascita=$4, codice_fiscale=$5, email=$6, comitato=$7, provincia=$8, note=$9
+        where id=$1 returning ${COL_PERSONA}`,
+      [req.params.id, p.cognome, p.nome, p.data_nascita, p.cf, p.email, p.comitato, p.provincia, p.note]);
+    if (!r) throw httpErr(404, 'persona inesistente');
+    return r;
+  });
+  app.delete('/api/persone/:id', { preHandler: soloOrg }, async (req) => {
+    try { await pool.query('delete from partecipante where id=$1', [req.params.id]); }
+    catch (e) { if (e.code === '23503') throw httpErr(409, 'la persona fa parte di una squadra: toglila prima dalla squadra'); throw e; }
+    return { ok: true };
+  });
+  app.get('/api/squadre/:id/membri', { preHandler: soloOrg }, async (req) => (await pool.query(
+    `select m.partecipante_id, m.ruolo, p.cognome, p.nome, p.comitato, p.provincia from squadra_membro m
+       join partecipante p on p.id = m.partecipante_id where m.squadra_id=$1 order by p.cognome, p.nome`, [req.params.id])).rows);
+  app.put('/api/squadre/:id/membri', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    const lista = req.body?.membri;
+    if (!Array.isArray(lista) || lista.length > 50) throw httpErr(400, 'membri: elenco (max 50)');
+    const ids = lista.map((m) => m?.partecipante_id);
+    if (new Set(ids).size !== ids.length) throw httpErr(400, 'persona ripetuta');
+    const { rowCount: sq } = await db.query('select 1 from squadra where id=$1', [req.params.id]);
+    if (!sq) throw httpErr(404, 'squadra inesistente');
+    const { rows: ok } = await db.query('select id from partecipante where id = any($1::uuid[])', [ids]);
+    if (ok.length !== ids.length) throw httpErr(400, 'persona inesistente');
+    await db.query('delete from squadra_membro where squadra_id=$1', [req.params.id]);
+    for (const m of lista) await db.query('insert into squadra_membro values ($1,$2,$3)', [req.params.id, m.partecipante_id, testo(m.ruolo)]);
+    return { ok: true, membri: lista.length };
   }));
 
   // ── evento / scena / scheda ──
