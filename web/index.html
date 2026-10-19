@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GareCRI</title>
+<style>
+  :root { --rosso:#E3001B; --bg:#f4f4f6; --card:#fff; --testo:#1c1c1e; --bordo:#d6d6da;
+          --mb:#2E7D32; --be:#2E7D32; --su:#1F4FD8; --in:#C62828; --ne:#C62828; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px system-ui, sans-serif; background:var(--bg); color:var(--testo); }
+  header { background:var(--rosso); color:#fff; padding:10px 16px; display:flex; gap:12px; align-items:center; position:sticky; top:0; z-index:5; }
+  header h1 { font-size:18px; margin:0; flex:1; }
+  header button { background:#fff3; color:#fff; border:0; padding:8px 12px; border-radius:8px; font-size:14px; }
+  main { max-width:900px; margin:0 auto; padding:12px; }
+  .card { background:var(--card); border-radius:12px; padding:14px; margin-bottom:12px; box-shadow:0 1px 3px #0001; }
+  label { display:block; font-size:13px; color:#666; margin:8px 0 4px; }
+  select, input { width:100%; padding:12px; font-size:16px; border:1px solid var(--bordo); border-radius:8px; background:#fff; }
+  .btn { display:inline-block; background:var(--rosso); color:#fff; border:0; padding:14px 18px; border-radius:10px; font-size:16px; margin-top:10px; text-decoration:none; }
+  .btn.sec { background:#555; }
+  .sezione { background:#e7e6e6; padding:8px 10px; font-weight:600; border-radius:8px; margin:14px 0 6px; }
+  .voce { background:var(--card); border-radius:10px; padding:10px; margin-bottom:8px; }
+  .voce p { margin:0 0 8px; }
+  .liv { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+  .liv button { padding:12px 2px; font-size:13px; border:2px solid var(--bordo); background:#fff; border-radius:8px; min-height:48px; }
+  .liv button small { display:block; font-size:11px; opacity:.7 }
+  .liv button[disabled] { background:#000; border-color:#000; }
+  .liv button.on { color:#fff; border-color:transparent; }
+  .liv button.on[data-l=MB] { background:var(--mb) } .liv button.on[data-l=BE] { background:var(--be) }
+  .liv button.on[data-l=SU] { background:var(--su) } .liv button.on[data-l=IN] { background:var(--in) }
+  .liv button.on[data-l=NE] { background:var(--ne) }
+  .barra { position:sticky; bottom:0; background:var(--card); padding:10px 12px; border-top:1px solid var(--bordo); display:flex; gap:10px; align-items:center; }
+  .barra .stato { flex:1; font-size:14px; }
+  table { width:100%; border-collapse:collapse; } td, th { padding:8px 6px; border-bottom:1px solid var(--bordo); text-align:left; }
+  td.n, th.n { text-align:right; }
+  .err { color:#C62828; } .ok { color:#2E7D32; }
+  @media (min-width:700px) { .liv button { min-height:56px; font-size:15px; } }
+</style>
+</head>
+<body>
+<header><h1 id="titolo">GareCRI</h1><button id="esci" hidden>Esci</button></header>
+<main id="app"></main>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const LIV = [['MB','mb','Molto bene'],['BE','be','Bene'],['SU','su','Soddisf.'],['IN','in','Insuff.'],['NE','ne','Non eseg.']];
+let token = localStorage.getItem('token'), me = JSON.parse(localStorage.getItem('me') || 'null');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const org = () => me && ['admin','organizzazione'].includes(me.ruolo);
+
+async function api(path, opt = {}) {
+  const r = await fetch('/api' + path, { method: opt.method || (opt.body ? 'POST' : 'GET'),
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: opt.body ? JSON.stringify(opt.body) : undefined });
+  if (r.status === 401 && path !== '/login') { logout(); throw new Error('sessione scaduta'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.errore || r.statusText), { stato: r.status, definitivo: r.status >= 400 && r.status < 500 && r.status !== 401 && r.status !== 429 });
+  return j;
+}
+// il PDF si scarica con l'intestazione Authorization: il token non finisce mai nell'indirizzo, nei log o nella cronologia
+async function apriPdf(url) {
+  const w = window.open('', '_blank');
+  try {
+    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).errore || r.statusText);
+    w.location = URL.createObjectURL(await r.blob());
+  } catch (e) { w.close(); alert('PDF non generato: ' + e.message); }
+}
+// il logout NON cancella la coda: i dati non inviati restano legati all'utente e ripartono al suo prossimo accesso
+function logout() { localStorage.removeItem('token'); localStorage.removeItem('me'); token = me = coda = null; vistaLogin(); }
+$('#esci').onclick = logout;
+
+function vistaLogin() {
+  $('#esci').hidden = true;
+  $('#app').innerHTML = `<div class="card"><h2>Accesso</h2>
+    <label>Email</label><input id="em" type="email" autocomplete="username">
+    <label>Password</label><input id="pw" type="password" autocomplete="current-password">
+    <button class="btn" id="go">Entra</button> <span id="msg" class="err"></span></div>`;
+  $('#go').onclick = async () => {
+    try {
+      const r = await api('/login', { body: { email: $('#em').value, password: $('#pw').value } });
+      token = r.token; me = r.utente; localStorage.setItem('token', token); localStorage.setItem('me', JSON.stringify(me));
+      await preparaCoda(); vistaHome();
+    } catch (e) { $('#msg').textContent = e.message; }
+  };
+}
+
+async function vistaHome() {
+  $('#esci').hidden = false; $('#titolo').textContent = 'GareCRI';
+  const eventi = await api('/eventi'); const ev = eventi.find(e => e.attivo) || eventi[0];
+  if (!ev) { $('#app').innerHTML = '<div class="card">Nessun evento.</div>'; return; }
+  const [scene, squadre] = await Promise.all([api(`/eventi/${ev.id}/scene`), api(`/eventi/${ev.id}/squadre`)]);
+  const scAvail = scene.filter(s => s.schede && s.schede.length);
+  $('#app').innerHTML = `<div class="card"><strong>${esc(ev.nome)}</strong><br><small>${esc(ev.luogo)} ${esc(ev.data)}</small>
+    <label>Scena</label><select id="sc">${scAvail.map((s, i) => `<option value="${i}">${esc(s.codice)} – ${esc(s.titolo)}</option>`).join('')}</select>
+    <label>Scheda</label><select id="sk"></select>
+    <label>Squadra</label><select id="sq">${squadre.filter(s => s.attiva).map(s => `<option value="${s.id}">${s.numero} – ${esc(s.nome)}</option>`).join('')}</select>
+    <button class="btn" id="avvia">Inizia valutazione</button></div>
+    <div class="card"><a class="btn sec" href="#classifica">Classifica</a>
+    ${org() ? ` <a class="btn sec" href="/admin.html">Gestione</a> <a class="btn sec" href="#monitor">Monitor</a> <button class="btn sec" id="pdfv">Stampa schede vuote</button>` : ''}</div>`;
+  const aggSchede = () => { const s = scAvail[$('#sc').value]; $('#sk').innerHTML = (s ? s.schede : []).map(k => `<option value="${k.id}">${esc(k.titolo)}</option>`).join(''); };
+  $('#sc').onchange = aggSchede; aggSchede();
+  $('#avvia').onclick = () => { location.hash = `#valuta/${$('#sk').value}/${$('#sq').value}/${ev.id}`; };
+  window.__ev = ev;
+  const cc = coda.conta();
+  if (cc.inCoda || cc.rifiutate) {
+    const rif = coda.elencoRifiutate();
+    $('#app').insertAdjacentHTML('beforeend', `<div class="card"><strong>Dati sul dispositivo</strong><br>
+      ${cc.inCoda ? `${cc.inCoda} modifiche non ancora inviate. ` : ''}${rif.length ? `${rif.length} invii rifiutati dal server:<ul>${rif.map(r => `<li>${esc(r.errore)}</li>`).join('')}</ul>` : ''}
+      <button class="btn" id="invia-ora">Invia ora</button> ${rif.length ? '<button class="btn sec" id="ripristina">Riprova i rifiutati</button>' : ''} <span id="esito"></span></div>`);
+    $('#invia-ora').onclick = async () => { const r = await coda.svuota(); $('#esito').textContent = r.ok ? 'Inviato' : r.errori.join('; '); setTimeout(vistaHome, 1200); };
+    if ($('#ripristina')) $('#ripristina').onclick = () => { coda.riprovaRifiutate(); vistaHome(); };
+  }
+  if ($('#pdfv')) $('#pdfv').onclick = () => apriPdf(`/api/eventi/${ev.id}/stampa.pdf?vuote=1`);
+}
+
+// ── coda di salvataggio locale (modulo /coda.js, con test automatici) ──
+let coda = null;
+async function preparaCoda() {
+  if (!me) return null;
+  const { creaCoda } = await import('/coda.js');
+  coda = creaCoda({ storage: localStorage, chiave: 'coda_v2_' + me.id,      // una coda per utente
+    invia: (payload) => api('/sync', { body: { ...payload, origine: 'tablet_online' } }) });
+  return coda;
+}
+addEventListener('online', () => coda && coda.svuota());
+
+async function vistaValuta(schedaId, squadraId) {
+  const [scheda, cur] = await Promise.all([api(`/schede/${schedaId}`), api(`/compilazioni?scheda=${schedaId}&squadra=${squadraId}`)]);
+  const chiave = `${schedaId}|${squadraId}`;
+  const meta = { id: cur.compilazione?.id || coda.idPer(chiave) || crypto.randomUUID(), scheda_id: schedaId, squadra_id: squadraId };
+  const ris = new Map(cur.risposte.map(r => [r.voce_id, r.livello]));
+  for (const [v, p] of Object.entries(coda.pendenti(chiave))) { if (p.livello === null) ris.delete(v); else ris.set(v, p.livello); }   // mostra anche ciò che non è ancora partito
+  let sezione = null, html = '';
+  for (const v of scheda.voci) {
+    if (v.sezione !== sezione) { sezione = v.sezione; html += `<div class="sezione">${esc(sezione)}</div>`; }
+    html += `<div class="voce" data-id="${v.id}"><p>${esc(v.testo)}</p><div class="liv">` +
+      LIV.map(([k, f, et]) => v[f] === null ? `<button disabled></button>` :
+        `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${et}<small>${v[f]} pt</small></button>`).join('') + `</div></div>`;
+  }
+  $('#titolo').textContent = scheda.titolo;
+  $('#app').innerHTML = html + `<div class="barra"><span class="stato" id="st"></span>
+    <button class="btn sec" id="indietro">Indietro</button><button class="btn" id="compl">Completa</button></div>`;
+  const tot = scheda.voci.length;
+  const punti = () => scheda.voci.reduce((n, v) => { const l = ris.get(v.id); return n + (l ? v[LIV.find(x => x[0] === l)[1]] : 0); }, 0);
+  const agg = (msg = '', errore = false) => { $('#st').innerHTML = `${ris.size}/${tot} voci · ${punti()} punti <span class="${errore ? 'err' : 'ok'}">${esc(msg)}</span>`; };
+  agg();
+  const invia = async () => {
+    const r = await coda.svuota();
+    if (r.ok) agg(r.scartate ? `⚠ ${r.scartate} modifiche scartate: ne esistono di più recenti o dell'organizzazione` : '✓ salvato', !!r.scartate);
+    else if (r.rifiutate) agg(`⚠ ${r.rifiutate} invii rifiutati dal server: ${r.errori.join('; ')} (i dati sono conservati, vedi Home)`, true);
+    else agg('! in coda, non ancora inviato: ' + r.errori.join('; '), true);
+    return r;
+  };
+  let timer;
+  $('#app').onclick = (ev) => {
+    const b = ev.target.closest('.liv button'); if (!b || b.disabled) return;
+    const id = b.closest('.voce').dataset.id, l = b.dataset.l;
+    const nuovo = ris.get(id) === l ? null : l;                       // toccare di nuovo la scelta la annulla
+    if (nuovo === null) ris.delete(id); else ris.set(id, nuovo);
+    b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', nuovo !== null && x === b));
+    coda.voce(chiave, meta, id, nuovo);                                // subito su disco, poi invio ritardato
+    agg('…'); clearTimeout(timer); timer = setTimeout(() => invia().catch(() => {}), 600);
+  };
+  $('#indietro').onclick = () => { location.hash = ''; };
+  $('#compl').onclick = async () => {
+    if (ris.size < tot && !confirm(`Mancano ${tot - ris.size} voci. Completare comunque?`)) return;
+    clearTimeout(timer); coda.stato(chiave, meta, 'completata');
+    const r = await invia();
+    if (r.ok) location.hash = ''; else alert('Non ancora salvato: ' + r.errori.join('; ') + '\nI dati restano sul dispositivo e verranno rimandati.');
+  };
+  invia().catch(() => {});                                             // eventuali dati rimasti da una sessione precedente
+}
+
+async function vistaClassifica() {
+  const ev = window.__ev || (await api('/eventi')).find(e => e.attivo);
+  $('#titolo').textContent = 'Classifica';
+  const tipi = ['generale', 'sep', 'bls', 'master'];
+  const q = (location.hash.split('/')[1]) || 'generale';
+  const r = await api(`/eventi/${ev.id}/classifica?tipo=${q}`);
+  $('#app').innerHTML = `<div class="card">${tipi.map(t => `<a class="btn ${t === q ? '' : 'sec'}" href="#classifica/${t}">${t}</a>`).join(' ')}
+    <table><tr><th>#</th><th>Squadra</th><th class="n">Totale</th><th class="n">SEP</th><th class="n">BLS</th><th class="n">Master</th></tr>
+    ${r.classifica.map(c => `<tr><td>${c.posizione}</td><td>${esc(c.nome)}</td><td class="n">${c.totale}</td><td class="n">${c.sep}</td><td class="n">${c.bls}</td><td class="n">${c.master}</td></tr>`).join('')}</table>
+    ${r.massimi ? `<small>Massimo teorico: ${r.massimi.max_totale} (SEP ${r.massimi.max_sep})</small>` : ''}
+    <br><a class="btn sec" href="#">Home</a></div>`;
+}
+
+async function vistaMonitor() {
+  const ev = window.__ev || (await api('/eventi')).find(e => e.attivo);
+  $('#titolo').textContent = 'Monitor';
+  const righe = await api(`/eventi/${ev.id}/monitor`);
+  const sq = [...new Set(righe.map(r => r.squadra))];
+  const schede = [...new Set(righe.map(r => `${r.scena}${r.slot}`))];
+  const cella = (r) => !r.stato ? '·' : r.stato === 'bozza' ? `${r.voci_compilate}/${r.voci_totali}` : r.stato === 'completata' ? '✔' : '✔✔';
+  $('#app').innerHTML = `<div class="card"><table><tr><th>Squadra</th>${schede.map(s => `<th>${esc(s)}</th>`).join('')}</tr>
+    ${sq.map(n => `<tr><td>${n}</td>${schede.map(s => `<td>${cella(righe.find(r => r.squadra === n && `${r.scena}${r.slot}` === s))}</td>`).join('')}</tr>`).join('')}</table>
+    <small>· non iniziata · n/m in compilazione · ✔ completata · ✔✔ verificata</small><br><a class="btn sec" href="#">Home</a></div>`;
+}
+
+async function route() {
+  if (!token) return vistaLogin();
+  if (!coda) { try { await preparaCoda(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
+  const [v, a, b] = location.hash.slice(1).split('/');
+  try {
+    if (v === 'valuta') return await vistaValuta(a, b);
+    if (v === 'classifica') return await vistaClassifica();
+    if (v === 'monitor') return await vistaMonitor();
+    return await vistaHome();
+  } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+}
+addEventListener('hashchange', route); route();
+</script>
+</body>
+</html>

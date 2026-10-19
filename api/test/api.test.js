@@ -1,0 +1,398 @@
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import pg from 'pg';
+import { buildApp } from '../src/app.js';
+import { creaPool, inTransazione } from '../src/db.js';
+import { hashPassword } from '../src/auth.js';
+import { importaExcel } from '../src/services/import-excel.js';
+
+const ADMIN_URL = process.env.TEST_ADMIN_URL || 'postgres://postgres@localhost:5433/postgres';
+const TEST_URL = ADMIN_URL.replace(/\/[^/]*$/, '/garecri_test');
+let pool, app, ev, tok = {};
+
+const chiama = (method, url, { token, body } = {}) => app.inject({
+  method, url, payload: body, headers: token ? { authorization: `Bearer ${token}` } : {} });
+const json = (r) => JSON.parse(r.body);
+
+before(async () => {
+  const adm = new pg.Client({ connectionString: ADMIN_URL }); await adm.connect();
+  await adm.query('drop database if exists garecri_test'); await adm.query('create database garecri_test'); await adm.end();
+  pool = creaPool(TEST_URL);
+  await pool.query(fs.readFileSync(new URL('../../db/schema.sql', import.meta.url), 'utf8'));
+  const rep = await inTransazione(pool, (db) => importaExcel(db, new URL('./fixtures/scena-alfa.xlsx', import.meta.url).pathname,
+    { eventoCodice: 'T-1', nomeEvento: 'Test', titoloStampa: 'Gara Test', luogo: 'Piacenza', data: '2026-04-18' }));
+  ev = rep.eventoId;
+  for (const [email, ruolo] of [['org@t', 'organizzazione'], ['giu@t', 'giudice'], ['adm@t', 'admin']])
+    await pool.query('insert into utente (email, nome, ruolo, password_hash) values ($1,$2,$3,$4)', [email, email, ruolo, hashPassword('pw')]);
+  app = buildApp(pool);
+  for (const e of ['org@t', 'giu@t', 'adm@t']) tok[e] = json(await chiama('POST', '/api/login', { body: { email: e, password: 'pw' } })).token;
+});
+after(async () => { await app.close(); await pool.end(); });
+
+test('login: password errata → 401, nessun token → 401', async () => {
+  assert.equal((await chiama('POST', '/api/login', { body: { email: 'org@t', password: 'x' } })).statusCode, 401);
+  assert.equal((await chiama('GET', '/api/eventi')).statusCode, 401);
+});
+
+test('le classifiche coincidono con quelle dell\'Excel (359 / 386 / 191)', async () => {
+  const r = json(await chiama('GET', `/api/eventi/${ev}/classifica?tipo=generale`, { token: tok['org@t'] }));
+  const t = Object.fromEntries(r.classifica.map((x) => [x.nome, Number(x.totale)]));
+  assert.equal(t.Carpineti, 359); assert.equal(t.Scandiano, 386); assert.equal(t['Liguria 1'], 191);
+  assert.equal(r.classifica[0].nome, 'Scandiano'); assert.equal(r.classifica[0].posizione, 1);
+  const m = json(await chiama('GET', `/api/eventi/${ev}/classifica?tipo=master`, { token: tok['org@t'] }));
+  assert.deepEqual(m.classifica.slice(0, 3).map((x) => Number(x.master)), [109, 98, 60]);
+  assert.equal(Number(r.massimi.max_totale), 538);   // il vecchio foglio dava sempre 0
+});
+
+test('SEP calcolato dalla voce, non dal flag copiato nella risposta (Carpineti: 90, non 154)', async () => {
+  const r = json(await chiama('GET', `/api/eventi/${ev}/classifica?tipo=sep`, { token: tok['org@t'] }));
+  const c = r.classifica.find((x) => x.nome === 'Carpineti');
+  assert.equal(Number(c.sep), 90);
+});
+
+test('stampa PDF: solo organizzazione; 25 schede vuote (5 squadre × 5 schede)', async () => {
+  assert.equal((await chiama('GET', `/api/eventi/${ev}/stampa.pdf`, { token: tok['giu@t'] })).statusCode, 403);
+  const r = await chiama('GET', `/api/eventi/${ev}/stampa.pdf?scena=A&vuote=1`, { token: tok['org@t'] });
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.rawPayload.subarray(0, 4).toString(), '%PDF');
+  assert.equal((r.rawPayload.toString('latin1').match(/\/Type \/Page\b/g) || []).length, 25);
+});
+
+let scheda, squadra, voci;
+test('il giudice vede solo le schede assegnate', async () => {
+  let sc = json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['giu@t'] }));
+  assert.equal(sc[0].schede, null);
+  const org = json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['org@t'] }));
+  scheda = org[0].schede.find((s) => s.titolo === 'Master').id;
+  const { rows: [u] } = await pool.query(`select id from utente where email='giu@t'`);
+  await pool.query('insert into assegnazione values ($1,$2)', [scheda, u.id]);
+  sc = json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['giu@t'] }));
+  assert.equal(sc[0].schede.length, 1);
+  squadra = json(await chiama('GET', `/api/eventi/${ev}/squadre`, { token: tok['giu@t'] })).find((s) => s.numero === 4).id;
+  voci = json(await chiama('GET', `/api/schede/${scheda}`, { token: tok['giu@t'] })).voci;
+  assert.equal(voci.length, 26);
+});
+
+test('sync idempotente, last-writer-wins per voce, livelli non consentiti rifiutati', async () => {
+  const standard = voci.find((v) => v.scala === 'Standard');
+  const treVoci = voci.find((v) => v.scala === '3 Voci');
+  const base = { id: '11111111-1111-4111-8111-111111111111', scheda_id: scheda, squadra_id: squadra, origine: 'tablet_offline' };
+  const p1 = { ...base, risposte: [{ voce_id: standard.id, livello: 'MB', updated_at: '2026-04-18T10:00:00Z' }] };
+  const r1 = json(await chiama('POST', '/api/sync', { token: tok['giu@t'], body: p1 }));
+  const r2 = json(await chiama('POST', '/api/sync', { token: tok['giu@t'], body: p1 }));   // ripetuto (ritrasmissione)
+  assert.equal(r1[0].compilazione_id, r2[0].compilazione_id);
+  assert.equal((await pool.query('select count(*)::int n from risposta where compilazione_id=$1', [r1[0].compilazione_id])).rows[0].n, 1);
+  // modifica più vecchia (arriva in ritardo dal tablet offline) → scartata
+  const vecchia = json(await chiama('POST', '/api/sync', { token: tok['giu@t'],
+    body: { ...base, risposte: [{ voce_id: standard.id, livello: 'NE', updated_at: '2026-04-18T09:00:00Z' }] } }));
+  assert.equal(vecchia[0].scartate, 1);
+  const nuova = json(await chiama('POST', '/api/sync', { token: tok['giu@t'],
+    body: { ...base, risposte: [{ voce_id: standard.id, livello: 'BE', updated_at: '2026-04-18T11:00:00Z' }] } }));
+  assert.equal(nuova[0].scritte, 1);
+  const { rows: [r] } = await pool.query('select livello from risposta where voce_id=$1', [standard.id]);
+  assert.equal(r.livello, 'BE');
+  // "3 Voci" non ha BE: cella nera
+  const bad = await chiama('POST', '/api/sync', { token: tok['giu@t'],
+    body: { ...base, risposte: [{ voce_id: treVoci.id, livello: 'BE' }] } });
+  assert.equal(bad.statusCode, 400);
+});
+
+test('verifica: il giudice non può verificare né modificare una scheda verificata; l\'organizzazione può riaprirla', async () => {
+  const base = { id: '11111111-1111-4111-8111-111111111111', scheda_id: scheda, squadra_id: squadra };
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, stato: 'verificata' } })).statusCode, 403);
+  const ok = await chiama('POST', '/api/sync', { token: tok['org@t'], body: { ...base, stato: 'verificata' } });
+  assert.equal(json(ok)[0].stato, 'verificata');
+  const mod = await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, risposte: [{ voce_id: voci[0].id, livello: 'MB' }] } });
+  assert.equal(mod.statusCode, 409);
+  const cid = json(ok)[0].compilazione_id;
+  assert.equal((await chiama('POST', `/api/compilazioni/${cid}/riapri`, { token: tok['giu@t'] })).statusCode, 403);
+  assert.equal((await chiama('POST', `/api/compilazioni/${cid}/riapri`, { token: tok['org@t'] })).statusCode, 200);
+});
+
+test('squadre: il numero non viene mai riusato; un solo evento attivo', async () => {
+  const s = json(await chiama('POST', `/api/eventi/${ev}/squadre`, { token: tok['org@t'], body: { nome: 'Nuova' } }));
+  assert.equal(s.numero, 6);
+  await pool.query('delete from squadra where id=$1', [s.id]);
+  await pool.query(`insert into evento (codice, nome, attivo) values ('T-2','Altro', false)`);
+  const { rows: [e2] } = await pool.query(`select id from evento where codice='T-2'`);
+  await chiama('POST', `/api/eventi/${e2.id}/attiva`, { token: tok['org@t'] });
+  assert.equal((await pool.query('select count(*)::int n from evento where attivo')).rows[0].n, 1);
+});
+
+test('libreria: stessa voce con punteggi diversi in due patologie; la scena è uno snapshot', async () => {
+  const mk = (codice, scala) => chiama('POST', '/api/libreria/patologie', { token: tok['org@t'], body: {
+    codice, nome: codice, sigla: codice.slice(0, 3), voci: [{ sezione: 'S', testo: 'valuta la coscienza', scala }] } });
+  const a = json(await mk('PAT_A', 'Standard')), b = json(await mk('PAT_B', 'PesoDoppio'));
+  const sc = json(await chiama('POST', `/api/eventi/${ev}/scene`, { token: tok['org@t'], body: { codice: 'Z', titolo: 'Test Z' } }));
+  const s1 = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: tok['org@t'], body: { slot: 0, patologiaId: a.id, simulatore: 'M' } }));
+  const s2 = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: tok['org@t'], body: { slot: 1, patologiaId: b.id, simulatore: '01' } }));
+  const v1 = json(await chiama('GET', `/api/schede/${s1.id}`, { token: tok['org@t'] })).voci[0];
+  const v2 = json(await chiama('GET', `/api/schede/${s2.id}`, { token: tok['org@t'] })).voci[0];
+  assert.equal(v1.mb, 5); assert.equal(v2.mb, 10);
+  await pool.query(`update scala_punteggio set mb = 99 where codice = 'Standard'`);   // cambio libreria
+  const v1b = json(await chiama('GET', `/api/schede/${s1.id}`, { token: tok['org@t'] })).voci[0];
+  assert.equal(v1b.mb, 5);                                                          // la scena non cambia
+  await pool.query(`update scala_punteggio set mb = 5 where codice = 'Standard'`);
+});
+
+test('gestione utenti: solo admin; password minima; niente auto-declassamento', async () => {
+  assert.equal((await chiama('GET', '/api/utenti', { token: tok['org@t'] })).statusCode, 403);
+  const nuovo = await chiama('POST', '/api/utenti', { token: tok['adm@t'], body: { email: 'n@t', nome: 'N', ruolo: 'giudice', password: 'corta' } });
+  assert.equal(nuovo.statusCode, 400);
+  const ok = json(await chiama('POST', '/api/utenti', { token: tok['adm@t'], body: { email: 'n@t', nome: 'N', ruolo: 'giudice', password: 'password-lunga' } }));
+  assert.equal(ok.ruolo, 'giudice');
+  assert.equal((await chiama('POST', '/api/utenti', { token: tok['adm@t'], body: { email: 'n@t', nome: 'N', password: 'password-lunga' } })).statusCode, 409);
+  const me = json(await chiama('GET', '/api/me', { token: tok['adm@t'] }));
+  assert.equal((await chiama('PATCH', `/api/utenti/${me.id}`, { token: tok['adm@t'], body: { ruolo: 'giudice' } })).statusCode, 400);
+  const login = await chiama('POST', '/api/login', { body: { email: 'n@t', password: 'password-lunga' } });
+  assert.equal(login.statusCode, 200);
+  await chiama('PATCH', `/api/utenti/${ok.id}`, { token: tok['adm@t'], body: { attivo: false } });
+  assert.equal((await chiama('POST', '/api/login', { body: { email: 'n@t', password: 'password-lunga' } })).statusCode, 401);
+});
+
+test('assegnazioni, modifica scheda, eliminazioni protette', async () => {
+  const scene = json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['org@t'] }));
+  const sA = scene.find((s) => s.codice === 'A');
+  const pbls = sA.schede.find((s) => s.titolo === 'PBLS').id;
+  const giud = json(await chiama('GET', '/api/giudici', { token: tok['org@t'] }));
+  assert.ok(giud.length >= 1);
+  const put = json(await chiama('PUT', `/api/schede/${pbls}/assegnazioni`, { token: tok['org@t'], body: { utenti: [giud[0].id] } }));
+  assert.equal(put.assegnati, 1);
+  const lista = json(await chiama('GET', `/api/eventi/${ev}/assegnazioni`, { token: tok['org@t'] }));
+  assert.ok(lista.some((a) => a.scheda_id === pbls));
+  const patch = json(await chiama('PATCH', `/api/schede/${pbls}`, { token: tok['org@t'], body: { parametri: { coscienza: 'A', fr: 12 } } }));
+  assert.equal(patch.parametri.fr, 12);
+  // la scheda Master di squadra 4 ha risposte (test precedenti) → non eliminabile; la scena A idem
+  assert.equal((await chiama('DELETE', `/api/schede/${scheda}`, { token: tok['org@t'] })).statusCode, 409);
+  assert.equal((await chiama('DELETE', `/api/scene/${sA.id}`, { token: tok['org@t'] })).statusCode, 409);
+  assert.equal((await chiama('DELETE', `/api/schede/${pbls}`, { token: tok['giu@t'] })).statusCode, 403);
+  // scena vuota eliminabile
+  const z = json(await chiama('POST', `/api/eventi/${ev}/scene`, { token: tok['org@t'], body: { codice: 'Y', titolo: 'Vuota' } }));
+  assert.equal((await chiama('DELETE', `/api/scene/${z.id}`, { token: tok['org@t'] })).statusCode, 200);
+});
+
+test('modifica patologia in libreria non cambia scene già composte; patologia usata non eliminabile', async () => {
+  const pats = json(await chiama('GET', '/api/libreria/patologie', { token: tok['org@t'] }));
+  const a = pats.find((p) => p.codice === 'PAT_A');
+  const sc = json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['org@t'] })).find((s) => s.codice === 'Z');
+  const prima = json(await chiama('GET', `/api/schede/${sc.schede[0].id}`, { token: tok['org@t'] })).voci.length;
+  await chiama('PUT', `/api/libreria/patologie/${a.id}`, { token: tok['org@t'], body: {
+    voci: [{ sezione: 'S', testo: 'uno', scala: 'Standard' }, { sezione: 'S', testo: 'due', scala: '3 Voci' }] } });
+  const dopo = json(await chiama('GET', `/api/schede/${sc.schede[0].id}`, { token: tok['org@t'] })).voci.length;
+  assert.equal(prima, dopo);
+  assert.equal(json(await chiama('GET', `/api/libreria/patologie/${a.id}`, { token: tok['org@t'] })).length, 2);
+  assert.equal((await chiama('DELETE', `/api/libreria/patologie/${a.id}`, { token: tok['org@t'] })).statusCode, 409);
+});
+
+// ───────────── regressioni dalla revisione indipendente ─────────────
+const U = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+let ctxR;
+async function contesto() {
+  if (ctxR) return ctxR;
+  const scene = json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['org@t'] }));
+  const A = scene.find((s) => s.codice === 'A');
+  const master = A.schede.find((s) => s.titolo === 'Master').id, tc = A.schede.find((s) => s.titolo === 'TC').id;
+  const sq = json(await chiama('GET', `/api/eventi/${ev}/squadre`, { token: tok['org@t'] })).find((s) => s.numero === 5).id;
+  const vm = json(await chiama('GET', `/api/schede/${master}`, { token: tok['org@t'] })).voci;
+  const vt = json(await chiama('GET', `/api/schede/${tc}`, { token: tok['org@t'] })).voci;
+  return (ctxR = { master, tc, sq, vm, vt });
+}
+
+test('REV-1 l\'autenticazione non si aggira con percorsi codificati', async () => {
+  const { master } = await contesto();
+  for (const u of ['/%61pi/eventi', `/%61pi/eventi/${ev}/classifica`, `/%61pi/eventi/${ev}/squadre`, `/%61pi/schede/${master}`, '/%61pi/libreria/patologie', '/api/eventi', '/api//eventi'])
+    assert.equal((await chiama('GET', u)).statusCode, 401, u);
+});
+
+test('REV-2 l\'avvio rifiuta un JWT_SECRET debole o mancante', async () => {
+  const { verificaConfigurazione } = await import('../src/auth.js');
+  const prima = process.env.JWT_SECRET;
+  delete process.env.JWT_SECRET; assert.throws(verificaConfigurazione);
+  process.env.JWT_SECRET = 'corto'; assert.throws(verificaConfigurazione);
+  process.env.JWT_SECRET = 'x'.repeat(40); assert.doesNotThrow(verificaConfigurazione);
+  if (prima === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = prima;
+});
+
+test('REV-3 il giudice non scrive né legge schede non assegnate', async () => {
+  const { tc, sq, vt } = await contesto();
+  const body = { id: U(1), scheda_id: tc, squadra_id: sq, risposte: [{ voce_id: vt.find((v) => v.mb !== null).id, livello: 'MB' }] };
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body })).statusCode, 403);
+  assert.equal((await chiama('GET', `/api/schede/${tc}`, { token: tok['giu@t'] })).statusCode, 403);
+  assert.equal((await chiama('GET', `/api/compilazioni?scheda=${tc}&squadra=${sq}`, { token: tok['giu@t'] })).statusCode, 403);
+  assert.equal((await pool.query('select count(*)::int n from compilazione where scheda_id=$1 and squadra_id=$2', [tc, sq])).rows[0].n, 0);
+});
+
+test('REV-4 scheda e squadra di eventi diversi vengono rifiutate; la classifica resta pulita', async () => {
+  const { tc, vt } = await contesto();
+  const e2 = json(await chiama('POST', '/api/eventi', { token: tok['org@t'], body: { codice: 'ALTRO-1', nome: 'Altro evento' } }));
+  const s2 = json(await chiama('POST', `/api/eventi/${e2.id}/squadre`, { token: tok['org@t'], body: { nome: 'Intrusa' } }));
+  const body = { id: U(2), scheda_id: tc, squadra_id: s2.id, risposte: [{ voce_id: vt.find((v) => v.mb !== null).id, livello: 'MB' }] };
+  const r = await chiama('POST', '/api/sync', { token: tok['org@t'], body });
+  assert.equal(r.statusCode, 400);
+  // anche forzando una riga errata nel DB, la vista non la conta
+  const { rows: [c] } = await pool.query(`insert into compilazione (scheda_id, squadra_id, stato) values ($1,$2,'completata') returning id`, [tc, s2.id]);
+  await pool.query('insert into risposta (compilazione_id, voce_id, livello) values ($1,$2,$3)', [c.id, vt.find((v) => v.mb !== null).id, 'MB']);
+  const cl = json(await chiama('GET', `/api/eventi/${e2.id}/classifica`, { token: tok['org@t'] }));
+  assert.equal(Number(cl.classifica[0].totale), 0);
+  await pool.query('delete from risposta where compilazione_id=$1', [c.id]); await pool.query('delete from compilazione where id=$1', [c.id]);
+});
+
+test('REV-5 orologio sbagliato del tablet: l\'orario è limitato e l\'organizzazione vince sempre', async () => {
+  const { master, sq, vm } = await contesto();
+  const voce = vm.find((v) => v.mb !== null && v.ne !== null);
+  const base = { id: U(3), scheda_id: master, squadra_id: sq, origine: 'tablet_online' };
+  const a = json(await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, risposte: [{ voce_id: voce.id, livello: 'NE', updated_at: '2099-01-01T00:00:00Z' }] } }));
+  assert.equal(a[0].scritte, 1);
+  const dellaSq = (cols) => pool.query(`select ${cols} from risposta r join compilazione c on c.id=r.compilazione_id where r.voce_id=$1 and c.squadra_id=$2`, [voce.id, sq]);
+  const { rows: [r] } = await dellaSq('r.livello, r.updated_at');
+  assert.ok(new Date(r.updated_at) <= new Date(), 'updated_at non deve restare nel futuro');
+  // correzione dell'organizzazione (carta, senza orario) → vince
+  const b = json(await chiama('POST', '/api/sync', { token: tok['org@t'], body: { ...base, origine: 'carta', risposte: [{ voce_id: voce.id, livello: 'MB' }] } }));
+  assert.equal(b[0].scritte, 1);
+  assert.equal((await dellaSq('r.livello')).rows[0].livello, 'MB');
+  // annullamento della risposta
+  const c = json(await chiama('POST', '/api/sync', { token: tok['org@t'], body: { ...base, risposte: [{ voce_id: voce.id, livello: null }] } }));
+  assert.equal(c[0].scritte, 1);
+  assert.equal((await dellaSq('r.livello')).rows[0].livello, null);   // annullo registrato come tombstone
+});
+
+test('REV-6 PUT voce: aggiornamento parziale, livelli usati protetti, 404, almeno un livello', async () => {
+  const { master, sq, vm } = await contesto();
+  const voce = vm.find((v) => v.scala === 'Standard');
+  await chiama('POST', '/api/sync', { token: tok['org@t'], body: { id: U(3), scheda_id: master, squadra_id: sq, risposte: [{ voce_id: voce.id, livello: 'BE' }] } });
+  const solo = json(await chiama('PUT', `/api/schede/${master}/voci/${voce.ordine}`, { token: tok['org@t'], body: { testo: voce.testo + ' (rev)' } }));
+  assert.equal(solo.mb, 5); assert.equal(solo.ne, 0);                       // i punteggi non sono stati azzerati
+  assert.equal((await chiama('PUT', `/api/schede/${master}/voci/${voce.ordine}`, { token: tok['org@t'], body: { be: null } })).statusCode, 409);
+  assert.equal((await chiama('PUT', `/api/schede/${master}/voci/9999`, { token: tok['org@t'], body: { mb: 1 } })).statusCode, 404);
+  const tutti = await chiama('PUT', `/api/schede/${master}/voci/${voce.ordine}`, { token: tok['org@t'], body: { mb: null, be: null, su: null, in: null, ne: null } });
+  assert.ok([400, 409].includes(tutti.statusCode));
+  assert.ok((await pool.query(`select count(*)::int n from audit_log where azione='modifica_voce'`)).rows[0].n >= 1);
+});
+
+test('REV-7 utente disattivato o declassato perde subito l\'accesso (token ancora valido)', async () => {
+  const mk = async (email, ruolo) => { await pool.query('insert into utente (email, nome, ruolo, password_hash) values ($1,$1,$2,$3)', [email, ruolo, hashPassword('pw')]);
+    return json(await chiama('POST', '/api/login', { body: { email, password: 'pw' } })).token; };
+  const t1 = await mk('x1@t', 'organizzazione'), t2 = await mk('x2@t', 'giudice');
+  assert.equal((await chiama('GET', `/api/eventi/${ev}/monitor`, { token: t1 })).statusCode, 200);
+  await pool.query(`update utente set ruolo='giudice' where email='x1@t'`);
+  assert.equal((await chiama('GET', `/api/eventi/${ev}/monitor`, { token: t1 })).statusCode, 403);
+  await pool.query(`update utente set attivo=false where email='x2@t'`);
+  assert.equal((await chiama('GET', '/api/eventi', { token: t2 })).statusCode, 401);
+});
+
+test('REV-8 il batch è atomico; payload malformati → 400; id già usato → 409', async () => {
+  const { master, sq, vm } = await contesto();
+  const voce = vm.find((v) => v.mb !== null);
+  const ok = { id: U(4), scheda_id: master, squadra_id: U(99999), risposte: [] };
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['org@t'], body: [ok] })).statusCode, 404);
+  for (const bad of [{ id: 'non-uuid', scheda_id: master, squadra_id: sq }, { id: U(5), scheda_id: master, squadra_id: sq, origine: 'boh' },
+                     { id: U(5), scheda_id: master, squadra_id: sq, risposte: 'x' }, { id: U(5), scheda_id: master, squadra_id: sq, risposte: [{ voce_id: voce.id, livello: 'XX' }] }])
+    assert.equal((await chiama('POST', '/api/sync', { token: tok['org@t'], body: bad })).statusCode, 400);
+  const sqB = json(await chiama('GET', `/api/eventi/${ev}/squadre`, { token: tok['org@t'] })).find((s) => s.numero === 3).id;
+  const lotto = [{ id: U(6), scheda_id: master, squadra_id: sqB, risposte: [{ voce_id: voce.id, livello: 'MB' }] },
+                 { id: U(7), scheda_id: master, squadra_id: sqB, risposte: [{ voce_id: voce.id, livello: 'ZZ' }] }];
+  const before = (await pool.query('select count(*)::int n from risposta')).rows[0].n;
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['org@t'], body: lotto })).statusCode, 400);
+  assert.equal((await pool.query('select count(*)::int n from risposta')).rows[0].n, before);   // niente salvato a metà
+  const { tc } = await contesto();
+  const sq4 = json(await chiama('GET', `/api/eventi/${ev}/squadre`, { token: tok['org@t'] })).find((s) => s.numero === 4).id;
+  const dup = await chiama('POST', '/api/sync', { token: tok['org@t'], body: { id: U(3), scheda_id: tc, squadra_id: sq4 } });   // U(3) è già di un'altra coppia
+  assert.equal(dup.statusCode, 409);
+});
+
+test('REV-9 modifica di organizzazione su scheda chiusa lascia traccia in audit', async () => {
+  const { master, sq, vm } = await contesto();
+  const voce = vm.find((v) => v.mb !== null);
+  await chiama('POST', '/api/sync', { token: tok['org@t'], body: { id: U(3), scheda_id: master, squadra_id: sq, stato: 'completata', risposte: [{ voce_id: voce.id, livello: 'MB' }] } });
+  const n0 = (await pool.query(`select count(*)::int n from audit_log where azione='modifica_scheda_chiusa'`)).rows[0].n;
+  await chiama('POST', '/api/sync', { token: tok['org@t'], body: { id: U(3), scheda_id: master, squadra_id: sq, risposte: [{ voce_id: voce.id, livello: 'MB' }] } });
+  assert.equal((await pool.query(`select count(*)::int n from audit_log where azione='modifica_scheda_chiusa'`)).rows[0].n, n0 + 1);
+});
+
+test('REV-10 un solo evento attivo anche a livello DB; attiva evento inesistente → 404; login con limite tentativi', async () => {
+  await assert.rejects(pool.query(`insert into evento (codice, nome, attivo) values ('DOPPIO','x',true)`));
+  const prima = (await pool.query('select id from evento where attivo')).rows[0].id;
+  assert.equal((await chiama('POST', `/api/eventi/${U(123)}/attiva`, { token: tok['org@t'], body: {} })).statusCode, 404);
+  assert.equal((await pool.query('select id from evento where attivo')).rows[0].id, prima);
+  let ultimo;
+  for (let i = 0; i < 9; i++) ultimo = await chiama('POST', '/api/login', { body: { email: 'brute@t', password: 'x' + i } });
+  assert.equal(ultimo.statusCode, 429);
+  assert.equal((await chiama('POST', '/api/login', { body: { email: 'a@t', password: 123 } })).statusCode, 400);
+  assert.equal((await chiama('GET', `/api/eventi/${ev}/stampa.pdf?squadra=1,a`, { token: tok['org@t'] })).statusCode, 400);
+});
+
+// ───────────── seconda tornata di revisione ─────────────
+test('REV2-1 precedenza: l\'organizzazione prevale sul giudice; last-writer-wins dentro la stessa categoria', async () => {
+  const { master, vm } = await contesto();
+  const sq3 = json(await chiama('GET', `/api/eventi/${ev}/squadre`, { token: tok['org@t'] })).find((s) => s.numero === 4).id;
+  const voce = vm.find((v) => v.mb !== null && v.in !== null);
+  const base = { id: U(10), scheda_id: master, squadra_id: sq3 };
+  const w = (token, livello, updated_at) => chiama('POST', '/api/sync', { token, body: { ...base, risposte: [{ voce_id: voce.id, livello, updated_at }] } }).then(json);
+  const liv = async () => (await pool.query('select livello from risposta r join compilazione c on c.id=r.compilazione_id where r.voce_id=$1 and c.squadra_id=$2', [voce.id, sq3])).rows[0]?.livello;
+  assert.equal((await w(tok['giu@t'], 'IN'))[0].scritte, 1);
+  assert.equal((await w(tok['org@t'], 'MB', '2026-01-01T00:00:00Z'))[0].scritte, 1);   // org vince anche con orario vecchio
+  assert.equal(await liv(), 'MB');
+  assert.equal((await w(tok['giu@t'], 'IN'))[0].scartate, 1);                          // il giudice non scavalca l'org
+  assert.equal(await liv(), 'MB');
+  await w(tok['org@t'], 'BE', new Date().toISOString());
+  assert.equal((await w(tok['org@t'], 'SU', '2026-01-02T00:00:00Z'))[0].scartate, 1); // tra org vince la più recente
+  assert.equal(await liv(), 'BE');
+});
+
+test('REV2-2 annullo = tombstone: un dato vecchio non lo fa risorgere; annullare una voce nuova non è uno scarto', async () => {
+  const { master, vm } = await contesto();
+  const sq3 = json(await chiama('GET', `/api/eventi/${ev}/squadre`, { token: tok['org@t'] })).find((s) => s.numero === 4).id;   // nessun dato importato
+  const voce = vm.filter((v) => v.mb !== null)[5];
+  const base = { id: U(11), scheda_id: master, squadra_id: sq3 };
+  const w = (livello, updated_at) => chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, risposte: [{ voce_id: voce.id, livello, updated_at }] } }).then(json);
+  const nuova = await w(null, '2026-03-01T10:00:00Z');
+  assert.equal(nuova[0].scritte, 1); assert.equal(nuova[0].scartate, 0);
+  const vecchio = await w('MB', '2026-03-01T09:00:00Z');                                 // arriva in ritardo da un dispositivo offline
+  assert.equal(vecchio[0].scartate, 1);
+  const { rows } = await pool.query('select livello from risposta r join compilazione c on c.id=r.compilazione_id where r.voce_id=$1 and c.squadra_id=$2', [voce.id, sq3]);
+  assert.equal(rows[0].livello, null);
+  const cl = json(await chiama('GET', `/api/compilazioni?scheda=${master}&squadra=${sq3}`, { token: tok['giu@t'] }));
+  assert.ok(!cl.risposte.some((r) => r.voce_id === voce.id));                           // l'API non restituisce le annullate
+});
+
+test('REV2-3 batch concorrenti in ordine inverso: nessun deadlock, tutte 200', async () => {
+  const { master, tc, vm, vt } = await contesto();
+  const sqs = json(await chiama('GET', `/api/eventi/${ev}/squadre`, { token: tok['org@t'] }));
+  const mk = (sch, sq, voci, n) => ({ id: U(200 + n), scheda_id: sch, squadra_id: sq, risposte: [{ voce_id: voci.find((v) => v.mb !== null).id, livello: 'MB' }] });
+  const a = [mk(master, sqs[1].id, vm, 1), mk(tc, sqs[2].id, vt, 2)], b = [mk(tc, sqs[2].id, vt, 3), mk(master, sqs[1].id, vm, 4)];
+  const esiti = await Promise.all(Array.from({ length: 12 }, (_, i) => chiama('POST', '/api/sync', { token: tok['org@t'], body: i % 2 ? a : b })));
+  assert.deepEqual([...new Set(esiti.map((e) => e.statusCode))], [200]);
+});
+
+test('REV2-4 eliminazione: compilazioni vuote ripulite, valutazioni vere proteggono; codice scena validato ovunque; stampa 404; nome giudice dal server', async () => {
+  const z = json(await chiama('POST', `/api/eventi/${ev}/scene`, { token: tok['org@t'], body: { codice: 'W', titolo: 'Per eliminare' } }));
+  const pat = json(await chiama('GET', '/api/libreria/patologie', { token: tok['org@t'] })).find((p) => p.codice === 'PAT_B');
+  const sch = json(await chiama('POST', `/api/scene/${z.id}/schede`, { token: tok['org@t'], body: { slot: 0, patologiaId: pat.id, simulatore: 'M' } }));
+  const voci = json(await chiama('GET', `/api/schede/${sch.id}`, { token: tok['org@t'] })).voci;
+  const sq = json(await chiama('GET', `/api/eventi/${ev}/squadre`, { token: tok['org@t'] })).find((s) => s.numero === 1).id;
+  const sync = (livello) => chiama('POST', '/api/sync', { token: tok['org@t'], body: { id: U(300), scheda_id: sch.id, squadra_id: sq, risposte: [{ voce_id: voci[0].id, livello }] } });
+  await sync('MB'); await sync(null);                                                   // tocca e annulla: resta una compilazione vuota
+  assert.equal((await chiama('DELETE', `/api/scene/${z.id}`, { token: tok['org@t'] })).statusCode, 200);
+  const z2 = json(await chiama('POST', `/api/eventi/${ev}/scene`, { token: tok['org@t'], body: { codice: 'V', titolo: 'Con dati' } }));
+  const sch2 = json(await chiama('POST', `/api/scene/${z2.id}/schede`, { token: tok['org@t'], body: { slot: 0, patologiaId: pat.id, simulatore: 'M' } }));
+  const v2 = json(await chiama('GET', `/api/schede/${sch2.id}`, { token: tok['org@t'] })).voci;
+  await chiama('POST', '/api/sync', { token: tok['org@t'], body: { id: U(301), scheda_id: sch2.id, squadra_id: sq, risposte: [{ voce_id: v2[0].id, livello: 'MB' }] } });
+  assert.equal((await chiama('DELETE', `/api/scene/${z2.id}`, { token: tok['org@t'] })).statusCode, 409);
+  // codice scena: anche con duplica
+  assert.equal((await chiama('POST', `/api/scene/${z2.id}/duplica`, { token: tok['org@t'], body: { eventoDestId: ev, nuovoCodice: '<b>' } })).statusCode, 400);
+  assert.equal((await chiama('GET', `/api/eventi/${U(404)}/stampa.pdf`, { token: tok['org@t'] })).statusCode, 404);
+  // nome stampato del giudice: sempre quello dell'account
+  const { master } = await contesto();
+  const nuovaSq = json(await chiama('POST', `/api/eventi/${ev}/squadre`, { token: tok['org@t'], body: { nome: 'Per il nome giudice' } }));
+  await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { id: U(302), scheda_id: master, squadra_id: nuovaSq.id, giudice: 'Presidente di giuria', risposte: [] } });
+  assert.equal((await pool.query('select giudice from compilazione where scheda_id=$1 and squadra_id=$2', [master, nuovaSq.id])).rows[0].giudice, 'giu@t');
+});
+
+test('REV2-5 la rete di sicurezza: tutte le rotte /api (tranne login) rifiutano le richieste senza token', async () => {
+  const metodi = [['GET', '/api/me'], ['GET', '/api/eventi'], ['POST', '/api/eventi'], ['GET', '/api/utenti'], ['POST', '/api/sync'], ['GET', '/api/giudici'],
+    ['PATCH', `/api/eventi/${U(1)}`], ['DELETE', `/api/scene/${U(1)}`], ['PUT', `/api/schede/${U(1)}/assegnazioni`], ['GET', `/api/eventi/${U(1)}/monitor`],
+    ['GET', `/api/eventi/${U(1)}/stampa.pdf`], ['POST', '/api/libreria/scale'], ['HEAD', '/api/eventi'], ['OPTIONS', '/api/eventi']];
+  for (const [m, u] of metodi) assert.ok([401, 404].includes((await chiama(m, u)).statusCode), `${m} ${u}`);
+  for (const [m, u] of metodi.filter(([m]) => !['HEAD', 'OPTIONS'].includes(m))) assert.equal((await chiama(m, u)).statusCode, 401, `${m} ${u}`);
+});

@@ -1,0 +1,18 @@
+# Blueprint per Render (piano gratuito). Il database è su Neon: DATABASE_URL va incollato a mano nel pannello Render.
+services:
+  - type: web
+    name: garecri
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /salute
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false            # indirizzo di connessione di Neon (termina con ?sslmode=require)
+      - key: JWT_SECRET
+        generateValue: true    # Render genera una stringa casuale
+      - key: TRUST_PROXY
+        value: "1"             # dietro il proxy HTTPS di Render: limite login per IP reale

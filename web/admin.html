@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GareCRI – Gestione</title>
+<style>
+  :root { --rosso:#E3001B; --bg:#f4f4f6; --card:#fff; --testo:#1c1c1e; --bordo:#d6d6da; --grigio:#e7e6e6; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px system-ui, sans-serif; background:var(--bg); color:var(--testo); }
+  header { background:var(--rosso); color:#fff; padding:8px 12px; display:flex; gap:10px; align-items:center; position:sticky; top:0; z-index:5; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; flex:1; white-space:nowrap; }
+  header a, header button { background:#fff3; color:#fff; border:0; padding:8px 12px; border-radius:8px; font-size:14px; text-decoration:none; }
+  nav { display:flex; gap:4px; overflow-x:auto; background:#fff; padding:6px 8px; border-bottom:1px solid var(--bordo); position:sticky; top:49px; z-index:4; }
+  nav button { border:0; background:none; padding:10px 14px; border-radius:8px; font-size:15px; white-space:nowrap; }
+  nav button.on { background:var(--rosso); color:#fff; }
+  main { max-width:1000px; margin:0 auto; padding:12px; }
+  .card { background:var(--card); border-radius:12px; padding:14px; margin-bottom:12px; box-shadow:0 1px 3px #0001; }
+  .card h3 { margin:0 0 8px; font-size:16px; }
+  label { display:block; font-size:12px; color:#666; margin:8px 0 3px; }
+  input, select, textarea { width:100%; padding:10px; font-size:15px; border:1px solid var(--bordo); border-radius:8px; background:#fff; font-family:inherit; }
+  input[type=checkbox] { width:auto; }
+  .riga { display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; } .riga > * { flex:1 1 140px; }
+  .riga > .stretto { flex:0 0 auto; }
+  button.b { background:var(--rosso); color:#fff; border:0; padding:10px 14px; border-radius:8px; font-size:14px; cursor:pointer; }
+  button.s { background:#555; color:#fff; border:0; padding:10px 14px; border-radius:8px; font-size:14px; cursor:pointer; }
+  button.x { background:none; color:#C62828; border:1px solid #C62828; padding:8px 10px; border-radius:8px; cursor:pointer; }
+  button.p { padding:6px 10px; font-size:13px; }
+  .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:10px; background:var(--grigio); margin-left:4px; }
+  .tag.ok { background:#d9f0dc; color:#1b5e20; } .tag.no { background:#fde0e0; color:#a00; }
+  table { width:100%; border-collapse:collapse; } td, th { padding:7px 5px; border-bottom:1px solid var(--bordo); text-align:left; vertical-align:middle; }
+  .scheda { border:1px solid var(--bordo); border-radius:10px; padding:10px; margin-top:8px; }
+  .msg { padding:10px 12px; border-radius:8px; margin-bottom:10px; } .msg.err { background:#fde0e0; color:#a00; } .msg.ok { background:#d9f0dc; color:#1b5e20; }
+  dialog { border:0; border-radius:14px; padding:16px; width:min(96vw, 900px); max-height:92vh; box-shadow:0 8px 30px #0005; }
+  dialog::backdrop { background:#0006; }
+  .voci td input, .voci td select { padding:6px; font-size:14px; }
+  .num { width:56px !important; text-align:center; }
+  small, .nota { color:#666; font-size:12px; }
+  @media (max-width:640px) { .voci { font-size:13px; } }
+</style>
+</head>
+<body>
+<header><h1>GareCRI · Gestione</h1><span id="chi"></span><a href="/">Valutazioni</a><button id="esci">Esci</button></header>
+<nav id="tabs"></nav>
+<main id="app"></main>
+<dialog id="dlg"></dialog>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let token = localStorage.getItem('token'), me = JSON.parse(localStorage.getItem('me') || 'null');
+let eventi = [], ev = null, tab = localStorage.getItem('tab') || 'evento', cache = {};
+const LIV = ['mb', 'be', 'su', 'in', 'ne'];
+
+async function api(path, opt = {}) {
+  const r = await fetch('/api' + path, { method: opt.method || (opt.body ? 'POST' : 'GET'),
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: opt.body ? JSON.stringify(opt.body) : undefined });
+  if (r.status === 401 && path !== '/login') { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; throw new Error('sessione scaduta'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.errore || r.statusText);
+  return j;
+}
+const flash = (testo, ok = true) => { const d = document.createElement('div'); d.className = 'msg ' + (ok ? 'ok' : 'err'); d.textContent = testo;
+  $('#app').prepend(d); setTimeout(() => d.remove(), ok ? 3000 : 8000); };
+const fai = async (fn, okMsg) => { try { await fn(); await render(); if (okMsg) flash(okMsg); } catch (e) { flash(e.message, false); } };
+const dlg = (html) => { $('#dlg').innerHTML = html; $('#dlg').showModal(); };
+const chiudi = () => $('#dlg').close();
+window.chiudi = chiudi;
+
+$('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
+
+const TABS = [['evento', 'Evento'], ['squadre', 'Squadre'], ['scene', 'Scene e schede'], ['libreria', 'Libreria'], ['utenti', 'Utenti']];
+function disegnaTabs() {
+  const vis = TABS.filter(([k]) => k !== 'utenti' || me.ruolo === 'admin');
+  $('#tabs').innerHTML = vis.map(([k, n]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${n}</button>`).join('');
+  $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) { tab = b.dataset.t; localStorage.setItem('tab', tab); disegnaTabs(); render(); } };
+}
+
+async function caricaEventi() {
+  eventi = await api('/eventi');
+  const salvato = localStorage.getItem('ev');
+  ev = eventi.find((e) => e.id === salvato) || eventi.find((e) => e.attivo) || eventi[0] || null;
+}
+const selettoreEvento = () => `<div class="card"><label>Evento</label><div class="riga">
+  <select id="selev">${eventi.map((e) => `<option value="${e.id}" ${ev && e.id === ev.id ? 'selected' : ''}>${esc(e.codice)} – ${esc(e.nome)}${e.attivo ? ' (attivo)' : ''}</option>`).join('')}</select></div></div>`;
+const legaSelettore = () => { const s = $('#selev'); if (s) s.onchange = () => { ev = eventi.find((e) => e.id === s.value); localStorage.setItem('ev', ev.id); render(); }; };
+
+// ───────── EVENTO ─────────
+async function tEvento() {
+  $('#app').innerHTML = selettoreEvento() + (ev ? `
+  <div class="card"><h3>Dati evento ${ev.attivo ? '<span class="tag ok">attivo</span>' : ''}</h3>
+    <div class="riga"><div><label>Nome</label><input id="e_nome" value="${esc(ev.nome)}"></div>
+      <div><label>Titolo in stampa</label><input id="e_tit" value="${esc(ev.titolo_stampa || '')}"></div></div>
+    <div class="riga"><div><label>Luogo</label><input id="e_luogo" value="${esc(ev.luogo || '')}"></div>
+      <div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
+      <div><label>Tipo</label><select id="e_tipo"><option ${ev.tipo === 'gara' ? 'selected' : ''}>gara</option><option ${ev.tipo === 'olimpiadi' ? 'selected' : ''}>olimpiadi</option></select></div></div>
+    <p><button class="b" id="e_salva">Salva</button> <button class="s" id="e_attiva" ${ev.attivo ? 'disabled' : ''}>Rendi attivo</button>
+    <button class="x" id="e_arch">Archivia</button></p></div>
+  <div class="card"><h3>Stampa schede</h3><div class="riga">
+    <div><label>Scena</label><select id="p_sc"><option value="">tutte</option>${(await api(`/eventi/${ev.id}/scene`)).map((s) => `<option>${esc(s.codice)}</option>`).join('')}</select></div>
+    <div><label>Squadre (numeri separati da virgola, vuoto = tutte)</label><input id="p_sq" placeholder="es. 1,2,3"></div>
+    <div><label>Tipo</label><select id="p_v"><option value="1">Schede vuote</option><option value="0">Schede compilate</option></select></div>
+    <div class="stretto"><button class="b" id="p_go">Apri PDF</button></div></div>
+    <p class="nota">Il PDF contiene una pagina per scheda, ordinate squadra → scena → scheda.</p></div>` : '') + `
+  <div class="card"><h3>Nuovo evento</h3><div class="riga">
+    <div><label>Codice</label><input id="n_cod" placeholder="GPSER-2027"></div><div><label>Nome</label><input id="n_nome"></div>
+    <div><label>Luogo</label><input id="n_luogo"></div><div><label>Data</label><input id="n_data" type="date"></div></div>
+    <p><button class="b" id="n_crea">Crea evento</button></p></div>`;
+  legaSelettore();
+  if (ev) {
+    $('#e_salva').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
+      luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value } }).then(caricaEventi), 'Salvato');
+    $('#e_attiva').onclick = () => fai(() => api(`/eventi/${ev.id}/attiva`, { method: 'POST', body: {} }).then(caricaEventi), 'Evento attivato');
+    $('#e_arch').onclick = () => { if (confirm('Archiviare questo evento? Sparisce dagli elenchi ma i dati restano.')) fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { archiviato: true } }).then(caricaEventi), 'Archiviato'); };
+    $('#p_go').onclick = async () => { const q = new URLSearchParams({ vuote: $('#p_v').value });
+      if ($('#p_sc').value) q.set('scena', $('#p_sc').value); if ($('#p_sq').value.trim()) q.set('squadra', $('#p_sq').value.replace(/\s/g, ''));
+      const w = window.open('', '_blank');   // PDF scaricato con Authorization: nessun token nell'indirizzo
+      try { const r = await fetch(`/api/eventi/${ev.id}/stampa.pdf?${q}`, { headers: { Authorization: 'Bearer ' + token } });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).errore || r.statusText); w.location = URL.createObjectURL(await r.blob());
+      } catch (e) { w.close(); flash(e.message, false); } };
+  }
+  $('#n_crea').onclick = () => fai(async () => {
+    const e = await api('/eventi', { body: { codice: $('#n_cod').value.trim(), nome: $('#n_nome').value.trim(), titolo_stampa: $('#n_nome').value.trim(), luogo: $('#n_luogo').value, data: $('#n_data').value || null } });
+    await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev', ev.id);
+  }, 'Evento creato');
+}
+
+// ───────── SQUADRE ─────────
+async function tSquadre() {
+  if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima un evento.</div>'; return; }
+  const sq = await api(`/eventi/${ev.id}/squadre`);
+  $('#app').innerHTML = selettoreEvento() + `<div class="card"><h3>Squadre (${sq.filter((s) => s.attiva).length} attive)</h3>
+    <table>${sq.map((s) => `<tr><td>${s.numero}</td><td><input data-id="${s.id}" class="nm" value="${esc(s.nome)}"></td>
+      <td><span class="tag ${s.attiva ? 'ok' : 'no'}">${s.attiva ? 'attiva' : 'disattivata'}</span></td>
+      <td><button class="s p tg" data-sq="${s.id}" data-a="${s.attiva}">${s.attiva ? 'Disattiva' : 'Riattiva'}</button></td></tr>`).join('')}</table>
+    <p class="nota">Le squadre non si cancellano: si disattivano, così il numero non viene mai riusato e le valutazioni restano.</p></div>
+    <div class="card"><h3>Nuova squadra</h3><div class="riga"><input id="ns" placeholder="Nome squadra"><div class="stretto"><button class="b" id="ns_ok">Aggiungi</button></div></div></div>`;
+  legaSelettore();
+  document.querySelectorAll('.nm').forEach((i) => { i.onchange = () => fai(() => api(`/squadre/${i.dataset.id}`, { method: 'PATCH', body: { nome: i.value } }), 'Nome aggiornato'); });
+  document.querySelectorAll('.tg').forEach((b) => { b.onclick = () => fai(() => api(`/squadre/${b.dataset.sq}`, { method: 'PATCH', body: { attiva: b.dataset.a !== 'true' } })); });
+  $('#ns_ok').onclick = () => { const n = $('#ns').value.trim(); if (n) fai(() => api(`/eventi/${ev.id}/squadre`, { body: { nome: n } }), 'Squadra aggiunta'); };
+}
+
+// ───────── SCENE E SCHEDE ─────────
+async function tScene() {
+  if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima un evento.</div>'; return; }
+  const [scene, pat, ass] = await Promise.all([api(`/eventi/${ev.id}/scene`), api('/libreria/patologie'), api(`/eventi/${ev.id}/assegnazioni`)]);
+  const schede = {};
+  for (const s of scene) for (const k of s.schede || []) schede[k.id] = (await api(`/schede/${k.id}`));
+  cache = { schede, giudici: null };
+  const nomiAss = (id) => ass.filter((a) => a.scheda_id === id).map((a) => esc(a.nome)).join(', ') || '<em>nessuno</em>';
+  $('#app').innerHTML = selettoreEvento() + scene.map((s) => `<div class="card"><h3>Scena ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
+    <p><button class="s p dup" data-id="${s.id}">Duplica in un altro evento…</button> <button class="x p delsc" data-id="${s.id}">Elimina scena</button></p>
+    ${(s.schede || []).map((k) => { const d = schede[k.id]; const p = d.parametri || {}; return `<div class="scheda">
+      <div class="riga"><div style="flex:2"><strong>${esc(d.titolo)}</strong> <span class="tag">slot ${d.slot}</span><span class="tag">sim. ${esc(d.simulatore)}</span>
+        ${d.is_bls ? '<span class="tag">BLS</span>' : ''}${d.is_master ? '<span class="tag">Master</span>' : ''}<span class="tag">${d.voci.length} voci</span>
+        <br><small>Giudici: ${nomiAss(k.id)}</small></div></div>
+      <div class="riga"><div><label>Coscienza</label><input class="pp" data-id="${k.id}" data-k="coscienza" value="${esc(p.coscienza || '')}"></div>
+        <div><label>FR</label><input class="pp" data-id="${k.id}" data-k="fr" value="${esc(p.fr ?? '')}"></div>
+        <div><label>FC</label><input class="pp" data-id="${k.id}" data-k="fc" value="${esc(p.fc ?? '')}"></div>
+        <div><label>Cute</label><input class="pp" data-id="${k.id}" data-k="cute" value="${esc(p.cute || '')}"></div>
+        <div><label>Simulatore</label><input class="ps" data-id="${k.id}" value="${esc(d.simulatore)}"></div></div>
+      <p><button class="s p voci-b" data-id="${k.id}">Voci e punteggi…</button> <button class="s p ass-b" data-id="${k.id}">Giudici…</button>
+        <button class="x p delsk" data-id="${k.id}">Elimina scheda</button></p></div>`; }).join('')}
+    <div class="scheda"><strong>Aggiungi scheda da patologia</strong><div class="riga">
+      <div><label>Patologia</label><select class="a_pat">${pat.map((p) => `<option value="${p.id}">${esc(p.nome)} (${p.voci} voci)</option>`).join('')}</select></div>
+      <div><label>Slot</label><input class="a_slot num" type="number" min="0" value="${(s.schede || []).length}"></div>
+      <div><label>Simulatore</label><input class="a_sim" value="${(s.schede || []).length === 0 ? 'M' : String((s.schede || []).length).padStart(2, '0')}"></div>
+      <div class="stretto"><button class="b a_ok" data-id="${s.id}">Aggiungi</button></div></div></div></div>`).join('') + `
+  <div class="card"><h3>Nuova scena</h3><div class="riga"><div><label>Codice</label><input id="ns_cod" placeholder="A" maxlength="3"></div>
+    <div style="flex:3"><label>Titolo</label><input id="ns_tit"></div><div class="stretto"><button class="b" id="ns_ok">Crea</button></div></div></div>`;
+  legaSelettore();
+  document.querySelectorAll('.t_sc').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { titolo: i.value } }), 'Titolo aggiornato'); });
+  document.querySelectorAll('.pp').forEach((i) => { i.onchange = () => { const d = cache.schede[i.dataset.id]; const p = { ...(d.parametri || {}) };
+    const v = i.value.trim(); p[i.dataset.k] = v === '' ? null : (['fr', 'fc'].includes(i.dataset.k) ? Number(v) : v);
+    fai(() => api(`/schede/${i.dataset.id}`, { method: 'PATCH', body: { parametri: p } }), 'Parametri salvati'); }; });
+  document.querySelectorAll('.ps').forEach((i) => { i.onchange = () => fai(() => api(`/schede/${i.dataset.id}`, { method: 'PATCH', body: { simulatore: i.value.trim() } }), 'Simulatore aggiornato'); });
+  document.querySelectorAll('.delsk').forEach((b) => { b.onclick = () => { if (confirm('Eliminare questa scheda?')) fai(() => api(`/schede/${b.dataset.id}`, { method: 'DELETE' }), 'Scheda eliminata'); }; });
+  document.querySelectorAll('.delsc').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la scena con tutte le sue schede?')) fai(() => api(`/scene/${b.dataset.id}`, { method: 'DELETE' }), 'Scena eliminata'); }; });
+  document.querySelectorAll('.a_ok').forEach((b) => { b.onclick = () => { const c = b.closest('.scheda');
+    fai(() => api(`/scene/${b.dataset.id}/schede`, { body: { patologiaId: c.querySelector('.a_pat').value, slot: Number(c.querySelector('.a_slot').value), simulatore: c.querySelector('.a_sim').value.trim() } }), 'Scheda aggiunta'); }; });
+  $('#ns_ok').onclick = () => { const c = $('#ns_cod').value.trim().toUpperCase(), t = $('#ns_tit').value.trim(); if (c && t) fai(() => api(`/eventi/${ev.id}/scene`, { body: { codice: c, titolo: t, ordine: scene.length } }), 'Scena creata'); };
+  document.querySelectorAll('.dup').forEach((b) => { b.onclick = () => dlg(`<h3>Duplica scena</h3><label>Evento di destinazione</label>
+    <select id="d_ev">${eventi.map((e) => `<option value="${e.id}">${esc(e.codice)} – ${esc(e.nome)}</option>`).join('')}</select>
+    <label>Codice nella destinazione</label><input id="d_cod" maxlength="3">
+    <p><button class="b" id="d_ok">Duplica</button> <button class="s" onclick="chiudi()">Annulla</button></p>`) || ($('#d_ok').onclick = () => { const cod = $('#d_cod').value.trim().toUpperCase();
+      if (!cod) return; chiudi(); fai(() => api(`/scene/${b.dataset.id}/duplica`, { body: { eventoDestId: $('#d_ev').value, nuovoCodice: cod } }), 'Scena duplicata'); }); });
+  document.querySelectorAll('.ass-b').forEach((b) => { b.onclick = () => apriAssegnazioni(b.dataset.id, ass); });
+  document.querySelectorAll('.voci-b').forEach((b) => { b.onclick = () => apriVociScheda(b.dataset.id); });
+}
+async function apriAssegnazioni(schedaId, ass) {
+  const giud = await api('/giudici'); const sel = new Set(ass.filter((a) => a.scheda_id === schedaId).map((a) => a.utente_id));
+  dlg(`<h3>Giudici della scheda</h3>${giud.length ? giud.map((g) => `<label style="font-size:15px;color:inherit"><input type="checkbox" value="${g.id}" ${sel.has(g.id) ? 'checked' : ''}> ${esc(g.nome)} <small>${esc(g.email)}</small></label>`).join('') : '<p>Nessun utente con ruolo giudice. Un admin può crearli in "Utenti".</p>'}
+    <p><button class="b" id="as_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+  $('#as_ok').onclick = () => { const ids = [...document.querySelectorAll('#dlg input:checked')].map((i) => i.value); chiudi();
+    fai(() => api(`/schede/${schedaId}/assegnazioni`, { method: 'PUT', body: { utenti: ids } }), 'Assegnazioni salvate'); };
+}
+function apriVociScheda(id) {
+  const d = cache.schede[id]; let sezione = null;
+  dlg(`<h3>${esc(d.titolo)} · voci e punteggi <small>(solo per questa scena)</small></h3>
+    <p class="nota">Lascia vuoto un livello per renderlo non selezionabile (cella nera). Le modifiche non toccano la libreria.</p>
+    <table class="voci"><tr><th>Voce</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th>SEP</th><th></th></tr>
+    ${d.voci.map((v) => { let h = ''; if (v.sezione !== sezione) { sezione = v.sezione; h = `<tr><td colspan="8" style="background:var(--grigio)"><strong>${esc(sezione)}</strong></td></tr>`; }
+      return h + `<tr data-o="${v.ordine}"><td>${esc(v.testo)} <small>${esc(v.scala)}</small></td>${LIV.map((l) => `<td><input class="num" data-l="${l}" value="${v[l] ?? ''}"></td>`).join('')}
+        <td><input type="checkbox" class="sep" ${v.is_sep ? 'checked' : ''}></td><td><button class="b p sv">Salva</button></td></tr>`; }).join('')}</table>
+    <p><button class="s" onclick="chiudi()">Chiudi</button></p>`);
+  document.querySelectorAll('#dlg .sv').forEach((b) => { b.onclick = async () => { const tr = b.closest('tr'); const body = { is_sep: tr.querySelector('.sep').checked };
+    tr.querySelectorAll('[data-l]').forEach((i) => { body[i.dataset.l] = i.value.trim() === '' ? null : Number(i.value); });
+    if (LIV.every((l) => body[l] === null)) return flash('Almeno un livello deve restare selezionabile', false);
+    try { await api(`/schede/${id}/voci/${tr.dataset.o}`, { method: 'PUT', body }); b.textContent = '✓'; setTimeout(() => (b.textContent = 'Salva'), 1200); } catch (e) { alert(e.message); } }; });
+}
+
+// ───────── LIBRERIA ─────────
+async function tLibreria() {
+  const [pat, scale] = await Promise.all([api('/libreria/patologie'), api('/libreria/scale')]);
+  cache.scale = scale;
+  $('#app').innerHTML = `<div class="card"><h3>Patologie</h3><table>${pat.map((p) => `<tr><td><strong>${esc(p.nome)}</strong> <span class="tag">${esc(p.sigla)}</span>
+    ${p.is_bls ? '<span class="tag">BLS</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}</td><td>${p.voci} voci</td>
+    <td><button class="s p ed" data-id="${p.id}">Modifica</button> <button class="x p del" data-id="${p.id}">Elimina</button></td></tr>`).join('')}</table>
+    <p><button class="b" id="np">Nuova patologia</button></p>
+    <p class="nota">Modificare una patologia non cambia le scene già create: ognuna ne conserva una copia.</p></div>
+    <div class="card"><h3>Scale di punteggio</h3><table><tr><th>Scala</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th></th></tr>
+    ${scale.map((s) => `<tr data-c="${esc(s.codice)}"><td>${esc(s.codice)}</td>${LIV.map((l) => `<td><input class="num" data-l="${l}" value="${s[l] ?? ''}"></td>`).join('')}<td><button class="b p ss">Salva</button></td></tr>`).join('')}
+    <tr id="nsc"><td><input id="nsc_c" placeholder="nuova scala"></td>${LIV.map((l) => `<td><input class="num" data-l="${l}"></td>`).join('')}<td><button class="b p" id="nsc_ok">Crea</button></td></tr></table>
+    <p class="nota">Vuoto = livello non consentito. Cambiare una scala vale solo per le patologie e le scene create da ora in poi.</p></div>`;
+  document.querySelectorAll('.ss').forEach((b) => { b.onclick = () => { const tr = b.closest('tr'); const body = { codice: tr.dataset.c };
+    tr.querySelectorAll('[data-l]').forEach((i) => { body[i.dataset.l] = i.value.trim() === '' ? null : Number(i.value); });
+    fai(() => api('/libreria/scale', { body }), 'Scala salvata'); }; });
+  $('#nsc_ok').onclick = () => { const body = { codice: $('#nsc_c').value.trim() }; $('#nsc').querySelectorAll('[data-l]').forEach((i) => { body[i.dataset.l] = i.value.trim() === '' ? null : Number(i.value); });
+    if (body.codice) fai(() => api('/libreria/scale', { body }), 'Scala creata'); };
+  document.querySelectorAll('.del').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la patologia?')) fai(() => api(`/libreria/patologie/${b.dataset.id}`, { method: 'DELETE' }), 'Eliminata'); }; });
+  document.querySelectorAll('.ed').forEach((b) => { b.onclick = async () => editorPatologia(pat.find((p) => p.id === b.dataset.id), await api(`/libreria/patologie/${b.dataset.id}`)); });
+  $('#np').onclick = () => editorPatologia(null, []);
+}
+function editorPatologia(p, voci) {
+  const sc = cache.scale.map((s) => s.codice);
+  const riga = (v = {}) => `<tr><td><input class="r_sez" value="${esc(v.sezione || '')}" placeholder="sezione"></td><td><input class="r_tx" value="${esc(v.testo || '')}" placeholder="testo della voce"></td>
+    <td><select class="r_sc">${sc.map((c) => `<option ${c === (v.scala || 'Standard') ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></td>
+    <td><input type="checkbox" class="r_sep" ${v.is_sep ? 'checked' : ''}></td>
+    <td style="white-space:nowrap"><button class="s p su">↑</button> <button class="s p gi">↓</button> <button class="x p rm">✕</button></td></tr>`;
+  dlg(`<h3>${p ? 'Modifica' : 'Nuova'} patologia</h3><div class="riga">
+    <div><label>Nome</label><input id="pt_n" value="${esc(p?.nome || '')}"></div><div><label>Sigla (3 lettere)</label><input id="pt_s" maxlength="4" value="${esc(p?.sigla || '')}"></div>
+    <div class="stretto"><label>BLS</label><input type="checkbox" id="pt_b" ${p?.is_bls ? 'checked' : ''}></div><div class="stretto"><label>Master</label><input type="checkbox" id="pt_m" ${p?.is_master ? 'checked' : ''}></div></div>
+    <table class="voci" id="pt_t"><tr><th>Sezione</th><th>Voce</th><th>Scala</th><th>SEP</th><th></th></tr>${voci.map(riga).join('')}</table>
+    <p><button class="s" id="pt_add">+ Voce</button> <button class="b" id="pt_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+  const t = $('#pt_t');
+  $('#pt_add').onclick = () => { const last = t.querySelector('tr:last-child .r_sez'); t.insertAdjacentHTML('beforeend', riga({ sezione: last ? last.value : '' })); };
+  t.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const tr = b.closest('tr');
+    if (b.classList.contains('rm')) tr.remove(); else if (b.classList.contains('su') && tr.previousElementSibling?.querySelector('.r_tx')) tr.previousElementSibling.before(tr);
+    else if (b.classList.contains('gi') && tr.nextElementSibling) tr.nextElementSibling.after(tr); };
+  $('#pt_ok').onclick = () => {
+    const vv = [...t.querySelectorAll('tr')].slice(1).map((tr) => ({ sezione: tr.querySelector('.r_sez').value.trim(), testo: tr.querySelector('.r_tx').value.trim(),
+      scala: tr.querySelector('.r_sc').value, is_sep: tr.querySelector('.r_sep').checked })).filter((v) => v.testo);
+    if (vv.some((v) => !v.sezione)) return alert('Ogni voce deve avere una sezione');
+    const body = { nome: $('#pt_n').value.trim(), sigla: $('#pt_s').value.trim().toUpperCase(), is_bls: $('#pt_b').checked, is_master: $('#pt_m').checked, voci: vv };
+    if (!body.nome || !body.sigla) return alert('Nome e sigla obbligatori');
+    chiudi();
+    fai(() => p ? api(`/libreria/patologie/${p.id}`, { method: 'PUT', body }) : api('/libreria/patologie', { body: { ...body, codice: body.nome.toUpperCase().replace(/[^A-Z0-9]+/g, '_') } }), 'Patologia salvata');
+  };
+}
+
+// ───────── UTENTI ─────────
+async function tUtenti() {
+  const u = await api('/utenti');
+  $('#app').innerHTML = `<div class="card"><h3>Utenti</h3><table>${u.map((x) => `<tr><td>${esc(x.nome)}<br><small>${esc(x.email)}</small></td>
+    <td><select class="ru" data-id="${x.id}">${['giudice', 'organizzazione', 'admin'].map((r) => `<option ${r === x.ruolo ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
+    <td><span class="tag ${x.attivo ? 'ok' : 'no'}">${x.attivo ? 'attivo' : 'disattivato'}</span></td>
+    <td><button class="s p pw" data-id="${x.id}">Password</button> <button class="s p at" data-id="${x.id}" data-a="${x.attivo}">${x.attivo ? 'Disattiva' : 'Riattiva'}</button></td></tr>`).join('')}</table></div>
+    <div class="card"><h3>Nuovo utente</h3><div class="riga"><div><label>Nome</label><input id="u_n"></div><div><label>Email</label><input id="u_e" type="email"></div>
+    <div><label>Ruolo</label><select id="u_r"><option>giudice</option><option>organizzazione</option><option>admin</option></select></div>
+    <div><label>Password (min. 8)</label><input id="u_p" type="text"></div><div class="stretto"><button class="b" id="u_ok">Crea</button></div></div></div>`;
+  document.querySelectorAll('.ru').forEach((s) => { s.onchange = () => fai(() => api(`/utenti/${s.dataset.id}`, { method: 'PATCH', body: { ruolo: s.value } }), 'Ruolo aggiornato'); });
+  document.querySelectorAll('.at').forEach((b) => { b.onclick = () => fai(() => api(`/utenti/${b.dataset.id}`, { method: 'PATCH', body: { attivo: b.dataset.a !== 'true' } })); });
+  document.querySelectorAll('.pw').forEach((b) => { b.onclick = () => { const p = prompt('Nuova password (min. 8 caratteri):'); if (p) fai(() => api(`/utenti/${b.dataset.id}`, { method: 'PATCH', body: { password: p } }), 'Password cambiata'); }; });
+  $('#u_ok').onclick = () => fai(() => api('/utenti', { body: { nome: $('#u_n').value.trim(), email: $('#u_e').value.trim(), ruolo: $('#u_r').value, password: $('#u_p').value } }), 'Utente creato');
+}
+
+async function render() {
+  try {
+    if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
+    else if (tab === 'libreria') await tLibreria(); else if (tab === 'utenti') await tUtenti();
+  } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+}
+(async () => {
+  if (!token || !me) { location.href = '/'; return; }
+  if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata all\'organizzazione. <a href="/">Torna alle valutazioni</a></div></main>'; return; }
+  $('#chi').textContent = me.nome; if (tab === 'utenti' && me.ruolo !== 'admin') tab = 'evento';
+  disegnaTabs(); await caricaEventi(); render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,241 @@
+-- GareCRI – schema PostgreSQL 16
+-- Principi:
+--  * chiavi UUID generate anche dal client (pronto per l'offline)
+--  * ogni riga modificabile ha updated_at (+ updated_by) per sync e audit
+--  * la libreria (voci/patologie) è riusabile; la scena ne contiene una COPIA (snapshot):
+--    modificare la libreria non altera mai le gare passate
+--  * livello non consentito = punteggio NULL (sostituisce i flag Has_MB/Has_B/...)
+
+create extension if not exists pgcrypto;
+
+create type ruolo_utente as enum ('admin', 'organizzazione', 'giudice');
+create type livello      as enum ('MB', 'BE', 'SU', 'IN', 'NE');
+create type stato_scheda as enum ('bozza', 'completata', 'verificata');
+create type origine_dato as enum ('carta', 'tablet_online', 'tablet_offline');
+
+-- ───────── utenti ─────────
+create table utente (
+  id            uuid primary key default gen_random_uuid(),
+  email         text not null unique,
+  nome          text not null,
+  password_hash text not null,
+  ruolo         ruolo_utente not null default 'giudice',
+  attivo        boolean not null default true,
+  created_at    timestamptz not null default now()
+);
+
+-- ───────── eventi (gare / olimpiadi) ─────────
+create table evento (
+  id          uuid primary key default gen_random_uuid(),
+  codice      text not null unique,              -- es. GPSER-2026
+  nome        text not null,
+  tipo        text not null default 'gara' check (tipo in ('gara','olimpiadi')),
+  titolo_stampa text,                            -- "Gara Regionale di primo soccorso"
+  luogo       text,
+  data        date,
+  attivo      boolean not null default false,
+  archiviato  boolean not null default false,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create unique index evento_unico_attivo on evento ((true)) where attivo;   -- un solo evento attivo
+
+create table squadra (
+  id         uuid primary key default gen_random_uuid(),
+  evento_id  uuid not null references evento(id) on delete cascade,
+  numero     int  not null,                      -- il vecchio SquadraID, non si riusa mai
+  nome       text not null,
+  attiva     boolean not null default true,
+  updated_at timestamptz not null default now(),
+  unique (evento_id, numero)
+);
+
+-- ───────── anagrafica partecipanti (verifica requisiti, futura) ─────────
+create table partecipante (
+  id            uuid primary key default gen_random_uuid(),
+  cognome       text not null,
+  nome          text not null,
+  data_nascita  date,
+  codice_fiscale text unique,
+  email         text,
+  comitato      text,
+  note          text,
+  created_at    timestamptz not null default now()
+);
+create table squadra_membro (
+  squadra_id      uuid not null references squadra(id) on delete cascade,
+  partecipante_id uuid not null references partecipante(id),
+  ruolo           text,                          -- capo squadra, soccorritore, riserva...
+  primary key (squadra_id, partecipante_id)
+);
+
+-- ───────── libreria ─────────
+-- scala di punteggio: un NULL significa "livello non consentito" (cella nera)
+create table scala_punteggio (
+  id      uuid primary key default gen_random_uuid(),
+  codice  text not null unique,                  -- Standard, 3 Voci, PesoDoppio, Binario Punitivo
+  mb int, be int, su int, "in" int, ne int,
+  check (mb is not null or be is not null or su is not null or "in" is not null or ne is not null)
+);
+
+create table voce (                              -- "si guarda attorno (prima di entrare in scena)"
+  id        uuid primary key default gen_random_uuid(),
+  testo     text not null,
+  note      text,
+  created_at timestamptz not null default now()
+);
+create unique index voce_testo_uq on voce (lower(testo));
+
+create table patologia (                         -- Master, PBLS, Overdose, TC, Asma...
+  id           uuid primary key default gen_random_uuid(),
+  codice       text not null unique,
+  nome         text not null,
+  sigla        text not null,                    -- MAS, PBL, OVE: usata nelle chiavi di stampa
+  is_bls       boolean not null default false,   -- conta nella classifica BLS
+  is_master    boolean not null default false,   -- conta nella classifica Master/Leader
+  descrizione  text
+);
+create table patologia_voce (
+  patologia_id uuid not null references patologia(id) on delete cascade,
+  ordine       int  not null,
+  sezione      text not null,                    -- intestazione nera (AUTOPROTEZIONE e SICUREZZA...)
+  voce_id      uuid not null references voce(id),
+  scala_id     uuid not null references scala_punteggio(id),   -- override per patologia
+  is_sep       boolean not null default false,
+  primary key (patologia_id, ordine)
+);
+
+-- ───────── scene e schede di un evento (snapshot) ─────────
+create table scena (
+  id         uuid primary key default gen_random_uuid(),
+  evento_id  uuid not null references evento(id) on delete restrict,
+  codice     text not null,                      -- A, B, C...
+  titolo     text not null,
+  ordine     int  not null default 0,
+  unique (evento_id, codice)
+);
+
+create table scena_scheda (                      -- una scheda = una patologia in una scena
+  id               uuid primary key default gen_random_uuid(),
+  scena_id         uuid not null references scena(id) on delete cascade,
+  slot             int  not null,                -- 0 = Master, 1..n = simulatori
+  patologia_id     uuid references patologia(id),-- origine (informativa)
+  titolo           text not null,                -- "Master", "PBLS"...
+  sigla            text not null,
+  simulatore       text not null,                -- "M", "01", "02"...
+  is_bls           boolean not null default false,
+  is_master        boolean not null default false,
+  parametri        jsonb not null default '{}',  -- {coscienza, fr, fc, cute}
+  unique (scena_id, slot)
+);
+
+create table scena_scheda_voce (                 -- COPIA delle voci: modificabile per singola scena
+  id            uuid primary key default gen_random_uuid(),
+  scheda_id     uuid not null references scena_scheda(id) on delete cascade,
+  ordine        int  not null,
+  sezione       text not null,
+  voce_id       uuid references voce(id),
+  testo         text not null,
+  scala         text not null,                   -- nome scala (informativo)
+  mb int, be int, su int, "in" int, ne int,
+  is_sep        boolean not null default false,
+  unique (scheda_id, ordine),
+  check (mb is not null or be is not null or su is not null or "in" is not null or ne is not null)
+);
+
+-- ───────── compilazione ─────────
+create table compilazione (                      -- una scheda compilata per una squadra
+  id          uuid primary key default gen_random_uuid(),
+  scheda_id   uuid not null references scena_scheda(id) on delete restrict,   -- mai perdere valutazioni a cascata
+  squadra_id  uuid not null references squadra(id) on delete restrict,
+  stato       stato_scheda not null default 'bozza',
+  origine     origine_dato not null default 'tablet_online',
+  giudice     text,                              -- nome mostrato in stampa
+  giudice_id  uuid references utente(id),
+  iniziata_at timestamptz,
+  completata_at timestamptz,
+  verificata_at timestamptz,
+  verificata_da uuid references utente(id),
+  updated_at  timestamptz not null default now(),
+  unique (scheda_id, squadra_id)                 -- impedisce le doppie compilazioni
+);
+
+create table risposta (                          -- una riga per voce compilata
+  compilazione_id uuid not null references compilazione(id) on delete cascade,
+  voce_id         uuid not null references scena_scheda_voce(id) on delete restrict,
+  livello         livello,                              -- NULL = risposta annullata (tombstone: un dato vecchio non la fa risorgere)
+  updated_at      timestamptz not null default now(),   -- decide i conflitti (vince il più recente)
+  updated_by      uuid references utente(id),
+  da_org          boolean not null default false,       -- scritta da organizzazione/admin: prevale sul giudice
+  primary key (compilazione_id, voce_id)
+);
+
+-- ───────── audit ─────────
+create table audit_log (
+  id        bigserial primary key,
+  at        timestamptz not null default now(),
+  utente_id uuid,
+  azione    text not null,
+  entita    text,
+  entita_id text,
+  dettaglio jsonb
+);
+
+-- ───────── viste punteggi ─────────
+create view v_punti_voce as
+select r.compilazione_id, r.voce_id, c.squadra_id, c.scheda_id, v.is_sep,
+       case r.livello when 'MB' then v.mb when 'BE' then v.be when 'SU' then v.su
+                      when 'IN' then v."in" when 'NE' then v.ne end as punti,
+       coalesce(greatest(v.mb, v.be, v.su, v."in", v.ne), 0) as punti_max
+from risposta r
+join compilazione c on c.id = r.compilazione_id
+join scena_scheda_voce v on v.id = r.voce_id
+where r.livello is not null;
+
+create view v_classifica as
+select sq.evento_id, sq.id as squadra_id, sq.numero, sq.nome,
+  coalesce(sum(p.punti),0)                                              as totale,
+  coalesce(sum(p.punti) filter (where p.is_sep),0)                      as sep,
+  coalesce(sum(p.punti) filter (where p.is_bls),0)                      as bls,
+  coalesce(sum(p.punti) filter (where p.is_master),0)                   as master
+from squadra sq
+left join (
+  -- solo schede dello STESSO evento della squadra
+  select pv.squadra_id, pv.punti, pv.is_sep, s.is_bls, s.is_master, sc.evento_id
+  from v_punti_voce pv
+  join scena_scheda s on s.id = pv.scheda_id
+  join scena sc on sc.id = s.scena_id
+) p on p.squadra_id = sq.id and p.evento_id = sq.evento_id
+group by sq.evento_id, sq.id, sq.numero, sq.nome;
+
+-- massimi teorici per la percentuale (corregge il bug di CONTROLLO!E21:F25)
+create view v_massimi_evento as
+select sc.evento_id,
+  sum(greatest(v.mb, v.be, v.su, v."in", v.ne))                         as max_totale,
+  sum(greatest(v.mb, v.be, v.su, v."in", v.ne)) filter (where v.is_sep) as max_sep
+from scena sc
+join scena_scheda s on s.scena_id = sc.id
+join scena_scheda_voce v on v.scheda_id = s.id
+group by sc.evento_id;
+
+-- stato avanzamento (monitor)
+create view v_monitor as
+select sc.evento_id, sc.codice as scena, sq.numero as squadra, sq.nome,
+       s.slot, s.titolo as scheda, c.stato, c.giudice, c.origine, c.updated_at,
+       (select count(*) from risposta r where r.compilazione_id = c.id and r.livello is not null) as voci_compilate,
+       (select count(*) from scena_scheda_voce v where v.scheda_id = s.id) as voci_totali
+from scena sc
+join scena_scheda s on s.scena_id = sc.id
+join squadra sq on sq.evento_id = sc.evento_id and sq.attiva
+left join compilazione c on c.scheda_id = s.id and c.squadra_id = sq.id;
+
+-- ───────── assegnazione giudici alle schede (sostituisce tblOperatori) ─────────
+create table assegnazione (
+  scheda_id uuid not null references scena_scheda(id) on delete cascade,
+  utente_id uuid not null references utente(id) on delete cascade,
+  primary key (scheda_id, utente_id)
+);
+
+-- ───────── versione dello schema ─────────
+create table schema_migrazioni (nome text primary key, applicata_at timestamptz not null default now());
+insert into schema_migrazioni (nome) values ('001-revisione.sql');   -- lo schema qui sopra le include già tutte
