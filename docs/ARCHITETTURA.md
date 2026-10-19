@@ -82,3 +82,6 @@ Ogni tocco è scritto subito su disco; dopo un invio riuscito si cancella solo c
 
 ## 9. Database esistente e migrazioni
 `node tools/db-init.js` crea lo schema su un database vuoto; su un database già esistente applica solo le migrazioni mancanti in `db/migrazioni/` (idempotenti, registrate in `schema_migrazioni`). `--reset` cancella tutto: solo per sviluppo.
+
+## 10. Import Excel dal browser
+`POST /api/import/excel` (solo organizzazione/admin) riceve il file in base64 e lo importa in una transazione: crea scena, schede, voci e squadre dell'evento indicato (o di uno nuovo) e arricchisce la libreria con patologie «<Tipo> · Gara|Olimpiadi <Scena>». Una scena già presente nell'evento viene rifiutata (409). Gli import da interfaccia creano scene non attive.

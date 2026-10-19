@@ -7,6 +7,7 @@ import { sincronizza, riapri, httpErr } from './services/compilazioni.js';
 import { generaPdfSchede } from './services/stampa.js';
 import { registraGestione } from './routes-gestione.js';
 import { aggiungiSchedaDaPatologia, creaScena, duplicaScena } from './services/scene.js';
+import { importaExcel } from './services/import-excel.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
 
@@ -239,6 +240,20 @@ export function buildApp(pool, { logger = false } = {}) {
       eventoId: req.params.id, scenaCodice: q.scena || undefined,
       squadraNumeri: q.squadra ? q.squadra.split(',').map(Number) : undefined, vuote: q.vuote !== '0' });
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="schede.pdf"').send(pdf);
+  });
+
+  // ── importazione di una scena da file Excel (formato GareCRI): un file per chiamata, in un'unica transazione ──
+  app.post('/api/import/excel', { preHandler: soloOrg, bodyLimit: 12 * 1024 * 1024 }, async (req) => {
+    const b = req.body || {};
+    if (typeof b.dati !== 'string' || b.dati.length < 100) throw httpErr(400, 'file mancante');
+    const buf = Buffer.from(b.dati, 'base64');
+    if (buf.subarray(0, 2).toString() !== 'PK') throw httpErr(400, 'non è un file .xlsx');
+    const tipoEvento = b.tipo === 'olimpiadi' ? 'olimpiadi' : 'gara';
+    if (!b.evento_id && (!b.evento?.codice?.trim() || !b.evento?.nome?.trim())) throw httpErr(400, 'indica un evento esistente oppure codice e nome del nuovo evento');
+    const e = b.evento || {};
+    return inTransazione(pool, (db) => importaExcel(db, buf, {
+      eventoId: b.evento_id || undefined, eventoCodice: e.codice?.trim(), nomeEvento: e.nome?.trim(), titoloStampa: e.titolo_stampa?.trim() || e.nome?.trim(),
+      luogo: e.luogo?.trim() || null, data: e.data || null, tipoEvento, attiva: false }));
   });
 
   registraGestione(app, pool, { soloOrg, soloAdmin });

@@ -7,7 +7,7 @@
 <title>GareCRI</title>
 <style>
   :root { --rosso:#E3001B; --bg:#f4f4f6; --card:#fff; --testo:#1c1c1e; --bordo:#d6d6da;
-          --mb:#2E7D32; --be:#2E7D32; --su:#1F4FD8; --in:#C62828; --ne:#C62828; }
+          --mb:#0B6B3A; --be:#2F7A12; --su:#A86400; --in:#C2410C; --ne:#B71C1C; }   /* dal verde smeraldo (molto bene) al rosso (non eseguito) */
   * { box-sizing: border-box; }
   body { margin:0; font:16px system-ui, sans-serif; background:var(--bg); color:var(--testo); }
   header { background:var(--rosso); color:#fff; padding:10px 16px; display:flex; gap:12px; align-items:center; position:sticky; top:0; z-index:5; }
@@ -25,14 +25,18 @@
   .voce.manca { outline:3px solid #C62828; }
   .voce p { margin:0; flex:1 1 320px; min-width:200px; text-align:left; line-height:1.3; }
   .liv { display:flex; gap:6px; flex:0 0 auto; }
-  .liv button { width:108px; padding:8px 2px; font-size:13px; border:2px solid var(--bordo); background:#fff; border-radius:8px; min-height:44px; white-space:nowrap; }
+  .liv button { width:108px; padding:8px 2px; font-size:13px; font-weight:700; border:2px solid var(--bordo); background:#fff; border-radius:8px; min-height:44px; white-space:nowrap; }
+  .liv button[data-l=MB] { border-color:var(--mb); color:var(--mb); } .liv button[data-l=BE] { border-color:var(--be); color:var(--be); }
+  .liv button[data-l=SU] { border-color:var(--su); color:var(--su); } .liv button[data-l=IN] { border-color:var(--in); color:var(--in); }
+  .liv button[data-l=NE] { border-color:var(--ne); color:var(--ne); }
   .sola-lettura .liv button { pointer-events:none; opacity:.85; }
   .avviso { background:#fff4d6; border:1px solid #e6c34a; border-radius:10px; padding:10px 12px; margin-bottom:10px; }
   .liv button[disabled] { background:#000; border-color:#000; }
-  .liv button.on { color:#fff; border-color:transparent; }
+  .liv button.on { color:#fff !important; }
   .liv button.on[data-l=MB] { background:var(--mb) } .liv button.on[data-l=BE] { background:var(--be) }
   .liv button.on[data-l=SU] { background:var(--su) } .liv button.on[data-l=IN] { background:var(--in) }
   .liv button.on[data-l=NE] { background:var(--ne) }
+  .msg-blocco { color:#B71C1C; font-weight:700; }
   .barra { position:sticky; bottom:0; background:var(--card); padding:10px 12px; border-top:1px solid var(--bordo); display:flex; gap:10px; align-items:center; }
   .barra .stato { flex:1; font-size:14px; }
   table { width:100%; border-collapse:collapse; } td, th { padding:8px 6px; border-bottom:1px solid var(--bordo); text-align:left; }
@@ -101,9 +105,16 @@ async function vistaHome() {
     <label>Squadra</label><select id="sq">${squadre.filter(s => s.attiva).map(s => `<option value="${s.id}">${s.numero} – ${esc(s.nome)}</option>`).join('')}</select>
     <button class="btn" id="avvia">Inizia valutazione</button></div>
     ${org() ? `<div class="card"><a class="btn sec" href="#classifica">Classifica</a> <a class="btn sec" href="/admin.html">Gestione</a> <a class="btn sec" href="#monitor">Monitor</a> <button class="btn sec" id="pdfv">Stampa schede vuote</button></div>` : ''}`;
+  const chiaveSel = `selezione_${me.id}_${ev.id}`;   // l'ultima scelta resta anche tornando alla Home e dopo un riavvio
+  let ultima = {}; try { ultima = JSON.parse(localStorage.getItem(chiaveSel) || '{}'); } catch { /* ignora */ }
+  const salvaSel = () => { try { localStorage.setItem(chiaveSel, JSON.stringify({ scena: scAvail[$('#sc').value]?.id, scheda: $('#sk').value, squadra: $('#sq').value })); } catch { /* ignora */ } };
   const aggSchede = () => { const s = scAvail[$('#sc').value]; $('#sk').innerHTML = (s ? s.schede : []).map(k => `<option value="${k.id}">${esc(k.titolo)}</option>`).join(''); };
-  $('#sc').onchange = aggSchede; aggSchede();
-  $('#avvia').onclick = () => { location.hash = `#valuta/${$('#sk').value}/${$('#sq').value}/${ev.id}`; };
+  const iScena = scAvail.findIndex(s => s.id === ultima.scena); if (iScena >= 0) $('#sc').value = String(iScena);
+  aggSchede();
+  if ([...$('#sk').options].some(o => o.value === ultima.scheda)) $('#sk').value = ultima.scheda;
+  if ([...$('#sq').options].some(o => o.value === ultima.squadra)) $('#sq').value = ultima.squadra;
+  $('#sc').onchange = () => { aggSchede(); salvaSel(); }; $('#sk').onchange = salvaSel; $('#sq').onchange = salvaSel;
+  $('#avvia').onclick = () => { salvaSel(); location.hash = `#valuta/${$('#sk').value}/${$('#sq').value}/${ev.id}`; };
   window.__ev = ev;
   const cc = coda.conta();
   if (cc.inCoda || cc.rifiutate) {
@@ -174,6 +185,7 @@ async function vistaValuta(schedaId, squadraId) {
     if (nuovo === null) ris.delete(id); else ris.set(id, nuovo);
     b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', nuovo !== null && x === b));
     b.closest('.voce').classList.remove('manca');
+    if (!document.querySelector('.voce.manca')) agg('');
     coda.voce(chiave, meta, id, nuovo);                                // subito su disco, poi invio ritardato
     agg('…'); clearTimeout(timer); timer = setTimeout(() => invia().catch(() => {}), 600);
   };
@@ -182,10 +194,11 @@ async function vistaValuta(schedaId, squadraId) {
   const chiudiScheda = (nuovoStato) => async () => {
     document.querySelectorAll('.voce.manca').forEach(e => e.classList.remove('manca'));
     const mancanti = scheda.voci.filter(v => !ris.has(v.id));
-    if (mancanti.length) {
+    if (mancanti.length) {          // la scheda non si chiude finché ogni voce non ha una valutazione: si resta qui
       mancanti.forEach(v => document.querySelector(`.voce[data-id="${v.id}"]`).classList.add('manca'));
       document.querySelector('.voce.manca').scrollIntoView({ block: 'center', behavior: 'smooth' });
-      if (!confirm(`Attenzione: ${mancanti.length} voci non compilate (evidenziate in rosso).\nVuoi chiudere comunque la scheda?`)) return;
+      $('#st').innerHTML = `<span class="msg-blocco">Mancano ${mancanti.length} voci (evidenziate in rosso): compilale per chiudere la scheda.</span>`;
+      return;
     }
     clearTimeout(timer); coda.stato(chiave, meta, nuovoStato);
     const r = await invia();

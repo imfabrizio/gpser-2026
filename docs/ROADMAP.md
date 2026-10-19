@@ -1,6 +1,6 @@
 # Roadmap (3–4 mesi)
 
-**Fatto dopo le prime prove (ottobre 2026):** valutazione senza punti visibili, pulsanti con testo per esteso, ruolo giudice master (verifica e chiude la scena), anagrafica persone con comitato/provincia, comitato e componenti delle squadre, avvio automatico di schema e migrazioni.
+**Fatto dopo le prime prove (ottobre 2026):** valutazione senza punti visibili, pulsanti con testo per esteso, ruolo giudice master (verifica e chiude la scena), anagrafica persone con comitato/provincia, comitato e componenti delle squadre, avvio automatico di schema e migrazioni, completamento scheda bloccato se mancano voci, memoria dell'ultima selezione, colori dal verde al rosso, scheda Importa (Gestione) per caricare i file Excel delle scene gara e Olimpiadi nella libreria (patologie chiamate «<Tipo> · Gara|Olimpiadi <Scena>»).
 
 **Richieste in coda:** accesso con Google/Microsoft/Facebook e autenticazione a due fattori (progetto a parte: registrazione dell'app presso i provider, collegamento account↔persona); importazione delle gare passate come libreria di patologie e scene (servono i file); collegamento persona↔utente; registro modifiche consultabile da interfaccia.
 

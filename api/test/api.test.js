@@ -498,3 +498,19 @@ test('M-4 il nuovo ruolo giudice_master è accettato dalla gestione utenti e ass
   const g = json(await chiama('GET', '/api/giudici', { token: tok['org@t'] }));
   assert.ok(g.some((x) => x.email === 'gm@t' && x.ruolo === 'giudice_master'));
 });
+
+test('I-1 import via API: solo organizzazione, file non valido → 400, scena duplicata → 409, nuovo evento olimpiadi', async () => {
+  const dati = fs.readFileSync(new URL('./fixtures/scena-alfa.xlsx', import.meta.url)).toString('base64');
+  const post = (t, body) => chiama('POST', '/api/import/excel', { token: t, body });
+  assert.equal((await post(tok['giu@t'], { dati, tipo: 'gara', evento_id: ev })).statusCode, 403);
+  assert.equal((await post(tok['org@t'], { dati: Buffer.from('non è un excel').toString('base64'), tipo: 'gara', evento_id: ev })).statusCode, 400);
+  const dup = await post(tok['org@t'], { dati, tipo: 'gara', evento_id: ev });
+  assert.equal(dup.statusCode, 409); assert.match(dup.body, /esiste già/);
+  const ok = await post(tok['org@t'], { dati, tipo: 'olimpiadi', evento: { codice: 'OLI-T', nome: 'Olimpiadi test', luogo: 'X', data: '2026-05-01' } });
+  assert.equal(ok.statusCode, 200, ok.body);
+  const r = json(ok); assert.ok(r.schede > 0 && r.voci > 0);
+  const q = await pool.query(`select codice from evento where codice='OLI-T'`);
+  assert.equal(q.rows.length, 1);
+  const lib = await pool.query(`select count(*)::int n from patologia where nome like '% · Olimpiadi %'`);
+  assert.ok(lib.rows[0].n > 0);
+});
