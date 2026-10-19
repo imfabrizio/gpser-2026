@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="it">
 <head>
+<link rel="icon" href="data:,">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GareCRI</title>
@@ -87,7 +88,7 @@ function vistaLogin() {
 async function vistaHome() {
   $('#esci').hidden = false; $('#titolo').textContent = 'GareCRI';
   const eventi = await api('/eventi'); const ev = eventi.find(e => e.attivo) || eventi[0];
-  if (!ev) { $('#app').innerHTML = '<div class="card">Nessun evento.</div>'; return; }
+  if (!ev) { $('#app').innerHTML = '<div class="card">Nessun evento.' + (org() ? ' <a class="btn" href="/admin.html">Vai a Gestione per crearne uno</a>' : ' Chiedi all\'organizzazione di crearne uno.') + '</div>'; return; }
   const [scene, squadre] = await Promise.all([api(`/eventi/${ev.id}/scene`), api(`/eventi/${ev.id}/squadre`)]);
   const scAvail = scene.filter(s => s.schede && s.schede.length);
   $('#app').innerHTML = `<div class="card"><strong>${esc(ev.nome)}</strong><br><small>${esc(ev.luogo)} ${esc(ev.data)}</small>
