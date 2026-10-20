@@ -131,18 +131,22 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   // ── evento / scena / scheda ──
   app.patch('/api/eventi/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
+    if (b.mappa_url && !/^https:\/\/(www\.)?google\.com\/maps\//.test(b.mappa_url.trim())) throw httpErr(400, 'la mappa deve essere un indirizzo https://www.google.com/maps/… (Condividi → Incorpora mappa)');
     const { rows: [e] } = await pool.query(
-      `update evento set codice=coalesce($8,codice), nome=coalesce($2,nome), titolo_stampa=coalesce($3,titolo_stampa), luogo=coalesce($4,luogo),
+      `update evento set mappa_url = case when $9 then nullif(trim($10),'') else mappa_url end, codice=coalesce($8,codice), nome=coalesce($2,nome), titolo_stampa=coalesce($3,titolo_stampa), luogo=coalesce($4,luogo),
          data=coalesce($5::date,data), tipo=coalesce($6,tipo), archiviato=coalesce($7,archiviato), attivo = case when coalesce($7,archiviato) then false else attivo end, updated_at=now()
-       where id=$1 returning *`, [req.params.id, b.nome ?? null, b.titolo_stampa ?? null, b.luogo ?? null, b.data ?? null, b.tipo ?? null, b.archiviato ?? null, b.codice?.trim() || null]);
+       where id=$1 returning *`, [req.params.id, b.nome ?? null, b.titolo_stampa ?? null, b.luogo ?? null, b.data ?? null, b.tipo ?? null, b.archiviato ?? null, b.codice?.trim() || null, 'mappa_url' in b, b.mappa_url ?? '']);
     if (!e) throw httpErr(404, 'evento inesistente');
     return e;
   });
   app.patch('/api/scene/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
     const { rows: [s] } = await pool.query(
-      `update scena set titolo=coalesce($2,titolo), ordine=coalesce($3,ordine) where id=$1 returning *`,
-      [req.params.id, b.titolo ?? null, b.ordine ?? null]);
+      `update scena set titolo=coalesce($2,titolo), ordine=coalesce($3,ordine),
+         indirizzo = case when $4 then nullif(trim($5),'') else indirizzo end,
+         lat = case when $6 then $7::numeric else lat end, lng = case when $6 then $8::numeric else lng end where id=$1 returning *`,
+      [req.params.id, b.titolo ?? null, b.ordine ?? null, 'indirizzo' in b, b.indirizzo ?? '',
+       'lat' in b || 'lng' in b, b.lat === '' ? null : (b.lat ?? null), b.lng === '' ? null : (b.lng ?? null)]);
     if (!s) throw httpErr(404, 'scena inesistente');
     return s;
   });

@@ -33,7 +33,7 @@ export function buildApp(pool, { logger = false } = {}) {
     const rotta = req.routeOptions?.url || '';
     let decodificato; try { decodificato = decodeURIComponent(req.url.split('?')[0]); } catch { throw httpErr(400, 'URL non valido'); }
     const api = rotta.startsWith('/api/') || decodificato.startsWith('/api/');
-    if (!api || rotta === '/api/login') return;
+    if (!api || rotta === '/api/login' || rotta === '/api/pubblico') return;
     const t = leggiToken((req.headers.authorization || '').replace(/^Bearer /, ''));
     if (!t) throw httpErr(401, 'non autenticato');
     const { rows: [u] } = await pool.query('select id, ruolo, nome, evento_id from utente where id=$1 and attivo', [t.id]);
@@ -69,18 +69,29 @@ export function buildApp(pool, { logger = false } = {}) {
   });
   app.get('/api/me', async (req) => req.utente);
 
+  // ── pagina pubblica (senza login): notizie, gare, percorso ──
+  app.get('/api/pubblico', async () => {
+    const { rows: avvisi } = await pool.query(`select id, titolo, testo, created_at from avviso where pubblico order by created_at desc limit 20`);
+    const { rows: eventi } = await pool.query(
+      `select id, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, mappa_url from evento where not archiviato order by data desc nulls last limit 20`);
+    const { rows: scene } = await pool.query(
+      `select s.evento_id, s.codice, s.titolo, s.indirizzo, s.lat, s.lng from scena s join evento e on e.id=s.evento_id
+        where not e.archiviato and (s.indirizzo is not null or s.lat is not null) order by s.ordine, s.codice`);
+    return { avvisi, eventi: eventi.map((e) => ({ ...e, scene: scene.filter((s) => s.evento_id === e.id) })) };
+  });
+
   // ── bacheca avvisi della Home ──
   app.get('/api/avvisi', async (req) => {
     const ev = req.query.evento || null;
     return (await pool.query(
-      `select id, evento_id, titolo, testo, created_at from avviso
+      `select id, evento_id, titolo, testo, pubblico, created_at from avviso
         where evento_id is null or evento_id = $1::uuid order by created_at desc limit 20`, [ev])).rows;
   });
   app.post('/api/avvisi', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
     if (!b.titolo || !String(b.titolo).trim()) throw httpErr(400, 'titolo obbligatorio');
-    return (await pool.query('insert into avviso (evento_id, titolo, testo) values ($1,$2,$3) returning *',
-      [b.evento_id || null, String(b.titolo).trim(), b.testo || null])).rows[0];
+    return (await pool.query('insert into avviso (evento_id, titolo, testo, pubblico) values ($1,$2,$3,$4) returning *',
+      [b.evento_id || null, String(b.titolo).trim(), b.testo || null, b.pubblico === true])).rows[0];
   });
   app.delete('/api/avvisi/:id', { preHandler: soloOrg }, async (req) => { await pool.query('delete from avviso where id=$1', [req.params.id]); return { ok: true }; });
 
@@ -88,7 +99,7 @@ export function buildApp(pool, { logger = false } = {}) {
   app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
     const org = RUOLI_ORG.includes(req.utente.ruolo);
     return (await pool.query(
-      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato
+      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato, mappa_url
          from evento where ($1 or id = $2 or ($2::uuid is null and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id])).rows;
   });
@@ -123,7 +134,7 @@ export function buildApp(pool, { logger = false } = {}) {
 
   app.get('/api/eventi/:id/scene', async (req) => {
     const { rows } = await pool.query(
-      `select sc.id, sc.codice, sc.titolo,
+      `select sc.id, sc.codice, sc.titolo, sc.indirizzo, sc.lat, sc.lng,
          (select json_agg(json_build_object('id', s.id, 'slot', s.slot, 'titolo', s.titolo, 'simulatore', s.simulatore) order by s.slot)
             from scena_scheda s
             where s.scena_id = sc.id

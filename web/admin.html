@@ -42,6 +42,9 @@
   table.punteggi .num { width:100% !important; max-width:56px; margin:0 auto; display:block; }
   table.punteggi input[type=checkbox] { display:block; margin:0 auto; }
   .griglia { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; }
+  header .logo { height:34px; background:#fff; border-radius:8px; padding:2px 4px; }
+  .navbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; } .navbar a, .navbar button { background:#fff; color:#222; border:1px solid var(--bordo); padding:10px 14px; border-radius:10px; font-size:14px; text-decoration:none; cursor:pointer; font-family:inherit; }
+  .navbar .val { background:var(--rosso); color:#fff; border-color:var(--rosso); }
   small, .nota { color:#666; font-size:12px; }
   .hub { grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
   .hubb { text-align:left; background:#fff; border:1px solid var(--bordo); border-radius:12px; padding:18px 14px; cursor:pointer; font-family:inherit; min-height:84px; }
@@ -53,8 +56,8 @@
 </style>
 </head>
 <body>
-<header><h1>GareCRI · Gestione</h1><span id="chi"></span><a href="/">Valutazioni</a><button id="esci">Esci</button></header>
-<nav id="tabs"></nav>
+<header><img class="logo" src="/logo-cri.jpg" alt="CRI"><h1>GareCRI · Gestione</h1><span id="chi"></span><button id="esci">Esci</button></header>
+<nav id="tabs" hidden></nav>
 <main id="app"></main>
 <dialog id="dlg"></dialog>
 <script>
@@ -82,7 +85,7 @@ window.chiudi = chiudi;
 
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
-const TABS = [['menu', 'Gestione'], ['evento', 'Gara'], ['scene', 'Scene'], ['libreria', 'Schede'], ['squadre', 'Squadre'], ['persone', 'Anagrafiche'], ['classifiche', 'Classifiche'], ['stampa', 'Stampa'], ['importa', 'Importa'], ['utenti', 'Utenti']];
+const TABS = [['menu', 'Gestione'], ['evento', 'Gara'], ['scene', 'Scene'], ['libreria', 'Schede'], ['squadre', 'Squadre'], ['persone', 'Anagrafiche'], ['news', 'Notizie'], ['classifiche', 'Classifiche'], ['stampa', 'Stampa'], ['importa', 'Importa'], ['utenti', 'Utenti']];
 const RUOLI = ['giudice', 'giudice_master', 'organizzazione', 'admin'];
 const RUOLO_ET = { giudice: 'giudice', giudice_master: 'giudice master', organizzazione: 'organizzazione', admin: 'admin' };
 function disegnaTabs() {
@@ -112,9 +115,10 @@ async function tEvento() {
       <div><label>Tipo</label><select id="e_tipo"><option ${ev.tipo === 'gara' ? 'selected' : ''}>gara</option><option ${ev.tipo === 'olimpiadi' ? 'selected' : ''}>olimpiadi</option></select></div></div>
     <p><button class="b" id="e_salva">Salva</button> <button class="s" id="e_attiva" ${ev.attivo ? 'disabled' : ''}>Rendi attivo</button>
     <button class="x" id="e_arch">Archivia</button></p></div>
-  <div class="card"><h3>Avvisi in Home</h3><div id="avvisi"></div>
-    <div class="riga"><div style="flex:2"><label>Titolo</label><input id="av_t"></div><div style="flex:3"><label>Testo</label><input id="av_x"></div>
-    <div class="stretto"><button class="b" id="av_ok">Pubblica</button></div></div><p class="nota">Gli avvisi compaiono nella Home di chi partecipa a questa gara.</p></div>` : '') + `
+  <div class="card"><h3>Mappa del percorso</h3><label>Incorporamento Google My Maps (facoltativo)</label>
+    <input id="e_map" value="${esc(ev.mappa_url || '')}" placeholder="https://www.google.com/maps/d/embed?mid=…">
+    <p class="nota">Crea la mappa su Google My Maps con i punti delle scene, poi Condividi → Incorpora mappa e incolla qui solo l'indirizzo (src). Gli indirizzi o le coordinate delle singole scene si inseriscono in Scene.</p>
+    <p><button class="b" id="e_map_ok">Salva mappa</button></p></div>` : '') + `
   <div class="card"><h3>Nuova gara</h3><div class="riga">
     <div><label>Nome</label><input id="n_nome" placeholder="GPSER 2027"></div><div><label>Codice (se vuoto, ricavato dal nome)</label><input id="n_cod" placeholder="GPSER-2027"></div>
     <div><label>Tipo</label><select id="n_tipo"><option value="gara">gara</option><option value="olimpiadi">olimpiadi</option></select></div>
@@ -126,11 +130,7 @@ async function tEvento() {
       luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value } }).then(caricaEventi), 'Salvato');
     $('#e_attiva').onclick = () => fai(() => api(`/eventi/${ev.id}/attiva`, { method: 'POST', body: {} }).then(caricaEventi), 'Evento attivato');
     $('#e_arch').onclick = () => { if (confirm('Archiviare questo evento? Sparisce dagli elenchi ma i dati restano.')) fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { archiviato: true } }).then(caricaEventi), 'Archiviato'); };
-    const caricaAvvisi = async () => { const l = await api(`/avvisi?evento=${ev.id}`);
-      $('#avvisi').innerHTML = l.length ? `<table>${l.map((x) => `<tr><td><b>${esc(x.titolo)}</b><br><small>${esc(x.testo || '')}</small></td><td style="width:90px"><button class="x p dav" data-id="${x.id}">Elimina</button></td></tr>`).join('')}</table>` : '<p class="nota">Nessun avviso.</p>';
-      document.querySelectorAll('.dav').forEach((b) => { b.onclick = () => fai(() => api(`/avvisi/${b.dataset.id}`, { method: 'DELETE' }), 'Avviso eliminato'); }); };
-    await caricaAvvisi();
-    $('#av_ok').onclick = () => { const t = $('#av_t').value.trim(); if (t) fai(() => api('/avvisi', { body: { evento_id: ev.id, titolo: t, testo: $('#av_x').value.trim() } }), 'Avviso pubblicato'); };
+    $('#e_map_ok').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { mappa_url: $('#e_map').value.trim() } }).then(caricaEventi), 'Mappa salvata');
   }
   $('#n_crea').onclick = () => fai(async () => {
     const e = await api('/eventi', { body: { codice: $('#n_cod').value.trim() || $('#n_nome').value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: $('#n_tipo').value, nome: $('#n_nome').value.trim(), titolo_stampa: $('#n_nome').value.trim(), luogo: $('#n_luogo').value, data: $('#n_data').value || null } });
@@ -143,13 +143,29 @@ async function tEvento() {
 function tMenu() {
   const voci = [['evento', 'Gara', 'Crea la gara o le olimpiadi, date, avvisi'], ['scene', 'Scene', 'Una scena è un gruppo di schede'],
     ['libreria', 'Schede', 'Crea e modifica le schede, anche copiandone una'], ['squadre', 'Squadre', 'Squadre, comitato e componenti'],
-    ['persone', 'Anagrafiche', 'Persone e requisiti'], ['classifiche', 'Classifiche', 'Generale, SEP, BLSD, Master, DIU'],
+    ['news', 'Notizie', 'Avvisi per i partecipanti e notizie pubbliche'], ['persone', 'Anagrafiche', 'Persone e requisiti'], ['classifiche', 'Classifiche', 'Generale, SEP, BLSD, Master, DIU'],
     ['stampa', 'Stampa', 'Schede vuote o compilate, per scena o squadra'], ['importa', 'Importa', 'Carica le scene dai vecchi file Excel']];
   if (me.ruolo === 'admin') voci.push(['utenti', 'Utenti', 'Accessi, ruoli e gara assegnata']);
   $('#app').innerHTML = selettoreEvento() + `<div class="griglia hub">${voci.map(([k, n, d]) => `<button class="hubb" data-t="${k}"><b>${n}</b><span>${d}</span></button>`).join('')}</div>
-    <p style="margin-top:14px"><a class="b-link" href="/">Torna alla valutazione</a></p>`;
+`;
   legaSelettore();
   document.querySelectorAll('.hubb').forEach((b) => { b.onclick = () => { tab = b.dataset.t; localStorage.setItem('tab', tab); disegnaTabs(); render(); }; });
+}
+
+
+// ───────── NOTIZIE ─────────
+async function tNews() {
+  const l = ev ? await api(`/avvisi?evento=${ev.id}`) : [];
+  $('#app').innerHTML = selettoreEvento() + `<div class="card"><h3>Nuova notizia</h3>
+    <div class="riga"><div style="flex:2"><label>Titolo</label><input id="av_t"></div><div style="flex:3"><label>Testo</label><input id="av_x"></div></div>
+    <div class="riga"><div><label>Visibile a</label><select id="av_d"><option value="ev">solo chi partecipa a questa gara</option><option value="tutti">tutti gli utenti</option></select></div>
+    <div><label>Home pubblica</label><label style="font-size:15px;color:inherit"><input type="checkbox" id="av_p"> mostra anche senza login</label></div>
+    <div class="stretto"><button class="b" id="av_ok">Pubblica</button></div></div></div>
+    <div class="card"><h3>Notizie pubblicate</h3>${l.length ? `<table>${l.map((x) => `<tr><td><b>${esc(x.titolo)}</b> ${x.pubblico ? '<span class="tag ok">pubblica</span>' : ''}<span class="tag">${x.evento_id ? 'questa gara' : 'tutti'}</span><br><small>${esc(x.testo || '')} · ${esc(String(x.created_at).slice(0, 10))}</small></td>
+      <td style="width:90px"><button class="x p dav" data-id="${x.id}">Elimina</button></td></tr>`).join('')}</table>` : '<p class="nota">Nessuna notizia.</p>'}</div>`;
+  legaSelettore();
+  document.querySelectorAll('.dav').forEach((b) => { b.onclick = () => fai(() => api(`/avvisi/${b.dataset.id}`, { method: 'DELETE' }), 'Notizia eliminata'); });
+  $('#av_ok').onclick = () => { const t = $('#av_t').value.trim(); if (t) fai(() => api('/avvisi', { body: { evento_id: $('#av_d').value === 'ev' && ev ? ev.id : null, titolo: t, testo: $('#av_x').value.trim(), pubblico: $('#av_p').checked } }), 'Notizia pubblicata'); };
 }
 
 // ───────── CLASSIFICHE ─────────
@@ -281,6 +297,9 @@ async function tScene() {
   const nomiAss = (id) => ass.filter((a) => a.scheda_id === id).map((a) => esc(a.nome)).join(', ') || '<em>nessuno</em>';
   $('#app').innerHTML = selettoreEvento() + scene.map((s) => `<div class="card"><h3>Scena ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
     <p>Giudice master: <strong>${mas.filter((m) => m.scena_id === s.id).map((m) => esc(m.nome)).join(', ') || '<em>nessuno</em>'}</strong> <button class="s p mas-b" data-id="${s.id}">Giudice master…</button></p>
+    <div class="riga"><div style="flex:3"><label>Indirizzo della scena (per la mappa)</label><input class="s_ind" data-id="${s.id}" value="${esc(s.indirizzo || '')}" placeholder="Via Roma 1, Piacenza"></div>
+      <div><label>Latitudine</label><input class="s_lat" data-id="${s.id}" value="${s.lat ?? ''}" placeholder="45.0526"></div><div><label>Longitudine</label><input class="s_lng" data-id="${s.id}" value="${s.lng ?? ''}" placeholder="9.6930"></div>
+      <div class="stretto"><button class="s p s_pos" data-id="${s.id}">Salva posizione</button></div></div>
     <p><button class="s p dup" data-id="${s.id}">Duplica in un altro evento…</button> <button class="x p delsc" data-id="${s.id}">Elimina scena</button></p>
     ${(s.schede || []).map((k) => { const d = schede[k.id]; const p = d.parametri || {}; return `<div class="scheda">
       <div class="riga"><div style="flex:2"><strong>${esc(d.titolo)}</strong> <span class="tag">slot ${d.slot}</span><span class="tag">sim. ${esc(d.simulatore)}</span>
@@ -302,6 +321,8 @@ async function tScene() {
     <div style="flex:3"><label>Titolo</label><input id="ns_tit"></div><div class="stretto"><button class="b" id="ns_ok">Crea</button></div></div></div>`;
   legaSelettore();
   document.querySelectorAll('.t_sc').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { titolo: i.value } }), 'Titolo aggiornato'); });
+  document.querySelectorAll('.s_pos').forEach((b) => { b.onclick = () => { const id = b.dataset.id, g = (c) => document.querySelector(`.${c}[data-id="${id}"]`).value.trim();
+    fai(() => api(`/scene/${id}`, { method: 'PATCH', body: { indirizzo: g('s_ind'), lat: g('s_lat'), lng: g('s_lng') } }), 'Posizione salvata'); }; });
   document.querySelectorAll('.pp').forEach((i) => { i.onchange = () => { const d = cache.schede[i.dataset.id]; const p = { ...(d.parametri || {}) };
     const v = i.value.trim(); p[i.dataset.k] = v === '' ? null : (['fr', 'fc'].includes(i.dataset.k) ? Number(v) : v);
     fai(() => api(`/schede/${i.dataset.id}`, { method: 'PATCH', body: { parametri: p } }), 'Parametri salvati'); }; });
@@ -498,9 +519,12 @@ async function tUtenti() {
 
 async function render() {
   try {
-    if (tab === 'menu') tMenu(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
+    if (tab === 'menu') tMenu(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
     else if (tab === 'persone') await tPersone(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
+  $('#app').insertAdjacentHTML('afterbegin', `<div class="navbar">${tab !== 'menu' ? '<button id="nv_g">← Torna a Gestione</button>' : ''}<a href="/#">Torna alla Home</a><a class="val" href="/#valutazione">Vai alla Valutazione</a></div>`);
+  if ($('#nv_g')) $('#nv_g').onclick = () => { tab = 'menu'; localStorage.setItem('tab', tab); render(); };
+  window.scrollTo(0, 0);
 }
 (async () => {
   if (!token || !me) { location.href = '/'; return; }

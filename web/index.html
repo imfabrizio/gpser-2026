@@ -7,11 +7,15 @@
 <title>GareCRI</title>
 <style>
   :root { --rosso:#E3001B; --bg:#f4f4f6; --card:#fff; --testo:#1c1c1e; --bordo:#d6d6da;
-          --mb:#0B6B3A; --be:#2F7A12; --su:#A86400; --in:#C2410C; --ne:#B71C1C; }   /* dal verde smeraldo (molto bene) al rosso (non eseguito) */
+          --mb:#15803D; --be:#4D7C0F; --su:#B45309; --in:#C2410C; --ne:#B91C1C; }   /* dal verde smeraldo (molto bene) al rosso (non eseguito) */
   * { box-sizing: border-box; }
   body { margin:0; font:16px system-ui, sans-serif; background:var(--bg); color:var(--testo); }
   header { background:var(--rosso); color:#fff; padding:10px 16px; display:flex; gap:12px; align-items:center; position:sticky; top:0; z-index:5; }
   header h1 { font-size:18px; margin:0; flex:1; }
+  header .logo { height:38px; background:#fff; border-radius:8px; padding:2px 4px; }
+  header a { color:#fff; font-size:14px; text-decoration:none; background:#fff3; padding:8px 12px; border-radius:8px; }
+  .pub h2 { margin:0 0 6px; } .notizia { border-top:1px solid var(--bordo); padding:10px 0; } .mappa { width:100%; height:380px; border:0; border-radius:10px; }
+  .scene-mappa a { display:inline-block; margin:4px 10px 4px 0; }
   header button { background:#fff3; color:#fff; border:0; padding:8px 12px; border-radius:8px; font-size:14px; }
   main { max-width:900px; margin:0 auto; padding:12px; }
   .card { background:var(--card); border-radius:12px; padding:14px; margin-bottom:12px; box-shadow:0 1px 3px #0001; }
@@ -25,14 +29,12 @@
   .voce.manca { outline:3px solid #C62828; }
   .voce p { margin:0; flex:1 1 320px; min-width:200px; text-align:left; line-height:1.3; }
   .liv { display:flex; gap:6px; flex:0 0 auto; }
-  .liv button { width:108px; padding:8px 2px; font-size:13px; font-weight:700; border:2px solid var(--bordo); background:#fff; border-radius:8px; min-height:44px; white-space:nowrap; }
-  .liv button[data-l=MB] { border-color:var(--mb); color:var(--mb); } .liv button[data-l=BE] { border-color:var(--be); color:var(--be); }
-  .liv button[data-l=SU] { border-color:var(--su); color:var(--su); } .liv button[data-l=IN] { border-color:var(--in); color:var(--in); }
-  .liv button[data-l=NE] { border-color:var(--ne); color:var(--ne); }
+  .liv button { width:108px; padding:8px 2px; font-size:13px; font-weight:700; border:2px solid #111; color:#111; background:#fff; border-radius:8px; min-height:44px; white-space:nowrap; }
   .sola-lettura .liv button { pointer-events:none; opacity:.85; }
   .avviso { background:#fff4d6; border:1px solid #e6c34a; border-radius:10px; padding:10px 12px; margin-bottom:10px; }
   .liv button[disabled] { background:#000; border-color:#000; }
-  .liv button.on { color:#fff !important; }
+  .liv button.on { color:#fff !important; border-color:transparent; }
+  .liv button.on::before { content:'✓ '; }
   .liv button.on[data-l=MB] { background:var(--mb) } .liv button.on[data-l=BE] { background:var(--be) }
   .liv button.on[data-l=SU] { background:var(--su) } .liv button.on[data-l=IN] { background:var(--in) }
   .liv button.on[data-l=NE] { background:var(--ne) }
@@ -48,7 +50,7 @@
 </style>
 </head>
 <body>
-<header><h1 id="titolo">GareCRI</h1><button id="esci" hidden>Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GareCRI</h1><a id="hhome" href="#" hidden>Home</a><button id="esci" hidden>Esci</button></header>
 <main id="app"></main>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
@@ -77,20 +79,51 @@ async function apriPdf(url) {
   } catch (e) { w.close(); alert('PDF non generato: ' + e.message); }
 }
 // il logout NON cancella la coda: i dati non inviati restano legati all'utente e ripartono al suo prossimo accesso
-function logout() { localStorage.removeItem('token'); localStorage.removeItem('me'); token = me = coda = null; vistaLogin(); }
+function logout() { localStorage.removeItem('token'); localStorage.removeItem('me'); token = me = coda = null; location.hash = ''; route(); }
 $('#esci').onclick = logout;
 
+
+// ── mappa del percorso: incorporamento Google My Maps + link a Google Maps per ogni scena ──
+const puntoMaps = (sc) => (sc.lat != null && sc.lng != null ? `${sc.lat},${sc.lng}` : (sc.indirizzo || ''));
+function mappaHtml(ev, scene) {
+  const punti = (scene || []).filter((x) => puntoMaps(x));
+  if (!ev.mappa_url && !punti.length) return '';
+  const q = (x) => encodeURIComponent(puntoMaps(x));
+  const percorso = punti.length >= 2
+    ? `https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=${q(punti[0])}&destination=${q(punti[punti.length - 1])}${punti.length > 2 ? '&waypoints=' + punti.slice(1, -1).map(q).join('%7C') : ''}` : '';
+  return `<div class="card"><strong>Percorso gara</strong>
+    ${ev.mappa_url ? `<iframe class="mappa" src="${esc(ev.mappa_url)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>` : ''}
+    <div class="scene-mappa">${punti.map((x) => `<a href="https://www.google.com/maps/search/?api=1&query=${q(x)}" target="_blank" rel="noopener">📍 Scena ${esc(x.codice)} – ${esc(x.titolo)}</a>`).join('')}
+    ${percorso ? `<br><a class="btn" href="${percorso}" target="_blank" rel="noopener">Apri il percorso in Google Maps</a>` : ''}</div></div>`;
+}
+async function vistaPubblica() {
+  $('#esci').hidden = true; $('#hhome').hidden = true; $('#titolo').textContent = 'Gare di primo soccorso · Croce Rossa Italiana';
+  let d = { avvisi: [], eventi: [] }; try { d = await api('/pubblico'); } catch { /* offline: resta la pagina base */ }
+  const oggiS = oggi();
+  const prossime = d.eventi.filter((e) => e.attivo || (e.data && e.data >= oggiS)).sort((a, b) => String(a.data).localeCompare(String(b.data)));
+  const passate = d.eventi.filter((e) => !prossime.includes(e));
+  const riga = (e) => `<div class="notizia"><b>${esc(e.nome)}</b>${e.attivo ? ' · <span class="ok">in corso</span>' : ''}<br><small>${e.tipo === 'olimpiadi' ? 'Olimpiadi' : 'Gara'} · ${esc(e.luogo || '')} ${esc(e.data || '')}</small></div>`;
+  const inCorso = d.eventi.find((e) => e.attivo) || prossime[0] || d.eventi.find((e) => e.mappa_url || e.scene.length);
+  $('#app').innerHTML = `<div class="card pub" style="text-align:center"><img src="/logo-cri.jpg" alt="Croce Rossa Italiana" style="height:90px">
+      <h2>Gare di primo soccorso</h2><p>Notizie, edizioni e percorso gara.</p><a class="btn" href="#login">Accedi</a></div>
+    <div class="card pub"><h2>Prossime edizioni</h2>${prossime.length ? prossime.map(riga).join('') : '<p><small>Nessuna edizione in programma.</small></p>'}</div>
+    <div class="card pub"><h2>Notizie</h2>${d.avvisi.length ? d.avvisi.map((a) => `<div class="notizia"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>
+    ${inCorso ? mappaHtml(inCorso, inCorso.scene) : ''}
+    ${passate.length ? `<div class="card pub"><h2>Edizioni passate</h2>${passate.map(riga).join('')}</div>` : ''}`;
+}
+
 function vistaLogin() {
-  $('#esci').hidden = true;
+  $('#esci').hidden = true; $('#hhome').hidden = false;
   $('#app').innerHTML = `<div class="card"><h2>Accesso</h2>
     <label>Email</label><input id="em" type="email" autocomplete="username">
     <label>Password</label><input id="pw" type="password" autocomplete="current-password">
     <button class="btn" id="go">Entra</button> <span id="msg" class="err"></span></div>`;
+  $('#pw').onkeydown = (e) => { if (e.key === 'Enter') $('#go').click(); };
   $('#go').onclick = async () => {
     try {
       const r = await api('/login', { body: { email: $('#em').value, password: $('#pw').value } });
       token = r.token; me = r.utente; localStorage.setItem('token', token); localStorage.setItem('me', JSON.stringify(me));
-      await preparaCoda(); vistaHome();
+      await preparaCoda(); location.hash = ''; route();
     } catch (e) { $('#msg').textContent = e.message; }
   };
 }
@@ -112,16 +145,18 @@ function menuGare(eventi, corrente) {
   return `<select id="selgara">${gruppi.filter(([, l]) => l.length).map(([n, l]) => `<optgroup label="${n}">${l.map((e) => `<option value="${e.id}" ${corrente && e.id === corrente.id ? 'selected' : ''}>${esc(e.nome)} · ${esc(e.luogo || '')} ${esc(e.data || '')}</option>`).join('')}</optgroup>`).join('')}</select>`;
 }
 async function vistaHome() {
-  $('#esci').hidden = false; $('#titolo').textContent = 'GareCRI';
+  $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'GareCRI';
   const { ev, eventi } = await garaCorrente();
   if (!ev) { $('#app').innerHTML = '<div class="card">Nessuna gara.' + (org() ? ' <a class="btn" href="/admin.html">Vai a Gestione per crearne una</a>' : ' Chiedi all\'organizzazione di assegnartene una.') + '</div>'; return; }
   const avvisi = await api(`/avvisi?evento=${ev.id}`).catch(() => []);
+  const scene = await api(`/eventi/${ev.id}/scene`).catch(() => []);
   const tipoGara = ev.tipo === 'olimpiadi' ? 'Olimpiadi' : 'Gara';
   $('#app').innerHTML = `<div class="card"><small>${tipoGara} ${statoGara(ev)}</small><h2 style="margin:2px 0 4px">${esc(ev.nome)}</h2>
     <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
     ${org() ? `<label>Cambia gara</label>${menuGare(eventi, ev)}` : ''}
     <p style="margin-top:14px"><a class="btn grande" href="#valutazione">Valutazione · ${esc(ev.nome)}</a></p>
     ${org() ? `<p><a class="btn sec" href="/admin.html">Gestione</a> <a class="btn sec" href="#monitor">Monitor avanzamento</a></p>` : ''}</div>
+    ${mappaHtml(ev, scene)}
     <div class="card"><strong>Avvisi e informazioni</strong>${avvisi.length ? avvisi.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessun avviso.</small></p>'}</div>`;
   if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem('ev', $('#selgara').value); vistaHome(); };
   const cc = coda.conta();
@@ -137,7 +172,7 @@ async function vistaHome() {
 
 // scelta di scena, scheda e squadra della gara corrente
 async function vistaSelezione() {
-  $('#esci').hidden = false;
+  $('#esci').hidden = false; $('#hhome').hidden = false;
   const { ev } = await garaCorrente();
   if (!ev) { location.hash = ''; return; }
   $('#titolo').textContent = 'Valutazione';
@@ -172,7 +207,9 @@ async function preparaCoda() {
 addEventListener('online', () => coda && coda.svuota());
 
 async function vistaValuta(schedaId, squadraId) {
-  const [scheda, cur] = await Promise.all([api(`/schede/${schedaId}`), api(`/compilazioni?scheda=${schedaId}&squadra=${squadraId}`)]);
+  const [scheda, cur, squadreEv] = await Promise.all([api(`/schede/${schedaId}`), api(`/compilazioni?scheda=${schedaId}&squadra=${squadraId}`),
+    api(`/eventi/${window.__ev?.id || localStorage.getItem('ev')}/squadre`).catch(() => [])]);
+  const nomeSq = (squadreEv.find((x) => x.id === squadraId)?.nome || '').toUpperCase();
   const stato = cur.compilazione?.stato || 'bozza';
   const chiusa = stato === 'verificata';
   const puoChiudere = org() || master();                       // organizzazione e giudice master verificano/chiudono
@@ -190,9 +227,10 @@ async function vistaValuta(schedaId, squadraId) {
   }
   $('#titolo').textContent = scheda.titolo;
   const chi = cur.compilazione?.giudice ? ` · compilata da ${esc(cur.compilazione.giudice)}` : '';
-  const banner = chiusa ? `<div class="avviso"><strong>Scheda chiusa (verificata).</strong>${chi} ${soloLettura ? 'Solo il giudice master o l\'organizzazione possono riaprirla.' : ''}</div>`
-    : stato === 'completata' ? `<div class="avviso"><strong>Completata${chi}</strong> · in attesa della verifica del giudice master.</div>`
-    : (master() && cur.compilazione ? `<div class="avviso">In compilazione${chi}.</div>` : '');
+  const sq = nomeSq ? `${esc(nomeSq)} – ` : '';
+  const banner = chiusa ? `<div class="avviso"><strong>${sq}Scheda chiusa (verificata).</strong>${chi} ${soloLettura ? 'Solo il giudice master o l\'organizzazione possono riaprirla.' : ''}</div>`
+    : stato === 'completata' ? `<div class="avviso"><strong>${sq}Completata${chi}</strong> · in attesa della verifica del giudice master.</div>`
+    : (master() && cur.compilazione ? `<div class="avviso"><strong>${sq}In compilazione</strong>${chi}.</div>` : (nomeSq ? `<div class="avviso"><strong>${esc(nomeSq)}</strong></div>` : ''));
   $('#app').innerHTML = banner + html + `<div class="barra"><span class="stato" id="st"></span>
     <button class="btn sec" id="indietro">Indietro</button>
     ${chiusa ? (puoChiudere && cur.compilazione ? '<button class="btn" id="riapri">Riapri scheda</button>' : '')
@@ -258,7 +296,7 @@ async function vistaMonitor() {
 }
 
 async function route() {
-  if (!token) return vistaLogin();
+  if (!token) { return location.hash === '#login' ? vistaLogin() : vistaPubblica(); }
   if (!coda) { try { await preparaCoda(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
   const [v, a, b] = location.hash.slice(1).split('/');
   $('#app').classList.toggle('largo', v === 'valuta'); if (v !== 'valuta') $('#app').classList.remove('sola-lettura');

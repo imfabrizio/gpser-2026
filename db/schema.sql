@@ -36,6 +36,7 @@ create table evento (
   data        date,
   attivo      boolean not null default false,
   archiviato  boolean not null default false,
+  mappa_url   text,                              -- incorporamento di Google My Maps (facoltativo)
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -47,6 +48,7 @@ create table avviso (                            -- bacheca della Home
   evento_id  uuid references evento(id) on delete cascade,   -- NULL = per tutti
   titolo     text not null,
   testo      text,
+  pubblico   boolean not null default false,       -- visibile anche senza login
   created_at timestamptz not null default now()
 );
 
@@ -127,6 +129,9 @@ create table scena (
   codice     text not null,                      -- A, B, C...
   titolo     text not null,
   ordine     int  not null default 0,
+  indirizzo  text,
+  lat        numeric(9,6),
+  lng        numeric(9,6),
   unique (evento_id, codice)
 );
 
@@ -262,4 +267,4 @@ create table scena_master (
 
 -- ───────── versione dello schema ─────────
 create table schema_migrazioni (nome text primary key, applicata_at timestamptz not null default now());
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql');   -- lo schema qui sopra le include già tutte
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql');   -- lo schema qui sopra le include già tutte

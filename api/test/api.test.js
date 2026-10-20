@@ -546,3 +546,19 @@ test('I-2 import con «sostituisci»: la scena presente viene rimpiazzata con le
   assert.equal(cl.classifica.find((x) => x.nome === 'Scandiano').totale, '386');
   const r = json(await chiama('PATCH', `/api/eventi/${ev}`, { token: org, body: { codice: 'T-1' } })); assert.equal(r.codice, 'T-1');
 });
+
+test('P-1 pagina pubblica: senza login solo notizie pubbliche e percorso; mappa solo Google', async () => {
+  const org = tok['org@t'];
+  await chiama('POST', '/api/avvisi', { token: org, body: { evento_id: ev, titolo: 'Pubblica', pubblico: true } });
+  await chiama('POST', '/api/avvisi', { token: org, body: { evento_id: ev, titolo: 'Riservata' } });
+  const { rows: [sc] } = await pool.query('select id from scena where evento_id=$1 limit 1', [ev]);
+  assert.equal((await chiama('PATCH', `/api/scene/${sc.id}`, { token: org, body: { indirizzo: 'Via Roma 1, Piacenza', lat: '45.05', lng: '9.69' } })).statusCode, 200);
+  assert.equal((await chiama('PATCH', `/api/eventi/${ev}`, { token: org, body: { mappa_url: 'https://evil.example/x' } })).statusCode, 400);
+  assert.equal((await chiama('PATCH', `/api/eventi/${ev}`, { token: org, body: { mappa_url: 'https://www.google.com/maps/d/embed?mid=abc' } })).statusCode, 200);
+  const r = await chiama('GET', '/api/pubblico');
+  assert.equal(r.statusCode, 200);
+  const d = json(r);
+  assert.ok(d.avvisi.some((a) => a.titolo === 'Pubblica')); assert.ok(!d.avvisi.some((a) => a.titolo === 'Riservata'));
+  const e = d.eventi.find((x) => x.id === ev); assert.ok(e.mappa_url.startsWith('https://www.google.com/maps/')); assert.ok(e.scene.length >= 1 && e.scene[0].indirizzo);
+  assert.equal((await chiama('GET', '/api/eventi')).statusCode, 401);   // il resto resta protetto
+});
