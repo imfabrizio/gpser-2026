@@ -33,7 +33,7 @@ const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').rep
  * hanno quasi sempre voci e punteggi diversi tra scene e tra gare/Olimpiadi, quindi non si fondono).
  */
 export async function importaExcel(db, file, opz) {
-  const { eventoId, eventoCodice, nomeEvento, luogo, data, titoloStampa, tipoEvento = 'gara', attiva = true } = opz;
+  const { eventoId, eventoCodice, nomeEvento, luogo, data, titoloStampa, tipoEvento = 'gara', attiva = true, sostituisci = false } = opz;
   const wb = new ExcelJS.Workbook();
   if (Buffer.isBuffer(file)) await wb.xlsx.load(file); else await wb.xlsx.readFile(file);
   const rep = { avvisi: [] };
@@ -70,7 +70,13 @@ export async function importaExcel(db, file, opz) {
       [eventoCodice, nomeEvento, tipoEvento, titoloStampa, luogo, data, attiva]));
   }
   const { rowCount: esiste } = await db.query('select 1 from scena where evento_id=$1 and codice=$2', [ev.id, scenaCodice]);
-  if (esiste) throw httpErr(409, `la scena ${scenaCodice} esiste già nell'evento ${ev.codice}: non importata`);
+  if (esiste && !sostituisci) throw httpErr(409, `la scena ${scenaCodice} esiste già nell'evento ${ev.codice}: non importata (spunta «Sostituisci» per rimpiazzarla)`);
+  if (esiste) {   // sostituzione: via valutazioni, compilazioni e scena (squadre ed evento restano)
+    const { rows: [sv] } = await db.query('select id from scena where evento_id=$1 and codice=$2', [ev.id, scenaCodice]);
+    await db.query('delete from risposta where compilazione_id in (select c.id from compilazione c join scena_scheda s on s.id=c.scheda_id where s.scena_id=$1)', [sv.id]);
+    await db.query('delete from compilazione where scheda_id in (select id from scena_scheda where scena_id=$1)', [sv.id]);
+    await db.query('delete from scena where id=$1', [sv.id]);
+  }
   const ambito = ev.tipo === 'olimpiadi' ? { codice: 'OLI', nome: 'Olimpiadi' } : { codice: 'GARA', nome: 'Gara' };
   const squadre = {};
   for (const r of tabella(wb.getWorksheet('STAMPA_SCENA'))) {

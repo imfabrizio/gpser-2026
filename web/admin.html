@@ -105,7 +105,7 @@ const legaSelettore = () => { const s = $('#selev'); if (s) s.onchange = () => {
 async function tEvento() {
   $('#app').innerHTML = selettoreEvento() + (ev ? `
   <div class="card"><h3>Dati della gara ${ev.attivo ? '<span class="tag ok">attivo</span>' : ''}</h3>
-    <div class="riga"><div><label>Nome</label><input id="e_nome" value="${esc(ev.nome)}"></div>
+    <div class="riga"><div><label>Codice</label><input id="e_cod" value="${esc(ev.codice)}"></div><div><label>Nome</label><input id="e_nome" value="${esc(ev.nome)}"></div>
       <div><label>Titolo in stampa</label><input id="e_tit" value="${esc(ev.titolo_stampa || '')}"></div></div>
     <div class="riga"><div><label>Luogo</label><input id="e_luogo" value="${esc(ev.luogo || '')}"></div>
       <div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
@@ -122,7 +122,7 @@ async function tEvento() {
     <p><button class="b" id="n_crea">Crea evento</button></p></div>`;
   legaSelettore();
   if (ev) {
-    $('#e_salva').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
+    $('#e_salva').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
       luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value } }).then(caricaEventi), 'Salvato');
     $('#e_attiva').onclick = () => fai(() => api(`/eventi/${ev.id}/attiva`, { method: 'POST', body: {} }).then(caricaEventi), 'Evento attivato');
     $('#e_arch').onclick = () => { if (confirm('Archiviare questo evento? Sparisce dagli elenchi ma i dati restano.')) fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { archiviato: true } }).then(caricaEventi), 'Archiviato'); };
@@ -428,7 +428,7 @@ async function tImporta() {
   $('#app').innerHTML = `<div class="card"><h3>Importa scene da Excel</h3>
     <p class="nota">Carica i file Excel delle scene (formato GareCRI). I file con «OLI» nel nome sono considerati Olimpiadi, gli altri gare. Ogni file diventa una scena dell'evento scelto,
       con schede e valutazioni già inserite; le schede entrano anche nella <strong>libreria</strong> come «Tipo · Gara/Olimpiadi Scena». L'evento attivo non viene cambiato.
-      Una scena già presente nell'evento non viene sovrascritta.</p>
+      Una scena già presente nell'evento non viene sovrascritta, a meno che tu spunti «Sostituisci».</p>
     <input type="file" id="im_f" accept=".xlsx" multiple><div id="im_cfg"></div><div id="im_ris"></div></div>`;
   let files = [];
   const tipoDi = (f) => (/OLI/i.test(f.name) ? 'olimpiadi' : 'gara');
@@ -445,6 +445,7 @@ async function tImporta() {
     $('#im_cfg').innerHTML = files.length ? `<table style="margin-top:10px"><tr><th>File</th><th>Tipo</th><th>Esito</th></tr>${files.map((f, i) => `<tr><td>${esc(f.file.name)}<br><small>${Math.round(f.file.size / 1024)} KB</small></td>
       <td><select class="im_t" data-i="${i}"><option value="gara" ${f.tipo === 'gara' ? 'selected' : ''}>gara</option><option value="olimpiadi" ${f.tipo === 'olimpiadi' ? 'selected' : ''}>olimpiadi</option></select></td>
       <td id="im_e${i}"><small>da importare</small></td></tr>`).join('')}</table>${tipi.map(cfg).join('')}
+      <p><label style="font-size:14px;color:inherit"><input type="checkbox" id="im_sost"> <strong>Sostituisci</strong> le scene già presenti: cancella le loro valutazioni e le reimporta dal file</label></p>
       <p><button class="b" id="im_go">Importa ${files.length} file</button></p>` : '';
     document.querySelectorAll('.im_t').forEach((sel) => { sel.onchange = () => { files[sel.dataset.i].tipo = sel.value; disegna(); }; });
     document.querySelectorAll('.ic_ev').forEach((sel) => { sel.onchange = () => { sel.closest('.scheda').querySelector('.ic_nuovo').hidden = sel.value !== ''; }; });
@@ -458,12 +459,14 @@ async function tImporta() {
         luogo: blocco.querySelector('.ic_luogo').value.trim(), data: blocco.querySelector('.ic_data').value || null } };
       if (!id && (!dest[t].evento.codice || !dest[t].evento.nome)) return flash('Per un nuovo evento servono codice e nome', false);
     }
+    const sostituisci = $('#im_sost').checked;
+    if (sostituisci && !confirm('Le scene già presenti, con le loro valutazioni, verranno cancellate e ricaricate dai file. Continuare?')) return;
     $('#im_go').disabled = true; document.querySelectorAll('.im_t, .ic_ev').forEach((x) => (x.disabled = true));
     let ok = 0, ko = 0;
     for (const [i, f] of files.entries()) {
       const cella = $(`#im_e${i}`); cella.innerHTML = '⏳ in corso…';
       try {
-        const r = await api('/import/excel', { body: { dati: await aBase64(f.file), tipo: f.tipo, ...dest[f.tipo] } });
+        const r = await api('/import/excel', { body: { dati: await aBase64(f.file), tipo: f.tipo, sostituisci, ...dest[f.tipo] } });
         cella.innerHTML = `<span class="tag ok">✓ scena ${esc(r.scenaCodice)}</span> ${esc(r.scenaTitolo)}<br><small>${r.schede} schede · ${r.voci} voci · ${r.squadre} squadre · ${r.risposte} valutazioni</small>
           ${r.avvisi.length ? '<br><small>⚠ ' + [...new Set(r.avvisi)].slice(0, 4).map(esc).join(' · ') + '</small>' : ''}`;
         ok++;

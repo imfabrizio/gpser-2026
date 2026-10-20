@@ -534,3 +534,15 @@ test('G-1 categoria patologia, classifica DIU, avvisi, giudice legato a una gara
   assert.deepEqual(json(await chiama('GET', '/api/eventi', { token: tok['giu@t'] })).map((e) => e.codice), ['ALTRA']);
   await pool.query(`update utente set evento_id=null where email='giu@t'`);
 });
+
+test('I-2 import con «sostituisci»: la scena presente viene rimpiazzata con le stesse valutazioni; il codice gara si può cambiare', async () => {
+  const dati = fs.readFileSync(new URL('./fixtures/scena-alfa.xlsx', import.meta.url)).toString('base64');
+  const org = tok['org@t'];
+  const conta = async () => (await pool.query(`select count(*)::int n from risposta r join compilazione c on c.id=r.compilazione_id join scena_scheda s on s.id=c.scheda_id join scena sc on sc.id=s.scena_id where sc.evento_id=$1`, [ev])).rows[0].n;
+  const prima = await conta(); assert.ok(prima > 0);
+  assert.equal((await chiama('POST', '/api/import/excel', { token: org, body: { dati, tipo: 'gara', evento_id: ev, sostituisci: true } })).statusCode, 200);
+  assert.ok(await conta() > 0);   // i test precedenti avevano aggiunto altre valutazioni: dopo la sostituzione restano solo quelle del file
+  const cl = json(await chiama('GET', `/api/eventi/${ev}/classifica?tipo=generale`, { token: org }));
+  assert.equal(cl.classifica.find((x) => x.nome === 'Scandiano').totale, '386');
+  const r = json(await chiama('PATCH', `/api/eventi/${ev}`, { token: org, body: { codice: 'T-1' } })); assert.equal(r.codice, 'T-1');
+});

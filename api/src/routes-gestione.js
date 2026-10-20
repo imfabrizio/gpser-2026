@@ -132,9 +132,9 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.patch('/api/eventi/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
     const { rows: [e] } = await pool.query(
-      `update evento set nome=coalesce($2,nome), titolo_stampa=coalesce($3,titolo_stampa), luogo=coalesce($4,luogo),
+      `update evento set codice=coalesce($8,codice), nome=coalesce($2,nome), titolo_stampa=coalesce($3,titolo_stampa), luogo=coalesce($4,luogo),
          data=coalesce($5::date,data), tipo=coalesce($6,tipo), archiviato=coalesce($7,archiviato), attivo = case when coalesce($7,archiviato) then false else attivo end, updated_at=now()
-       where id=$1 returning *`, [req.params.id, b.nome ?? null, b.titolo_stampa ?? null, b.luogo ?? null, b.data ?? null, b.tipo ?? null, b.archiviato ?? null]);
+       where id=$1 returning *`, [req.params.id, b.nome ?? null, b.titolo_stampa ?? null, b.luogo ?? null, b.data ?? null, b.tipo ?? null, b.archiviato ?? null, b.codice?.trim() || null]);
     if (!e) throw httpErr(404, 'evento inesistente');
     return e;
   });

@@ -276,7 +276,7 @@ export function buildApp(pool, { logger = false } = {}) {
     const e = b.evento || {};
     return inTransazione(pool, (db) => importaExcel(db, buf, {
       eventoId: b.evento_id || undefined, eventoCodice: e.codice?.trim(), nomeEvento: e.nome?.trim(), titoloStampa: e.titolo_stampa?.trim() || e.nome?.trim(),
-      luogo: e.luogo?.trim() || null, data: e.data || null, tipoEvento, attiva: false }));
+      luogo: e.luogo?.trim() || null, data: e.data || null, tipoEvento, attiva: false, sostituisci: b.sostituisci === true }));
   });
 
   registraGestione(app, pool, { soloOrg, soloAdmin });
