@@ -514,3 +514,23 @@ test('I-1 import via API: solo organizzazione, file non valido → 400, scena du
   const lib = await pool.query(`select count(*)::int n from patologia where nome like '% · Olimpiadi %'`);
   assert.ok(lib.rows[0].n > 0);
 });
+
+test('G-1 categoria patologia, classifica DIU, avvisi, giudice legato a una gara', async () => {
+  const org = tok['org@t'];
+  const nuova = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'ICT_DIU', nome: 'Ictus + polso', sigla: 'ICT', categoria: 'Ictus', categoria2: 'Frattura polso', is_diu: true,
+    voci: [{ sezione: 'S', testo: 'voce g1', scala: 'Standard' }] } }));
+  assert.equal(nuova.categoria, 'Ictus'); assert.equal(nuova.categoria2, 'Frattura polso'); assert.equal(nuova.is_diu, true);
+  const mod = json(await chiama('PUT', `/api/libreria/patologie/${nuova.id}`, { token: org, body: { categoria2: '' } }));
+  assert.equal(mod.categoria2, null); assert.equal(mod.categoria, 'Ictus');
+  const cl = await chiama('GET', `/api/eventi/${ev}/classifica?tipo=diu`, { token: org });
+  assert.equal(cl.statusCode, 200); assert.ok('diu' in json(cl).classifica[0]);
+  const av = json(await chiama('POST', '/api/avvisi', { token: org, body: { evento_id: ev, titolo: 'Ritrovo ore 8' } }));
+  assert.equal((await chiama('POST', '/api/avvisi', { token: tok['giu@t'], body: { titolo: 'x' } })).statusCode, 403);
+  assert.ok(json(await chiama('GET', `/api/avvisi?evento=${ev}`, { token: tok['giu@t'] })).some((a) => a.id === av.id));
+  // giudice legato a un'altra gara: non entra in questa
+  const { rows: [altro] } = await pool.query(`insert into evento (codice, nome) values ('ALTRA','Altra gara') returning id`);
+  await pool.query(`update utente set evento_id=$1 where email='giu@t'`, [altro.id]);
+  assert.equal((await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['giu@t'] })).statusCode, 403);
+  assert.deepEqual(json(await chiama('GET', '/api/eventi', { token: tok['giu@t'] })).map((e) => e.codice), ['ALTRA']);
+  await pool.query(`update utente set evento_id=null where email='giu@t'`);
+});

@@ -21,6 +21,7 @@ create table utente (
   password_hash text not null,
   ruolo         ruolo_utente not null default 'giudice',
   attivo        boolean not null default true,
+  evento_id     uuid,                            -- gara a cui l'utente è legato (FK aggiunta dopo la tabella evento)
   created_at    timestamptz not null default now()
 );
 
@@ -39,6 +40,15 @@ create table evento (
   updated_at  timestamptz not null default now()
 );
 create unique index evento_unico_attivo on evento ((true)) where attivo;   -- un solo evento attivo
+alter table utente add constraint utente_evento_fk foreign key (evento_id) references evento(id) on delete set null;
+
+create table avviso (                            -- bacheca della Home
+  id         uuid primary key default gen_random_uuid(),
+  evento_id  uuid references evento(id) on delete cascade,   -- NULL = per tutti
+  titolo     text not null,
+  testo      text,
+  created_at timestamptz not null default now()
+);
 
 create table squadra (
   id         uuid primary key default gen_random_uuid(),
@@ -95,6 +105,9 @@ create table patologia (                         -- Master, PBLS, Overdose, TC, 
   sigla        text not null,                    -- MAS, PBL, OVE: usata nelle chiavi di stampa
   is_bls       boolean not null default false,   -- conta nella classifica BLS
   is_master    boolean not null default false,   -- conta nella classifica Master/Leader
+  is_diu       boolean not null default false,   -- conta nella classifica DIU
+  categoria    text,                             -- raggruppamento (es. Ictus)
+  categoria2   text,                             -- seconda patologia (es. Frattura polso)
   descrizione  text
 );
 create table patologia_voce (
@@ -127,6 +140,7 @@ create table scena_scheda (                      -- una scheda = una patologia i
   simulatore       text not null,                -- "M", "01", "02"...
   is_bls           boolean not null default false,
   is_master        boolean not null default false,
+  is_diu           boolean not null default false,
   parametri        jsonb not null default '{}',  -- {coscienza, fr, fc, cute}
   unique (scena_id, slot)
 );
@@ -199,11 +213,12 @@ select sq.evento_id, sq.id as squadra_id, sq.numero, sq.nome,
   coalesce(sum(p.punti),0)                                              as totale,
   coalesce(sum(p.punti) filter (where p.is_sep),0)                      as sep,
   coalesce(sum(p.punti) filter (where p.is_bls),0)                      as bls,
-  coalesce(sum(p.punti) filter (where p.is_master),0)                   as master
+  coalesce(sum(p.punti) filter (where p.is_master),0)                   as master,
+  coalesce(sum(p.punti) filter (where p.is_diu),0)                      as diu
 from squadra sq
 left join (
   -- solo schede dello STESSO evento della squadra
-  select pv.squadra_id, pv.punti, pv.is_sep, s.is_bls, s.is_master, sc.evento_id
+  select pv.squadra_id, pv.punti, pv.is_sep, s.is_bls, s.is_master, s.is_diu, sc.evento_id
   from v_punti_voce pv
   join scena_scheda s on s.id = pv.scheda_id
   join scena sc on sc.id = s.scena_id
@@ -247,4 +262,4 @@ create table scena_master (
 
 -- ───────── versione dello schema ─────────
 create table schema_migrazioni (nome text primary key, applicata_at timestamptz not null default now());
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql');   -- lo schema qui sopra le include già tutte
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql');   -- lo schema qui sopra le include già tutte

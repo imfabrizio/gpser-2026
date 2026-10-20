@@ -42,6 +42,8 @@
   table { width:100%; border-collapse:collapse; } td, th { padding:8px 6px; border-bottom:1px solid var(--bordo); text-align:left; }
   td.n, th.n { text-align:right; }
   .err { color:#C62828; } .ok { color:#2E7D32; }
+  .btn.grande { display:block; text-align:center; font-size:18px; padding:16px 12px; }
+  .avv { border-top:1px solid var(--bordo); padding:8px 0; }
   @media (max-width:860px) { .liv { width:100%; } .liv button { flex:1 1 0; width:auto; min-width:0; font-size:12px; } }
 </style>
 </head>
@@ -93,29 +95,35 @@ function vistaLogin() {
   };
 }
 
+// gara corrente: chi è legato a una gara resta in quella; organizzazione e admin scelgono dal menu
+async function garaCorrente() {
+  const eventi = await api('/eventi');
+  let ev = null;
+  if (org()) ev = eventi.find((e) => e.id === localStorage.getItem('ev'));
+  ev = ev || eventi.find((e) => e.id === me.evento_id) || eventi.find((e) => e.attivo) || eventi[0] || null;
+  if (ev) localStorage.setItem('ev', ev.id);
+  window.__ev = ev;
+  return { ev, eventi };
+}
+const oggi = () => new Date().toISOString().slice(0, 10);
+const statoGara = (e) => (e.attivo ? 'in corso' : (e.data && e.data > oggi() ? 'prossima' : 'passata'));
+function menuGare(eventi, corrente) {
+  const gruppi = [['In corso', eventi.filter((e) => statoGara(e) === 'in corso')], ['Prossime', eventi.filter((e) => statoGara(e) === 'prossima')], ['Passate', eventi.filter((e) => statoGara(e) === 'passata')]];
+  return `<select id="selgara">${gruppi.filter(([, l]) => l.length).map(([n, l]) => `<optgroup label="${n}">${l.map((e) => `<option value="${e.id}" ${corrente && e.id === corrente.id ? 'selected' : ''}>${esc(e.nome)} · ${esc(e.luogo || '')} ${esc(e.data || '')}</option>`).join('')}</optgroup>`).join('')}</select>`;
+}
 async function vistaHome() {
   $('#esci').hidden = false; $('#titolo').textContent = 'GareCRI';
-  const eventi = await api('/eventi'); const ev = eventi.find(e => e.attivo) || eventi[0];
-  if (!ev) { $('#app').innerHTML = '<div class="card">Nessun evento.' + (org() ? ' <a class="btn" href="/admin.html">Vai a Gestione per crearne uno</a>' : ' Chiedi all\'organizzazione di crearne uno.') + '</div>'; return; }
-  const [scene, squadre] = await Promise.all([api(`/eventi/${ev.id}/scene`), api(`/eventi/${ev.id}/squadre`)]);
-  const scAvail = scene.filter(s => s.schede && s.schede.length);
-  $('#app').innerHTML = `<div class="card"><strong>${esc(ev.nome)}</strong><br><small>${esc(ev.luogo)} ${esc(ev.data)}</small>
-    <label>Scena</label><select id="sc">${scAvail.map((s, i) => `<option value="${i}">${esc(s.codice)} – ${esc(s.titolo)}</option>`).join('')}</select>
-    <label>Scheda</label><select id="sk"></select>
-    <label>Squadra</label><select id="sq">${squadre.filter(s => s.attiva).map(s => `<option value="${s.id}">${s.numero} – ${esc(s.nome)}</option>`).join('')}</select>
-    <button class="btn" id="avvia">Inizia valutazione</button></div>
-    ${org() ? `<div class="card"><a class="btn sec" href="#classifica">Classifica</a> <a class="btn sec" href="/admin.html">Gestione</a> <a class="btn sec" href="#monitor">Monitor</a> <button class="btn sec" id="pdfv">Stampa schede vuote</button></div>` : ''}`;
-  const chiaveSel = `selezione_${me.id}_${ev.id}`;   // l'ultima scelta resta anche tornando alla Home e dopo un riavvio
-  let ultima = {}; try { ultima = JSON.parse(localStorage.getItem(chiaveSel) || '{}'); } catch { /* ignora */ }
-  const salvaSel = () => { try { localStorage.setItem(chiaveSel, JSON.stringify({ scena: scAvail[$('#sc').value]?.id, scheda: $('#sk').value, squadra: $('#sq').value })); } catch { /* ignora */ } };
-  const aggSchede = () => { const s = scAvail[$('#sc').value]; $('#sk').innerHTML = (s ? s.schede : []).map(k => `<option value="${k.id}">${esc(k.titolo)}</option>`).join(''); };
-  const iScena = scAvail.findIndex(s => s.id === ultima.scena); if (iScena >= 0) $('#sc').value = String(iScena);
-  aggSchede();
-  if ([...$('#sk').options].some(o => o.value === ultima.scheda)) $('#sk').value = ultima.scheda;
-  if ([...$('#sq').options].some(o => o.value === ultima.squadra)) $('#sq').value = ultima.squadra;
-  $('#sc').onchange = () => { aggSchede(); salvaSel(); }; $('#sk').onchange = salvaSel; $('#sq').onchange = salvaSel;
-  $('#avvia').onclick = () => { salvaSel(); location.hash = `#valuta/${$('#sk').value}/${$('#sq').value}/${ev.id}`; };
-  window.__ev = ev;
+  const { ev, eventi } = await garaCorrente();
+  if (!ev) { $('#app').innerHTML = '<div class="card">Nessuna gara.' + (org() ? ' <a class="btn" href="/admin.html">Vai a Gestione per crearne una</a>' : ' Chiedi all\'organizzazione di assegnartene una.') + '</div>'; return; }
+  const avvisi = await api(`/avvisi?evento=${ev.id}`).catch(() => []);
+  const tipoGara = ev.tipo === 'olimpiadi' ? 'Olimpiadi' : 'Gara';
+  $('#app').innerHTML = `<div class="card"><small>${tipoGara} ${statoGara(ev)}</small><h2 style="margin:2px 0 4px">${esc(ev.nome)}</h2>
+    <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
+    ${org() ? `<label>Cambia gara</label>${menuGare(eventi, ev)}` : ''}
+    <p style="margin-top:14px"><a class="btn grande" href="#valutazione">Valutazione · ${esc(ev.nome)}</a></p>
+    ${org() ? `<p><a class="btn sec" href="/admin.html">Gestione</a> <a class="btn sec" href="#monitor">Monitor avanzamento</a></p>` : ''}</div>
+    <div class="card"><strong>Avvisi e informazioni</strong>${avvisi.length ? avvisi.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessun avviso.</small></p>'}</div>`;
+  if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem('ev', $('#selgara').value); vistaHome(); };
   const cc = coda.conta();
   if (cc.inCoda || cc.rifiutate) {
     const rif = coda.elencoRifiutate();
@@ -125,7 +133,31 @@ async function vistaHome() {
     $('#invia-ora').onclick = async () => { const r = await coda.svuota(); $('#esito').textContent = r.ok ? 'Inviato' : r.errori.join('; '); setTimeout(vistaHome, 1200); };
     if ($('#ripristina')) $('#ripristina').onclick = () => { coda.riprovaRifiutate(); vistaHome(); };
   }
-  if ($('#pdfv')) $('#pdfv').onclick = () => apriPdf(`/api/eventi/${ev.id}/stampa.pdf?vuote=1`);
+}
+
+// scelta di scena, scheda e squadra della gara corrente
+async function vistaSelezione() {
+  $('#esci').hidden = false;
+  const { ev } = await garaCorrente();
+  if (!ev) { location.hash = ''; return; }
+  $('#titolo').textContent = 'Valutazione';
+  const [scene, squadre] = await Promise.all([api(`/eventi/${ev.id}/scene`), api(`/eventi/${ev.id}/squadre`)]);
+  const scAvail = scene.filter(s => s.schede && s.schede.length);
+  $('#app').innerHTML = `<div class="card"><strong>${esc(ev.nome)}</strong><br><small>${esc(ev.luogo || '')} ${esc(ev.data || '')}</small>
+    <label>Scena</label><select id="sc">${scAvail.map((s, i) => `<option value="${i}">${esc(s.codice)} – ${esc(s.titolo)}</option>`).join('')}</select>
+    <label>Scheda</label><select id="sk"></select>
+    <label>Squadra</label><select id="sq">${squadre.filter(s => s.attiva).map(s => `<option value="${s.id}">${s.numero} – ${esc(s.nome)}</option>`).join('')}</select>
+    <button class="btn" id="avvia">Inizia valutazione</button> <a class="btn sec" href="#">Home</a></div>`;
+  const chiaveSel = `selezione_${me.id}_${ev.id}`;   // l'ultima scelta resta anche tornando indietro e dopo un riavvio
+  let ultima = {}; try { ultima = JSON.parse(localStorage.getItem(chiaveSel) || '{}'); } catch { /* ignora */ }
+  const salvaSel = () => { try { localStorage.setItem(chiaveSel, JSON.stringify({ scena: scAvail[$('#sc').value]?.id, scheda: $('#sk').value, squadra: $('#sq').value })); } catch { /* ignora */ } };
+  const aggSchede = () => { const s = scAvail[$('#sc').value]; $('#sk').innerHTML = (s ? s.schede : []).map(k => `<option value="${k.id}">${esc(k.titolo)}</option>`).join(''); };
+  const iScena = scAvail.findIndex(s => s.id === ultima.scena); if (iScena >= 0) $('#sc').value = String(iScena);
+  aggSchede();
+  if ([...$('#sk').options].some(o => o.value === ultima.scheda)) $('#sk').value = ultima.scheda;
+  if ([...$('#sq').options].some(o => o.value === ultima.squadra)) $('#sq').value = ultima.squadra;
+  $('#sc').onchange = () => { aggSchede(); salvaSel(); }; $('#sk').onchange = salvaSel; $('#sq').onchange = salvaSel;
+  $('#avvia').onclick = () => { salvaSel(); location.hash = `#valuta/${$('#sk').value}/${$('#sq').value}/${ev.id}`; };
 }
 
 // ── coda di salvataggio locale (modulo /coda.js, con test automatici) ──
@@ -189,7 +221,7 @@ async function vistaValuta(schedaId, squadraId) {
     coda.voce(chiave, meta, id, nuovo);                                // subito su disco, poi invio ritardato
     agg('…'); clearTimeout(timer); timer = setTimeout(() => invia().catch(() => {}), 600);
   };
-  $('#indietro').onclick = () => { location.hash = ''; };
+  $('#indietro').onclick = () => { location.hash = '#valutazione'; };
   // completamento: le voci non compilate vengono evidenziate e segnalate prima di chiudere
   const chiudiScheda = (nuovoStato) => async () => {
     document.querySelectorAll('.voce.manca').forEach(e => e.classList.remove('manca'));
@@ -202,7 +234,7 @@ async function vistaValuta(schedaId, squadraId) {
     }
     clearTimeout(timer); coda.stato(chiave, meta, nuovoStato);
     const r = await invia();
-    if (r.ok) location.hash = ''; else alert('Non ancora salvato: ' + r.errori.join('; ') + '\nI dati restano sul dispositivo e verranno rimandati.');
+    if (r.ok) location.hash = '#valutazione'; else alert('Non ancora salvato: ' + r.errori.join('; ') + '\nI dati restano sul dispositivo e verranno rimandati.');
   };
   if ($('#compl')) $('#compl').onclick = chiudiScheda('completata');
   if ($('#verif')) $('#verif').onclick = chiudiScheda('verificata');
@@ -211,19 +243,6 @@ async function vistaValuta(schedaId, squadraId) {
     catch (e) { alert(e.message); }
   };
   invia().catch(() => {});                                             // eventuali dati rimasti da una sessione precedente
-}
-
-async function vistaClassifica() {
-  const ev = window.__ev || (await api('/eventi')).find(e => e.attivo);
-  $('#titolo').textContent = 'Classifica';
-  const tipi = ['generale', 'sep', 'bls', 'master'];
-  const q = (location.hash.split('/')[1]) || 'generale';
-  const r = await api(`/eventi/${ev.id}/classifica?tipo=${q}`);
-  $('#app').innerHTML = `<div class="card">${tipi.map(t => `<a class="btn ${t === q ? '' : 'sec'}" href="#classifica/${t}">${t}</a>`).join(' ')}
-    <table><tr><th>#</th><th>Squadra</th><th class="n">Totale</th><th class="n">SEP</th><th class="n">BLS</th><th class="n">Master</th></tr>
-    ${r.classifica.map(c => `<tr><td>${c.posizione}</td><td>${esc(c.nome)}</td><td class="n">${c.totale}</td><td class="n">${c.sep}</td><td class="n">${c.bls}</td><td class="n">${c.master}</td></tr>`).join('')}</table>
-    ${r.massimi ? `<small>Massimo teorico: ${r.massimi.max_totale} (SEP ${r.massimi.max_sep})</small>` : ''}
-    <br><a class="btn sec" href="#">Home</a></div>`;
 }
 
 async function vistaMonitor() {
@@ -245,7 +264,8 @@ async function route() {
   $('#app').classList.toggle('largo', v === 'valuta'); if (v !== 'valuta') $('#app').classList.remove('sola-lettura');
   try {
     if (v === 'valuta') return await vistaValuta(a, b);
-    if (v === 'classifica') return await vistaClassifica();
+    if (v === 'valutazione') return await vistaSelezione();
+    if (v === 'classifica') { localStorage.setItem('tab', 'classifiche'); location.href = '/admin.html'; return; }
     if (v === 'monitor') return await vistaMonitor();
     return await vistaHome();
   } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }

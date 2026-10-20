@@ -36,9 +36,13 @@ export function buildApp(pool, { logger = false } = {}) {
     if (!api || rotta === '/api/login') return;
     const t = leggiToken((req.headers.authorization || '').replace(/^Bearer /, ''));
     if (!t) throw httpErr(401, 'non autenticato');
-    const { rows: [u] } = await pool.query('select id, ruolo, nome from utente where id=$1 and attivo', [t.id]);
+    const { rows: [u] } = await pool.query('select id, ruolo, nome, evento_id from utente where id=$1 and attivo', [t.id]);
     if (!u) throw httpErr(401, 'utente non valido');
     req.utente = u;
+    if (!RUOLI_ORG.includes(u.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
+      const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);
+      if (m && m[1].toLowerCase() !== u.evento_id) throw httpErr(403, 'gara non assegnata');
+    }
   });
   const soloOrg = async (req) => { if (!RUOLI_ORG.includes(req.utente.ruolo)) throw httpErr(403, 'permesso negato'); };
   const soloAdmin = async (req) => { if (req.utente.ruolo !== 'admin') throw httpErr(403, 'solo admin'); };
@@ -61,14 +65,33 @@ export function buildApp(pool, { logger = false } = {}) {
     const ok = u ? verificaPassword(password, u.password_hash) : (verificaPasswordFinta(password), false);   // stesso tempo di risposta
     if (!ok) { registraFallimento(chiave); throw httpErr(401, 'credenziali errate'); }
     azzeraFallimenti(chiave);
-    return { token: firmaToken({ id: u.id }), utente: { id: u.id, nome: u.nome, ruolo: u.ruolo } };
+    return { token: firmaToken({ id: u.id }), utente: { id: u.id, nome: u.nome, ruolo: u.ruolo, evento_id: u.evento_id } };
   });
   app.get('/api/me', async (req) => req.utente);
 
+  // ── bacheca avvisi della Home ──
+  app.get('/api/avvisi', async (req) => {
+    const ev = req.query.evento || null;
+    return (await pool.query(
+      `select id, evento_id, titolo, testo, created_at from avviso
+        where evento_id is null or evento_id = $1::uuid order by created_at desc limit 20`, [ev])).rows;
+  });
+  app.post('/api/avvisi', { preHandler: soloOrg }, async (req) => {
+    const b = req.body || {};
+    if (!b.titolo || !String(b.titolo).trim()) throw httpErr(400, 'titolo obbligatorio');
+    return (await pool.query('insert into avviso (evento_id, titolo, testo) values ($1,$2,$3) returning *',
+      [b.evento_id || null, String(b.titolo).trim(), b.testo || null])).rows[0];
+  });
+  app.delete('/api/avvisi/:id', { preHandler: soloOrg }, async (req) => { await pool.query('delete from avviso where id=$1', [req.params.id]); return { ok: true }; });
+
   // ── eventi, squadre, scene ──
-  app.get('/api/eventi', async () => (await pool.query(
-    `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato
-       from evento where not archiviato order by data desc nulls last`)).rows);
+  app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
+    const org = RUOLI_ORG.includes(req.utente.ruolo);
+    return (await pool.query(
+      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato
+         from evento where ($1 or id = $2 or ($2::uuid is null and attivo)) and ($1 or not archiviato)
+        order by data desc nulls last`, [org, req.utente.evento_id])).rows;
+  });
   app.post('/api/eventi', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
     if (!b.codice || !b.nome) throw httpErr(400, 'codice e nome obbligatori');
@@ -176,8 +199,8 @@ export function buildApp(pool, { logger = false } = {}) {
   app.post('/api/libreria/patologie', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const b = req.body;   // { codice, nome, sigla, is_bls, is_master, voci:[{sezione, testo, scala, is_sep}] }
     const { rows: [p] } = await db.query(
-      `insert into patologia (codice, nome, sigla, is_bls, is_master) values ($1,$2,$3,coalesce($4,false),coalesce($5,false)) returning *`,
-      [b.codice, b.nome, b.sigla, b.is_bls, b.is_master]);
+      `insert into patologia (codice, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2) values ($1,$2,$3,coalesce($4,false),coalesce($5,false),coalesce($6,false),$7,$8) returning *`,
+      [b.codice, b.nome, b.sigla, b.is_bls, b.is_master, b.is_diu, (b.categoria || '').trim() || b.nome, (b.categoria2 || '').trim() || null]);
     let o = 0;
     for (const v of b.voci || []) {
       const { rows: [voce] } = await db.query(
@@ -221,10 +244,10 @@ export function buildApp(pool, { logger = false } = {}) {
 
   // ── classifiche, monitor, stampa ──
   app.get('/api/eventi/:id/classifica', { preHandler: soloOrg }, async (req) => {   // i giudici non vedono punteggi né classifica
-    const tipo = { generale: 'totale', sep: 'sep', bls: 'bls', master: 'master' }[req.query.tipo || 'generale'];
-    if (!tipo) throw httpErr(400, 'tipo: generale|sep|bls|master');
+    const tipo = { generale: 'totale', sep: 'sep', bls: 'bls', master: 'master', diu: 'diu' }[req.query.tipo || 'generale'];
+    if (!tipo) throw httpErr(400, 'tipo: generale|sep|bls|master|diu');
     const { rows } = await pool.query(
-      `select numero, nome, totale, sep, bls, master, (rank() over (order by ${tipo} desc))::int as posizione
+      `select numero, nome, totale, sep, bls, master, diu, (rank() over (order by ${tipo} desc))::int as posizione
          from v_classifica where evento_id=$1
           and exists (select 1 from squadra s where s.id = squadra_id and s.attiva)
         order by ${tipo} desc, numero`, [req.params.id]);

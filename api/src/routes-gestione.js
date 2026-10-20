@@ -8,7 +8,7 @@ const RUOLI = ['admin', 'organizzazione', 'giudice', 'giudice_master'];
 export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   // ── utenti (solo admin) ──
   app.get('/api/utenti', { preHandler: soloAdmin }, async () =>
-    (await pool.query('select id, email, nome, ruolo, attivo from utente order by nome')).rows);
+    (await pool.query('select id, email, nome, ruolo, attivo, evento_id from utente order by nome')).rows);
   app.post('/api/utenti', { preHandler: soloAdmin }, async (req) => {
     const { email, nome, ruolo = 'giudice', password } = req.body || {};
     if (!email || !nome || !password || password.length < 8) throw httpErr(400, 'email, nome e password (min. 8 caratteri) obbligatori');
@@ -27,8 +27,10 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     if (b.password && b.password.length < 8) throw httpErr(400, 'password: minimo 8 caratteri');
     const { rows: [u] } = await pool.query(
       `update utente set nome=coalesce($2,nome), ruolo=coalesce($3::ruolo_utente,ruolo), attivo=coalesce($4,attivo),
-         password_hash=coalesce($5,password_hash) where id=$1 returning id, email, nome, ruolo, attivo`,
-      [req.params.id, b.nome ?? null, b.ruolo ?? null, b.attivo ?? null, b.password ? hashPassword(b.password) : null]);
+         password_hash=coalesce($5,password_hash),
+         evento_id = case when $6 then $7::uuid else evento_id end where id=$1 returning id, email, nome, ruolo, attivo, evento_id`,
+      [req.params.id, b.nome ?? null, b.ruolo ?? null, b.attivo ?? null, b.password ? hashPassword(b.password) : null,
+       'evento_id' in b, b.evento_id || null]);
     if (!u) throw httpErr(404, 'utente inesistente');
     return u;
   });
@@ -181,8 +183,10 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.put('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const b = req.body || {};
     const { rows: [p] } = await db.query(
-      `update patologia set nome=coalesce($2,nome), sigla=coalesce($3,sigla), is_bls=coalesce($4,is_bls), is_master=coalesce($5,is_master)
-       where id=$1 returning *`, [req.params.id, b.nome ?? null, b.sigla ?? null, b.is_bls ?? null, b.is_master ?? null]);
+      `update patologia set nome=coalesce($2,nome), sigla=coalesce($3,sigla), is_bls=coalesce($4,is_bls), is_master=coalesce($5,is_master), is_diu=coalesce($6,is_diu),
+         categoria = case when $7 then nullif(trim($8),'') else categoria end, categoria2 = case when $9 then nullif(trim($10),'') else categoria2 end
+       where id=$1 returning *`, [req.params.id, b.nome ?? null, b.sigla ?? null, b.is_bls ?? null, b.is_master ?? null, b.is_diu ?? null,
+        'categoria' in b, b.categoria ?? '', 'categoria2' in b, b.categoria2 ?? '']);
     if (!p) throw httpErr(404, 'patologia inesistente');
     if (Array.isArray(b.voci)) {          // sostituisce l'elenco; le scene già composte non cambiano (snapshot)
       await db.query('delete from patologia_voce where patologia_id=$1', [p.id]);

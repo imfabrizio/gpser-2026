@@ -1,6 +1,6 @@
 # Roadmap (3–4 mesi)
 
-**Fatto dopo le prime prove (ottobre 2026):** valutazione senza punti visibili, pulsanti con testo per esteso, ruolo giudice master (verifica e chiude la scena), anagrafica persone con comitato/provincia, comitato e componenti delle squadre, avvio automatico di schema e migrazioni, completamento scheda bloccato se mancano voci, memoria dell'ultima selezione, colori dal verde al rosso, scheda Importa (Gestione) per caricare i file Excel delle scene gara e Olimpiadi nella libreria (patologie chiamate «<Tipo> · Gara|Olimpiadi <Scena>»).
+**Fatto dopo le prime prove (ottobre 2026):** valutazione senza punti visibili, pulsanti con testo per esteso, ruolo giudice master (verifica e chiude la scena), anagrafica persone con comitato/provincia, comitato e componenti delle squadre, avvio automatico di schema e migrazioni, completamento scheda bloccato se mancano voci, memoria dell'ultima selezione, colori dal verde al rosso, scheda Importa (Gestione) per caricare i file Excel delle scene gara e Olimpiadi nella libreria (patologie chiamate «<Tipo> · Gara|Olimpiadi <Scena>»); Home con gara in corso, avvisi e menu gare per l'organizzazione, utente legato a una gara, menu Gestione a pulsanti (Gara, Scene, Schede, Squadre, Anagrafiche, Classifiche, Stampa), schede raggruppate per patologia con seconda patologia, copia da modello, aggiunta voce per sezione, classifiche separate (Generale, SEP, BLSD, Master, DIU).
 
 **Richieste in coda:** accesso con Google/Microsoft/Facebook e autenticazione a due fattori (progetto a parte: registrazione dell'app presso i provider, collegamento account↔persona); importazione delle gare passate come libreria di patologie e scene (servono i file); collegamento persona↔utente; registro modifiche consultabile da interfaccia.
 
@@ -29,3 +29,5 @@ Le stime sono indicative, non misurate.
 8. Da decidere: la classifica è visibile anche ai giudici durante la gara; l'organizzazione può modificare una scheda verificata senza riaprirla (resta traccia in audit); classifica "ufficiale" solo con schede completate; limite tentativi di login valido per un solo processo.
 9. Prima della gara: prova generale su più tablet (online e con rete interrotta), HTTPS, backup `pg_dump`.
 10. Nel vecchio Excel la scheda "Agitata" (Giudice 5) compare in DATI ma non ha voci: l'importer la salta e segnala l'avviso.
+
+11. Da confermare: cosa significa la classifica «DIU» (ora è un'etichetta assegnabile alle schede, come BLSD). Aggiungere la voce direttamente dentro una scheda già in una scena (oggi si modificano solo i punteggi; le voci nuove si aggiungono nella scheda in libreria e poi si rimette in scena).

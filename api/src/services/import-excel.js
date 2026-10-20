@@ -92,9 +92,9 @@ export async function importaExcel(db, file, opz) {
     const slot = m['A(SlotScheda)'];
     if (!tipo) continue;
     const { rows: [p] } = await db.query(
-      `insert into patologia (codice, nome, sigla, is_bls, is_master) values ($1,$2,$3,$4,$5)
-       on conflict (codice) do update set nome = excluded.nome, sigla = excluded.sigla, is_bls = excluded.is_bls, is_master = excluded.is_master returning *`,
-      [`${slug(tipo)}_${ambito.codice}_${scenaCodice}`, `${tipo.replace(/_/g, ' ')} · ${ambito.nome} ${scenaCodice}`, m.SIGLA, m.IsBLS === 'SI', slot === 0]);
+      `insert into patologia (codice, nome, sigla, is_bls, is_master, categoria) values ($1,$2,$3,$4,$5,$6)
+       on conflict (codice) do update set nome = excluded.nome, sigla = excluded.sigla, is_bls = excluded.is_bls, is_master = excluded.is_master, categoria = excluded.categoria returning *`,
+      [`${slug(tipo)}_${ambito.codice}_${scenaCodice}`, `${tipo.replace(/_/g, ' ')} · ${ambito.nome} ${scenaCodice}`, m.SIGLA, m.IsBLS === 'SI', slot === 0, tipo.replace(/_/g, ' ')]);
     patologie[tipo] = { ...p, slot, titolo: tipo.replace(/_/g, ' ') };
     await db.query('delete from patologia_voce where patologia_id=$1', [p.id]);   // reimportazione: la patologia riflette il file
     let ord = 0;
