@@ -116,7 +116,8 @@ async function vistaPubblica() {
     <div class="card pub"><h2>Prossime edizioni</h2>${prossime.length ? prossime.map(riga).join('') : '<p><small>Nessuna edizione in programma.</small></p>'}</div>
     <div class="card pub"><h2>Notizie</h2>${d.avvisi.length ? d.avvisi.map((a) => `<div class="notizia"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>
     ${inCorso ? mappaHtml(inCorso, inCorso.scene) : ''}
-    ${passate.length ? `<div class="card pub"><h2>Edizioni passate</h2>${passate.map(riga).join('')}</div>` : ''}`;
+    ${passate.length ? `<div class="card pub"><h2>Edizioni passate</h2>${passate.map(riga).join('')}</div>` : ''}
+    <p style="text-align:center"><small><a href="/privacy.html">Privacy</a> · <a href="/termini.html">Termini di utilizzo</a></small></p>`;
 }
 
 const ERR_SSO = { non_autorizzato: 'Questo account non è abilitato: chiedi all\'organizzazione di registrare la tua email.', email_non_verificata: 'Email del provider non verificata.', sessione: 'Sessione di accesso scaduta: riprova.', provider: 'Il provider non ha risposto: riprova.', token: 'Risposta del provider non valida.', tenant: 'Account di un\'altra organizzazione.', non_configurato: 'Accesso non configurato.' };
@@ -132,6 +133,7 @@ async function vistaLogin(msg = '') {
     <div id="passo1"><label>Email</label><input id="em" type="email" autocomplete="username">
     <label>Password</label><input id="pw" type="password" autocomplete="current-password">
     <button class="btn" id="go">Entra</button></div>
+    <p><small><a href="/privacy.html">Privacy</a> · <a href="/termini.html">Termini di utilizzo</a></small></p>
     <div id="passo2" hidden><p>Inserisci il codice a 6 cifre dell'app di autenticazione (o un codice di recupero).</p>
     <input id="cod" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"><button class="btn" id="go2">Conferma</button></div>
     <p id="msg" class="err">${esc(msg)}</p></div>`;
