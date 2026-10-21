@@ -420,7 +420,7 @@ async function tLibreria() {
 function editorPatologia(p, voci, nuova = false) {
   const sc = cache.scale.map((s) => s.codice);
   const riga = (v = {}) => `<tr><td><input class="r_sez" value="${esc(v.sezione || '')}" placeholder="sezione"></td><td><input class="r_tx" value="${esc(v.testo || '')}" placeholder="testo della voce"></td>
-    <td><select class="r_sc">${sc.map((c) => `<option ${c === (v.scala || 'Standard') ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></td>
+    <td><select class="r_sc">${cache.scale.map((x) => `<option value="${esc(x.codice)}" ${x.codice === (v.scala || 'Standard') ? 'selected' : ''}>${esc(x.codice)} (${LIV.map((l) => x[l]).filter((n) => n !== null && n !== undefined).join(',')})</option>`).join('')}</select></td>
     <td><input type="checkbox" class="r_sep" ${v.is_sep ? 'checked' : ''}></td>
     <td style="white-space:nowrap"><button class="s p su" title="Sposta su">↑</button> <button class="s p gi" title="Sposta giù">↓</button> <button class="b p piu" title="Aggiungi una voce sotto, nella stessa sezione">＋</button> <button class="x p rm">✕</button></td></tr>`;
   dlg(`<h3>${p && !nuova ? 'Modifica' : 'Nuova'} scheda</h3><div class="riga">
