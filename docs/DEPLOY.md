@@ -50,3 +50,13 @@ Il pulsante compare in login solo se le variabili sono impostate su Render (poi 
 **MFA (TOTP)**: ogni utente la attiva da «Sicurezza» (QR per Microsoft/Google Authenticator + 8 codici di recupero monouso). È **obbligatoria per organizzazione e admin** quando entrano con password (disattivabile con `MFA_ORG=0`). Con Google/Microsoft si considera valida la MFA del provider (per richiederla anche lì: `SSO_RICHIEDE_MFA=1`). Se un utente perde telefono e codici: Gestione → Utenti → «Reset MFA» (solo admin). Il segreto TOTP è cifrato nel database con una chiave derivata da `JWT_SECRET`: cambiarlo invalida le MFA già configurate.
 
 Se l'**unico admin** perde telefono e codici di recupero, si azzera dal database (SQL Editor di Neon): `update utente set mfa_attiva=false, mfa_secret=null, mfa_recupero='{}' where email='tua@email';` — al login successivo la MFA va riconfigurata.
+
+## 6. Richieste di accesso e notifica email
+
+Chi entra con Google/Microsoft senza essere registrato vede un modulo (nome, cognome, codice fiscale, comitato, provincia, ruolo, squadra).
+La richiesta compare in **Gestione → Richieste** (solo admin), con un contatore rosso; si approva scegliendo il ruolo oppure si rifiuta.
+Senza risposta entro 48 ore viene cancellata. Il codice fiscale è cifrato nel database con una chiave derivata da `JWT_SECRET`: cambiarlo rende illeggibili i codici già salvati.
+
+Email di avviso (facoltativa, servizio gratuito Resend): crea un account su resend.com, genera una API key e imposta su Render
+`RESEND_API_KEY`, `NOTIFICA_EMAIL` (dove ricevere l'avviso) e, se hai un dominio verificato, `NOTIFICA_DA` (es. `GareCRI <avvisi@fbcri.eu>`).
+Senza dominio verificato Resend permette di scrivere solo all'indirizzo con cui ti sei registrato: va bene per avvisare te stesso.

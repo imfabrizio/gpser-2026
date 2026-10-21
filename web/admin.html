@@ -50,6 +50,7 @@
   .hub { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
   .hubb { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:6px; background:#fff; border:2px solid var(--bordo); border-radius:18px; padding:26px 14px; cursor:pointer; font-family:inherit; min-height:190px; }
   .hubb .ico { width:72px; height:72px; color:var(--rosso); background:#fdecee; border-radius:50%; display:flex; align-items:center; justify-content:center; }
+  .hubb { position:relative; } .hubb .badge { position:absolute; top:10px; right:12px; background:#C62828; color:#fff; font-style:normal; font-weight:700; border-radius:999px; min-width:26px; padding:2px 8px; font-size:14px; }
   .hubb .ico svg { width:44px; height:44px; }
   .hubb b { font-size:21px; color:#222; } .hubb span { font-size:13px; color:#555; }
   .hubb:hover, .hubb:active { border-color:var(--rosso); box-shadow:0 4px 14px #0002; }
@@ -89,12 +90,12 @@ window.chiudi = chiudi;
 
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
-const TABS = [['menu', 'Gestione'], ['evento', 'Gara'], ['scene', 'Scene'], ['libreria', 'Schede'], ['squadre', 'Squadre'], ['persone', 'Anagrafiche'], ['news', 'Notizie'], ['classifiche', 'Classifiche'], ['stampa', 'Stampa'], ['importa', 'Importa'], ['utenti', 'Utenti']];
-const RUOLI = ['giudice', 'giudice_master', 'organizzazione', 'admin'];
-const RUOLO_ET = { giudice: 'giudice', giudice_master: 'giudice master', organizzazione: 'organizzazione', admin: 'admin' };
+const TABS = [['menu', 'Gestione'], ['evento', 'Gara'], ['scene', 'Scene'], ['libreria', 'Schede'], ['squadre', 'Squadre'], ['persone', 'Anagrafiche'], ['news', 'Notizie'], ['classifiche', 'Classifiche'], ['stampa', 'Stampa'], ['importa', 'Importa'], ['richieste', 'Richieste'], ['utenti', 'Utenti']];
+const RUOLI = ['partecipante', 'giudice', 'giudice_master', 'organizzazione', 'admin'];
+const RUOLO_ET = { partecipante: 'partecipante / altri ruoli', giudice: 'giudice', giudice_master: 'giudice master', organizzazione: 'organizzazione', admin: 'admin' };
 function disegnaTabs() {
   if (!TABS.some(([k]) => k === tab)) tab = 'menu';
-  const vis = TABS.filter(([k]) => k !== 'utenti' || me.ruolo === 'admin');
+  const vis = TABS.filter(([k]) => !['utenti', 'richieste'].includes(k) || me.ruolo === 'admin');
   $('#tabs').innerHTML = vis.map(([k, n]) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${n}</button>`).join('');
   $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) { tab = b.dataset.t; localStorage.setItem('tab', tab); disegnaTabs(); render(); } };
 }
@@ -128,6 +129,7 @@ async function tEvento() {
     <div><label>Tipo</label><select id="n_tipo"><option value="gara">gara</option><option value="olimpiadi">olimpiadi</option></select></div>
     <div><label>Luogo</label><input id="n_luogo"></div><div><label>Data</label><input id="n_data" type="date"></div></div>
     <p><button class="b" id="n_crea">Crea evento</button></p></div>`;
+  if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});
   legaSelettore();
   if (ev) {
     $('#e_salva').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
@@ -144,13 +146,13 @@ async function tEvento() {
 
 
 // ───────── MENU GESTIONE ─────────
-const ICONE = {"evento": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 21V4m0 0h11l-2 4 2 4H5\"/></svg>", "scene": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M3 9h18M8 4v5M13 4v5M18 4v5\"/></svg>", "libreria": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h9l4 4v14H6z\"/><path d=\"M14 3v5h5M9 13h7M9 17h7\"/></svg>", "squadre": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"9\" cy=\"8\" r=\"3\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M3 20c0-3.5 3-6 6-6s6 2.5 6 6M15 15c3 0 6 1.5 6 5\"/></svg>", "news": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5h13v14H6a2 2 0 0 1-2-2z\"/><path d=\"M17 9h3v8a2 2 0 0 1-2 2M7 9h7M7 13h7\"/></svg>", "persone": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 21c0-4.5 3.5-7 8-7s8 2.5 8 7\"/></svg>", "classifiche": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3\"/></svg>", "stampa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 9V3h10v6M7 17H4v-7h16v7h-3\"/><rect x=\"7\" y=\"14\" width=\"10\" height=\"7\"/></svg>", "importa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v12m0 0l-4-4m4 4l4-4M4 19h16\"/></svg>", "utenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>"};
+const ICONE = {"richieste": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="4"/><path d="M3 21c0-4 3-6.5 7-6.5M17 14v6M14 17h6"/></svg>', "evento": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 21V4m0 0h11l-2 4 2 4H5\"/></svg>", "scene": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M3 9h18M8 4v5M13 4v5M18 4v5\"/></svg>", "libreria": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h9l4 4v14H6z\"/><path d=\"M14 3v5h5M9 13h7M9 17h7\"/></svg>", "squadre": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"9\" cy=\"8\" r=\"3\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M3 20c0-3.5 3-6 6-6s6 2.5 6 6M15 15c3 0 6 1.5 6 5\"/></svg>", "news": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5h13v14H6a2 2 0 0 1-2-2z\"/><path d=\"M17 9h3v8a2 2 0 0 1-2 2M7 9h7M7 13h7\"/></svg>", "persone": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 21c0-4.5 3.5-7 8-7s8 2.5 8 7\"/></svg>", "classifiche": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3\"/></svg>", "stampa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 9V3h10v6M7 17H4v-7h16v7h-3\"/><rect x=\"7\" y=\"14\" width=\"10\" height=\"7\"/></svg>", "importa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v12m0 0l-4-4m4 4l4-4M4 19h16\"/></svg>", "utenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>"};
 function tMenu() {
   const voci = [['evento', 'Gara', 'Crea la gara o le olimpiadi, date, avvisi'], ['scene', 'Scene', 'Una scena è un gruppo di schede'],
     ['libreria', 'Schede', 'Crea e modifica le schede, anche copiandone una'], ['squadre', 'Squadre', 'Squadre, comitato e componenti'],
     ['news', 'Notizie', 'Avvisi per i partecipanti e notizie pubbliche'], ['persone', 'Anagrafiche', 'Persone e requisiti'], ['classifiche', 'Classifiche', 'Generale, SEP, BLSD, Master, DIU'],
     ['stampa', 'Stampa', 'Schede vuote o compilate, per scena o squadra'], ['importa', 'Importa', 'Carica le scene dai vecchi file Excel']];
-  if (me.ruolo === 'admin') voci.push(['utenti', 'Utenti', 'Accessi, ruoli e gara assegnata']);
+  if (me.ruolo === 'admin') voci.push(['richieste', 'Richieste', 'Chi ha chiesto l\'accesso: approva e assegna il ruolo'], ['utenti', 'Utenti', 'Accessi, ruoli e gara assegnata']);
   $('#app').innerHTML = selettoreEvento() + `<div class="griglia hub">${voci.map(([k, n, d]) => `<button class="hubb" data-t="${k}"><i class="ico">${ICONE[k]}</i><b>${n}</b><span>${d}</span></button>`).join('')}</div>
 `;
   legaSelettore();
@@ -504,10 +506,25 @@ async function tImporta() {
   $('#im_f').onchange = () => { files = [...$('#im_f').files].sort((a, b) => a.name.localeCompare(b.name)).map((file) => ({ file, tipo: tipoDi(file) })); disegna(); };
 }
 
+// ───────── RICHIESTE DI ACCESSO ─────────
+async function tRichieste() {
+  const r = await api('/richieste');
+  const ore = (d) => Math.max(0, Math.round((new Date(d) - Date.now()) / 3600e3));
+  $('#app').innerHTML = `<div class="card"><h3>Richieste di accesso</h3><p><small>Chi entra con Google o Microsoft senza essere registrato compila un modulo. Se non rispondi entro 48 ore la richiesta viene cancellata.</small></p>
+    ${r.length ? r.map((x) => `<div class="card" style="margin:8px 0"><b>${esc(x.nome)} ${esc(x.cognome)}</b> · <small>${esc(x.email)} (${esc(x.provider)})</small><br>
+      Cod. fiscale: <code>${esc(x.codice_fiscale || '')}</code> ${x.cf_coerente === false ? '<span class="tag no">non coincide con nome/cognome</span>' : '<span class="tag ok">coerente</span>'}<br>
+      Comitato: ${esc(x.comitato)} (${esc(x.provincia)}) · Chiede: <b>${esc(x.ruolo_gara_nome)}</b>${x.squadra ? ` · Squadra: ${esc(x.squadra)} <small>(${esc(x.evento)})</small>` : ''}${x.codice_ruolo ? ` · Codice ruolo: <code>${esc(x.codice_ruolo)}</code>` : ''}<br>
+      <small>scade tra circa ${ore(x.scade_il)} ore</small>
+      <div class="riga" style="margin-top:6px"><div><label>Ruolo da assegnare</label><select class="rq_r" data-id="${x.id}">${RUOLI.map((k) => `<option value="${k}" ${k === x.ruolo_proposto ? 'selected' : ''}>${RUOLO_ET[k]}</option>`).join('')}</select></div>
+      <div class="stretto"><button class="b rq_ok" data-id="${x.id}">Approva</button> <button class="x rq_no" data-id="${x.id}">Rifiuta</button></div></div></div>`).join('') : '<p>Nessuna richiesta in attesa.</p>'}</div>`;
+  document.querySelectorAll('.rq_ok').forEach((b) => { b.onclick = () => fai(() => api(`/richieste/${b.dataset.id}/approva`, { body: { ruolo: document.querySelector(`.rq_r[data-id="${b.dataset.id}"]`).value } }), 'Utente creato e abilitato'); });
+  document.querySelectorAll('.rq_no').forEach((b) => { b.onclick = () => { if (confirm('Rifiutare e cancellare questa richiesta?')) fai(() => api(`/richieste/${b.dataset.id}`, { method: 'DELETE' }), 'Richiesta rifiutata'); }; });
+}
+
 // ───────── UTENTI ─────────
 async function tUtenti() {
   const u = await api('/utenti');
-  $('#app').innerHTML = `<div class="card"><h3>Utenti</h3><table>${u.map((x) => `<tr><td>${esc(x.nome)}<br><small>${esc(x.email)}</small></td>
+  $('#app').innerHTML = `<div class="card"><h3>Utenti</h3><table>${u.map((x) => `<tr><td>${esc(x.nome)}<br><small>${esc(x.email)}${x.ruolo_gara ? ' · ' + esc(x.ruolo_gara) : ''}</small></td>
     <td><select class="ru" data-id="${x.id}">${RUOLI.map((r) => `<option value="${r}" ${r === x.ruolo ? 'selected' : ''}>${RUOLO_ET[r]}</option>`).join('')}</select></td>
     <td><select class="ug" data-id="${x.id}"><option value="">gara attiva</option>${eventi.map((e) => `<option value="${e.id}" ${e.id === x.evento_id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select></td>
     <td><span class="tag ${x.attivo ? 'ok' : 'no'}">${x.attivo ? 'attivo' : 'disattivato'}</span><br><span class="tag ${x.mfa_attiva ? 'ok' : ''}">MFA ${x.mfa_attiva ? 'sì' : 'no'}</span>${(x.identita || []).map((i) => `<span class="tag">${esc(i)}</span>`).join('')}</td>
@@ -527,7 +544,7 @@ async function tUtenti() {
 async function render() {
   try {
     if (tab === 'menu') tMenu(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
-    else if (tab === 'persone') await tPersone(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti();
+    else if (tab === 'persone') await tPersone(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   $('#app').insertAdjacentHTML('afterbegin', `<div class="navbar">${tab !== 'menu' ? '<button id="nv_g">← Torna a Gestione</button>' : ''}<a href="/#">Torna alla Home</a><a class="val" href="/#valutazione">Vai alla Valutazione</a></div>`);
   if ($('#nv_g')) $('#nv_g').onclick = () => { tab = 'menu'; localStorage.setItem('tab', tab); render(); };
@@ -536,7 +553,7 @@ async function render() {
 (async () => {
   if (!token || !me) { location.href = '/'; return; }
   if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata all\'organizzazione. <a href="/">Torna alle valutazioni</a></div></main>'; return; }
-  $('#chi').textContent = me.nome; if (tab === 'utenti' && me.ruolo !== 'admin') tab = 'menu';
+  $('#chi').textContent = me.nome; if (location.hash === '#richieste') tab = 'richieste'; if (['utenti', 'richieste'].includes(tab) && me.ruolo !== 'admin') tab = 'menu';
   disegnaTabs(); await caricaEventi(); render();
 })();
 </script>

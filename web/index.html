@@ -120,9 +120,46 @@ async function vistaPubblica() {
     <p style="text-align:center"><small><a href="/privacy.html">Privacy</a> · <a href="/termini.html">Termini di utilizzo</a></small></p>`;
 }
 
+// ── chi entra con Google/Microsoft senza essere registrato: modulo di richiesta, poi attesa dell'approvazione ──
+async function vistaRegistrazione() {
+  $('#esci').hidden = false; $('#hhome').hidden = true; $('#hsic').hidden = true; $('#titolo').textContent = 'Richiesta di accesso';
+  const d = await api('/registrazione');
+  const ore = (d.scade_il ? Math.max(0, Math.round((new Date(d.scade_il) - Date.now()) / 3600e3)) : 48);
+  const attesa = () => { $('#app').innerHTML = `<div class="card"><h2>Richiesta inviata</h2>
+    <p>Grazie! L'organizzazione ha ricevuto la tua richiesta e ti abiliterà assegnandoti il ruolo.</p>
+    <p><small>Account: ${esc(d.email)}. Se non viene approvata entro circa ${ore} ore, la richiesta viene cancellata: potrai ripresentarla accedendo di nuovo.</small></p>
+    <button class="btn sec" id="modifica">Modifica la richiesta</button></div>`; $('#modifica').onclick = form; };
+  const form = () => {
+    $('#app').innerHTML = `<div class="card"><h2>Chiedi l'accesso</h2>
+      <p>Il tuo account (${esc(d.email)}) non è ancora abilitato. Compila i dati: l'organizzazione li controlla e ti assegna il ruolo.</p>
+      <label>Nome</label><input id="r_n" value="${esc(d.nome || '')}" autocomplete="given-name">
+      <label>Cognome</label><input id="r_c" value="${esc(d.cognome || '')}" autocomplete="family-name">
+      <label>Codice fiscale</label><input id="r_cf" maxlength="16" autocapitalize="characters" style="text-transform:uppercase" autocomplete="off">
+      <label>Comitato di appartenenza</label><input id="r_co" placeholder="es. Comitato di Modena">
+      <label>Provincia (sigla)</label><input id="r_p" maxlength="2" style="width:5em;text-transform:uppercase" placeholder="MO">
+      <label>Ruolo</label><select id="r_r"><option value="">— scegli —</option>${Object.entries(d.ruoli).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select>
+      <div id="r_sq" hidden><label>Squadra</label><select id="r_s"><option value="">— scegli la squadra —</option>${d.squadre.map((x) => `<option value="${x.id}">${esc(x.nome)}${x.comitato ? ' · ' + esc(x.comitato) : ''} (${esc(x.evento)})</option>`).join('')}</select>
+        ${d.squadre.length ? '' : '<p><small>Nessuna squadra disponibile al momento: riprova più avanti.</small></p>'}</div>
+      <label>Codice ruolo (se te l'hanno comunicato)</label><input id="r_k" maxlength="40" autocomplete="off">
+      <p class="err" id="r_e" hidden></p>
+      <button class="btn" id="r_go">Invia richiesta</button></div>`;
+    $('#r_r').onchange = () => { $('#r_sq').hidden = !d.con_squadra.includes($('#r_r').value); };
+    $('#r_go').onclick = async () => {
+      const e = $('#r_e'); e.hidden = true; $('#r_go').disabled = true;
+      try {
+        await api('/registrazione', { body: { nome: $('#r_n').value, cognome: $('#r_c').value, codice_fiscale: $('#r_cf').value, comitato: $('#r_co').value, provincia: $('#r_p').value,
+          ruolo_gara: $('#r_r').value, squadra_id: $('#r_s').value || null, codice_ruolo: $('#r_k').value } });
+        d.compilata = true; d.scade_il = new Date(Date.now() + 48 * 3600e3).toISOString(); return vistaRegistrazione();
+      } catch (x) { e.textContent = x.message; e.hidden = false; $('#r_go').disabled = false; }
+    };
+  };
+  return d.compilata ? attesa() : form();
+}
+
 const ERR_SSO = { non_autorizzato: 'Questo account non è abilitato: chiedi all\'organizzazione di registrare la tua email.', email_non_verificata: 'Email del provider non verificata.', sessione: 'Sessione di accesso scaduta: riprova.', provider: 'Il provider non ha risposto: riprova.', token: 'Risposta del provider non valida.', tenant: 'Account di un\'altra organizzazione.', non_configurato: 'Accesso non configurato.' };
 async function avviaSessione(r) {
   token = r.token; me = r.utente; localStorage.setItem('token', token); localStorage.setItem('me', JSON.stringify(me));
+  if (me.in_attesa) { window.__meOk = false; location.hash = ''; return route(); }
   await preparaCoda(); location.hash = me.mfa_da_configurare ? '#sicurezza' : ''; route();
 }
 async function vistaLogin(msg = '') {
@@ -363,9 +400,10 @@ async function route() {
     try { return await avviaSessione(await api('/auth/ticket', { body: { ticket: t } })); } catch (e) { return vistaLogin(e.message); }
   }
   if (location.hash.startsWith('#sso-errore=')) { const c = location.hash.slice(12); history.replaceState(null, '', location.pathname + '#login'); return vistaLogin(ERR_SSO[c] || 'Accesso non riuscito.'); }
-  $('#hsic').hidden = !token;
+  $('#hsic').hidden = !token || !!(me && me.in_attesa);
   if (!token) { return location.hash === '#login' ? vistaLogin() : vistaPubblica(); }
   if (!window.__meOk) { window.__meOk = true; try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch { /* offline: resta il profilo salvato */ } }
+  if (me.in_attesa) { try { return await vistaRegistrazione(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
   if (me.mfa_da_configurare) return vistaSicurezza();
   if (!coda) { try { await preparaCoda(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
   const [v, a, b] = location.hash.slice(1).split('/');

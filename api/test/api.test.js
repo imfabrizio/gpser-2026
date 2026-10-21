@@ -633,7 +633,12 @@ test('SSO-1 Google/Microsoft: ticket monouso, solo utenti già registrati, email
   const s1 = await a2.inject({ method: 'POST', url: '/api/auth/ticket', payload: { ticket: tk } }); assert.equal(s1.statusCode, 200);
   assert.equal(JSON.parse(s1.body).utente.ruolo, 'giudice');
   assert.equal((await a2.inject({ method: 'POST', url: '/api/auth/ticket', payload: { ticket: tk } })).statusCode, 401);   // monouso
-  assert.match((await via('google', (n) => gOk(n, { email: 'sconosciuto@x.it', sub: 'g-2' }))).headers.location, /sso-errore=non_autorizzato/);
+  // sconosciuto: non entra, ma ottiene solo una sessione "in attesa" (nessun utente creato)
+  const sc = await via('google', (n) => gOk(n, { email: 'sconosciuto@x.it', sub: 'g-2' })); const tkSc = sc.headers.location.split('#sso=')[1]; assert.ok(tkSc);
+  const sSc = json(await a2.inject({ method: 'POST', url: '/api/auth/ticket', payload: { ticket: tkSc } })); assert.equal(sSc.utente.in_attesa, true);
+  assert.equal((await a2.inject({ method: 'GET', url: '/api/eventi', headers: { authorization: `Bearer ${sSc.token}` } })).statusCode, 403);
+  assert.equal((await pool.query(`select count(*)::int n from utente where lower(email)='sconosciuto@x.it'`)).rows[0].n, 0);
+  await pool.query(`delete from richiesta_accesso`);
   assert.match((await via('google', (n) => gOk(n, { email_verified: false, sub: 'g-3' }))).headers.location, /sso-errore=email_non_verificata/);
   assert.match((await via('google', (n) => gOk('altro-nonce', { sub: 'g-4' }))).headers.location, /sso-errore=token/);
   const mOk = (nonce, extra = {}) => ({ iss: `https://login.microsoftonline.com/${TEN}/v2.0`, aud: 'mid', exp: Date.now() / 1000 + 600, nonce, sub: 'm-1', tid: TEN, email: 'org@t', ...extra });
@@ -648,5 +653,67 @@ test('SSO-1 Google/Microsoft: ticket monouso, solo utenti già registrati, email
   for (const k of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'MS_CLIENT_ID', 'MS_CLIENT_SECRET', 'MS_TENANT']) delete process.env[k];
   // l'identità collegata resta legata all'utente
   assert.equal((await pool.query(`select count(*)::int n from utente_identita`)).rows[0].n, 2);
+  await a2.close();
+});
+
+test('R-1 richieste di accesso: modulo, CF controllato e cifrato, approvazione con ruolo, partecipante senza poteri, scadenza 48 ore', async () => {
+  const { buildApp: costruisci } = await import('../src/app.js');
+  Object.assign(process.env, { GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gs', RESEND_API_KEY: 'k', NOTIFICA_EMAIL: 'me@t' });
+  let claims = {}; const mail = [];
+  const finto = async (url, o) => { if (String(url).includes('resend')) { mail.push(JSON.parse(o.body)); return { ok: true, json: async () => ({}) }; }
+    return { ok: true, json: async () => ({ id_token: 'x.' + Buffer.from(JSON.stringify(claims)).toString('base64url') + '.y' }) }; };
+  const a2 = costruisci(pool, { fetchImpl: finto });
+  const H = (t) => ({ authorization: `Bearer ${t}` });
+  const entra = async (extra) => {
+    const i = await a2.inject({ method: 'GET', url: '/api/auth/google/inizio' }); const loc = new URL(i.headers.location);
+    claims = { iss: 'https://accounts.google.com', aud: 'gid', exp: Date.now() / 1000 + 600, nonce: loc.searchParams.get('nonce'), email_verified: true, ...extra };
+    const r = await a2.inject({ method: 'GET', url: `/api/auth/google/callback?code=a&state=${loc.searchParams.get('state')}`, headers: { cookie: String(i.headers['set-cookie']).split(';')[0] } });
+    return json(await a2.inject({ method: 'POST', url: '/api/auth/ticket', payload: { ticket: r.headers.location.split('#sso=')[1] } }));
+  };
+  await pool.query(`update evento set data = current_date + 10 where id=$1`, [ev]);   // le squadre proposte sono quelle delle gare in corso o future
+  const nuovo = await entra({ sub: 'r-1', email: 'Mario.Rossi@gmail.com', given_name: 'Mario', family_name: 'Rossi' });
+  assert.equal(nuovo.utente.in_attesa, true); const T = nuovo.token;
+  const me = json(await a2.inject({ method: 'GET', url: '/api/me', headers: H(T) })); assert.equal(me.in_attesa, true);
+  assert.equal((await a2.inject({ method: 'GET', url: '/api/richieste', headers: H(T) })).statusCode, 403);       // non può vedere altro
+  const form = json(await a2.inject({ method: 'GET', url: '/api/registrazione', headers: H(T) }));
+  assert.equal(form.nome, 'Mario'); assert.equal(form.compilata, false); assert.ok(form.squadre.length > 0);
+  const base = { nome: 'Mario', cognome: 'Rossi', codice_fiscale: 'RSSMRA85T10A562S', comitato: 'Modena', provincia: 'mo', ruolo_gara: 'giudice' };
+  const invia = (b) => a2.inject({ method: 'POST', url: '/api/registrazione', payload: b, headers: H(T) });
+  assert.equal((await invia({ ...base, codice_fiscale: 'RSSMRA85T10A562X' })).statusCode, 400);                    // carattere di controllo errato
+  assert.equal((await invia({ ...base, comitato: '' })).statusCode, 400);
+  assert.equal((await invia({ ...base, ruolo_gara: 'allenatore' })).statusCode, 400);                              // squadra obbligatoria
+  assert.equal((await invia({ ...base, ruolo_gara: 'boh' })).statusCode, 400);
+  assert.equal((await invia({ ...base, ruolo_gara: 'allenatore', squadra_id: form.squadre[0].id })).statusCode, 200);
+  assert.equal(mail.length, 1); assert.match(mail[0].subject, /Mario Rossi/); assert.ok(!JSON.stringify(mail[0]).includes('RSSMRA85'));   // niente CF nell'email
+  const grezzo = (await pool.query('select cf_cifrato, cf_coerente from richiesta_accesso')).rows[0];
+  assert.ok(!grezzo.cf_cifrato.includes('RSSMRA')); assert.equal(grezzo.cf_coerente, true);                        // cifrato nel database
+  // solo l'admin vede ed approva
+  assert.equal((await chiama('GET', '/api/richieste', { token: tok['org@t'] })).statusCode, 403);
+  const lista = json(await chiama('GET', '/api/richieste', { token: tok['adm@t'] }));
+  assert.equal(lista.length, 1); assert.equal(lista[0].codice_fiscale, 'RSSMRA85T10A562S'); assert.equal(lista[0].ruolo_proposto, 'partecipante');
+  assert.equal(json(await chiama('GET', '/api/richieste/conteggio', { token: tok['adm@t'] })).n, 1);
+  assert.equal((await chiama('POST', `/api/richieste/${lista[0].id}/approva`, { token: tok['adm@t'], body: { ruolo: 'superuomo' } })).statusCode, 400);
+  const ok = await chiama('POST', `/api/richieste/${lista[0].id}/approva`, { token: tok['adm@t'], body: { ruolo: 'partecipante' } });
+  assert.equal(ok.statusCode, 200); assert.equal(json(ok).email, 'mario.rossi@gmail.com');
+  assert.equal(json(await chiama('GET', '/api/richieste/conteggio', { token: tok['adm@t'] })).n, 0);
+  // ora Mario entra davvero, ma da partecipante non ha alcun potere
+  const dopo = await entra({ sub: 'r-1', email: 'mario.rossi@gmail.com' }); assert.equal(dopo.utente.ruolo, 'partecipante');
+  assert.equal((await a2.inject({ method: 'GET', url: '/api/eventi', headers: H(dopo.token) })).statusCode, 200);
+  for (const u of [`/api/eventi/${ev}/classifica?tipo=generale`, `/api/eventi/${ev}/scene`, '/api/utenti', '/api/libreria/patologie']) assert.equal((await a2.inject({ method: 'GET', url: u, headers: H(dopo.token) })).statusCode, 403, u);
+  assert.equal((await a2.inject({ method: 'POST', url: '/api/avvisi', payload: { titolo: 'x' }, headers: H(dopo.token) })).statusCode, 403);
+  // rifiuto e scadenza
+  const t2 = (await entra({ sub: 'r-2', email: 'altro@gmail.com', given_name: 'A', family_name: 'B' })).token;
+  await a2.inject({ method: 'POST', url: '/api/registrazione', payload: { ...base, nome: 'Anna', cognome: 'Bianchi', codice_fiscale: 'RSSMRA85T10A562S' }, headers: H(t2) });
+  const l2 = json(await chiama('GET', '/api/richieste', { token: tok['adm@t'] })); assert.equal(l2.length, 1); assert.equal(l2[0].cf_coerente, false);   // CF di un altro nome: segnalato, non bloccato
+  await pool.query(`update richiesta_accesso set scade_il = now() - interval '1 minute'`);                         // passate le 48 ore
+  assert.equal(json(await chiama('GET', '/api/richieste', { token: tok['adm@t'] })).length, 0);
+  assert.equal((await a2.inject({ method: 'GET', url: '/api/me', headers: H(t2) })).statusCode, 401);
+  const t3 = (await entra({ sub: 'r-3', email: 'terzo@gmail.com' })).token;
+  await a2.inject({ method: 'POST', url: '/api/registrazione', payload: base, headers: H(t3) });
+  const l3 = json(await chiama('GET', '/api/richieste', { token: tok['adm@t'] }));
+  assert.equal((await chiama('DELETE', `/api/richieste/${l3[0].id}`, { token: tok['adm@t'] })).statusCode, 200);
+  assert.equal((await pool.query(`select count(*)::int n from richiesta_accesso`)).rows[0].n, 0);
+  await pool.query(`update evento set data = '2026-04-18' where id=$1`, [ev]);
+  for (const k of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'RESEND_API_KEY', 'NOTIFICA_EMAIL']) delete process.env[k];
   await a2.close();
 });

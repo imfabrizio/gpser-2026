@@ -8,7 +8,7 @@
 
 create extension if not exists pgcrypto;
 
-create type ruolo_utente as enum ('admin', 'organizzazione', 'giudice', 'giudice_master');
+create type ruolo_utente as enum ('admin', 'organizzazione', 'giudice', 'giudice_master', 'partecipante');
 create type livello      as enum ('MB', 'BE', 'SU', 'IN', 'NE');
 create type stato_scheda as enum ('bozza', 'completata', 'verificata');
 create type origine_dato as enum ('carta', 'tablet_online', 'tablet_offline');
@@ -25,6 +25,11 @@ create table utente (
   mfa_secret    text,                            -- segreto TOTP cifrato
   mfa_attiva    boolean not null default false,
   mfa_recupero  text[] not null default '{}',    -- hash dei codici di recupero
+  ruolo_gara    text,                            -- ruolo in gara chiesto in registrazione (partecipante_leader, allenatore...)
+  squadra_id    uuid,                            -- FK aggiunta dopo la tabella squadra
+  cf_cifrato    text,                            -- codice fiscale cifrato
+  comitato      text,
+  provincia     text,
   created_at    timestamptz not null default now()
 );
 
@@ -88,6 +93,7 @@ create table partecipante (
   note          text,
   created_at    timestamptz not null default now()
 );
+alter table utente add constraint utente_squadra_fk foreign key (squadra_id) references squadra(id) on delete set null;
 create table squadra_membro (
   squadra_id      uuid not null references squadra(id) on delete cascade,
   partecipante_id uuid not null references partecipante(id),
@@ -279,4 +285,25 @@ create table scena_master (
 
 -- ───────── versione dello schema ─────────
 create table schema_migrazioni (nome text primary key, applicata_at timestamptz not null default now());
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql');   -- lo schema qui sopra le include già tutte
+-- ───────── richieste di accesso (registrazione con approvazione) ─────────
+create table richiesta_accesso (
+  id            uuid primary key default gen_random_uuid(),
+  provider      text not null,
+  sub           text not null,
+  email         text not null,
+  nome          text,
+  cognome       text,
+  cf_cifrato    text,
+  cf_coerente   boolean,                      -- il codice corrisponde a nome e cognome? (avviso, non blocca)
+  comitato      text,
+  provincia     text,
+  ruolo_gara    text,                         -- ruolo chiesto: partecipante_leader, giudice, allenatore...
+  squadra_id    uuid references squadra(id) on delete set null,
+  codice_ruolo  text,
+  compilata     boolean not null default false,
+  created_at    timestamptz not null default now(),
+  scade_il      timestamptz not null default now() + interval '48 hours',
+  unique (provider, sub)
+);
+
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql');   -- lo schema qui sopra le include già tutte

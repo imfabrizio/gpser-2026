@@ -28,3 +28,7 @@ services:
         sync: false
       - key: MS_TENANT
         sync: false            # ID (GUID) del tenant Microsoft Entra della tua organizzazione
+      - key: RESEND_API_KEY
+        sync: false            # facoltativa: email di avviso per le richieste di accesso
+      - key: NOTIFICA_EMAIL
+        sync: false            # dove ricevere l avviso

@@ -63,7 +63,16 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
       ({ rows: [u] } = await pool.query('select * from utente where lower(email)=$1 and attivo', [email]));
       if (u) await pool.query('insert into utente_identita (provider, sub, utente_id, email) values ($1,$2,$3,$4) on conflict do nothing', [prov, idt.sub, u.id, email]);
     }
-    if (!u) return errore('non_autorizzato');
+    if (!u) {            // sconosciuto: non entra, ma può presentare una richiesta (valida 48 ore) che l'amministratore approva o rifiuta
+      if (!email) return errore('non_autorizzato');
+      await pool.query('delete from richiesta_accesso where scade_il < now()');
+      const { rows: [r] } = await pool.query(
+        `insert into richiesta_accesso (provider, sub, email, nome, cognome) values ($1,$2,$3,$4,$5)
+         on conflict (provider, sub) do update set email=excluded.email returning id`,
+        [prov, idt.sub, email, String(idt.given_name || '').slice(0, 80) || null, String(idt.family_name || '').slice(0, 80) || null]);
+      const tr = b64u(crypto.randomBytes(24)); ticket.set(tr, { rid: r.id, exp: Date.now() + 60e3 });
+      return reply.header('Set-Cookie', 'sso=; Path=/api/auth; Max-Age=0').redirect(`/#sso=${tr}`);
+    }
     const t = b64u(crypto.randomBytes(24)); ticket.set(t, { id: u.id, exp: Date.now() + 60e3 });
     return reply.header('Set-Cookie', 'sso=; Path=/api/auth; Max-Age=0').redirect(`/#sso=${t}`);
   });
@@ -71,6 +80,7 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
   app.post('/api/auth/ticket', async (req) => {          // il ticket monouso diventa la sessione: il token non passa mai dall'indirizzo
     const t = ticket.get(req.body?.ticket); ticket.delete(req.body?.ticket);
     if (!t || t.exp < Date.now()) throw httpErr(401, 'accesso scaduto: riprova');
+    if (t.rid) return { token: firmaToken({ rid: t.rid, via: 'sso' }, 48), utente: { in_attesa: true } };
     const { rows: [u] } = await pool.query('select * from utente where id=$1 and attivo', [t.id]);
     if (!u) throw httpErr(401, 'utente non valido');
     return creaSessione(u, process.env.SSO_RICHIEDE_MFA === '1' && u.mfa_attiva ? 'pwd' : 'sso');

@@ -4,12 +4,12 @@ import { hashPassword } from './auth.js';
 import { inTransazione } from './db.js';
 import { httpErr } from './services/compilazioni.js';
 
-const RUOLI = ['admin', 'organizzazione', 'giudice', 'giudice_master'];
+const RUOLI = ['admin', 'organizzazione', 'giudice', 'giudice_master', 'partecipante'];
 
 export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   // ── utenti (solo admin) ──
   app.get('/api/utenti', { preHandler: soloAdmin }, async () =>
-    (await pool.query(`select id, email, nome, ruolo, attivo, evento_id, mfa_attiva, (select coalesce(array_agg(provider), '{}') from utente_identita i where i.utente_id = utente.id) as identita from utente order by nome`)).rows);
+    (await pool.query(`select id, email, nome, ruolo, ruolo_gara, comitato, provincia, attivo, evento_id, mfa_attiva, (select coalesce(array_agg(provider), '{}') from utente_identita i where i.utente_id = utente.id) as identita from utente order by nome`)).rows);
   app.post('/api/utenti', { preHandler: soloAdmin }, async (req) => {
     const { email, nome, ruolo = 'giudice', solo_sso } = req.body || {};
     const password = solo_sso ? crypto.randomBytes(24).toString('base64url') : req.body?.password;   // solo accesso con Google/Microsoft: password casuale mai comunicata

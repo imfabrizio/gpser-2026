@@ -8,6 +8,7 @@ import { generaPdfSchede } from './services/stampa.js';
 import { registraGestione } from './routes-gestione.js';
 import { aggiungiSchedaDaPatologia, creaScena, duplicaScena } from './services/scene.js';
 import { importaExcel } from './services/import-excel.js';
+import { registraRichieste } from './routes-richieste.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
@@ -37,11 +38,19 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (!api || ['/api/login', '/api/login/mfa', '/api/pubblico'].includes(rotta) || rotta.startsWith('/api/auth/')) return;
     const t = leggiToken((req.headers.authorization || '').replace(/^Bearer /, ''));
     if (!t) throw httpErr(401, 'non autenticato');
+    if (t.rid) {                                   // sessione di chi non è ancora registrato: solo il modulo di richiesta
+      const { rows: [r] } = await pool.query('select * from richiesta_accesso where id=$1 and scade_il > now()', [t.rid]);
+      if (!r) throw httpErr(401, 'richiesta scaduta: accedi di nuovo per ripresentarla');
+      if (!['/api/me', '/api/registrazione'].includes(rotta)) throw httpErr(403, 'accesso in attesa di approvazione');
+      req.richiesta = r; return;
+    }
     const { rows: [u] } = await pool.query('select id, ruolo, nome, evento_id, mfa_attiva from utente where id=$1 and attivo', [t.id]);
     if (!u) throw httpErr(401, 'utente non valido');
     req.utente = { ...u, via: t.via || 'pwd' };
     // organizzazione e admin con password devono prima attivare la MFA: fino ad allora solo la pagina di configurazione
     if (mfaObbligatoria(u, req.utente.via) && !(rotta === '/api/me' || rotta.startsWith('/api/mfa'))) throw httpErr(403, 'configura_mfa');
+    if (u.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi'].includes(rotta))))
+      throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
     if (!RUOLI_ORG.includes(u.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
       const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);
       if (m && m[1].toLowerCase() !== u.evento_id) throw httpErr(403, 'gara non assegnata');
@@ -71,7 +80,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (u.mfa_attiva) return { mfa: true, ticket: firmaToken({ id: u.id, t: 'mfa' }, 0.1) };   // 6 minuti per inserire il codice
     return creaSessione(u, 'pwd');
   });
-  app.get('/api/me', async (req) => profilo((await pool.query('select * from utente where id=$1', [req.utente.id])).rows[0], req.utente.via));
+  app.get('/api/me', async (req) => req.richiesta ? { in_attesa: true, nome: [req.richiesta.nome, req.richiesta.cognome].filter(Boolean).join(' ') || req.richiesta.email, compilata: req.richiesta.compilata } : profilo((await pool.query('select * from utente where id=$1', [req.utente.id])).rows[0], req.utente.via));
 
   // ── pagina pubblica (senza login): notizie, gare, percorso ──
   app.get('/api/pubblico', async () => {
@@ -296,6 +305,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
 
   registraGestione(app, pool, { soloOrg, soloAdmin });
   registraAuth(app, pool, { fetchImpl, soloAdmin });
+  registraRichieste(app, pool, { soloAdmin, fetchImpl });
 
   app.setErrorHandler((err, req, reply) => {
     let status = err.statusCode || 500, msg = err.message;
