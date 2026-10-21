@@ -59,7 +59,7 @@
 </style>
 </head>
 <body>
-<header><img class="logo" src="/logo-cri.jpg" alt="CRI"><h1>GareCRI · Gestione</h1><span id="chi"></span><button id="esci">Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="CRI"><h1>GareCRI · Gestione</h1><span id="chi"></span><a href="/#sicurezza" style="color:#fff;font-size:14px">Sicurezza</a><button id="esci">Esci</button></header>
 <nav id="tabs" hidden></nav>
 <main id="app"></main>
 <dialog id="dlg"></dialog>
@@ -74,7 +74,8 @@ async function api(path, opt = {}) {
   const r = await fetch('/api' + path, { method: opt.method || (opt.body ? 'POST' : 'GET'),
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
     body: opt.body ? JSON.stringify(opt.body) : undefined });
-  if (r.status === 401 && path !== '/login') { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; throw new Error('sessione scaduta'); }
+  if (r.status === 403 && (await r.clone().json().catch(() => ({}))).errore === 'configura_mfa') { location.href = '/#sicurezza'; throw new Error('configura la MFA'); }
+  if (r.status === 401 && !path.startsWith('/login') && !path.startsWith('/auth/')) { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; throw new Error('sessione scaduta'); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.errore || r.statusText);
   return j;
@@ -509,16 +510,18 @@ async function tUtenti() {
   $('#app').innerHTML = `<div class="card"><h3>Utenti</h3><table>${u.map((x) => `<tr><td>${esc(x.nome)}<br><small>${esc(x.email)}</small></td>
     <td><select class="ru" data-id="${x.id}">${RUOLI.map((r) => `<option value="${r}" ${r === x.ruolo ? 'selected' : ''}>${RUOLO_ET[r]}</option>`).join('')}</select></td>
     <td><select class="ug" data-id="${x.id}"><option value="">gara attiva</option>${eventi.map((e) => `<option value="${e.id}" ${e.id === x.evento_id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select></td>
-    <td><span class="tag ${x.attivo ? 'ok' : 'no'}">${x.attivo ? 'attivo' : 'disattivato'}</span></td>
-    <td><button class="s p pw" data-id="${x.id}">Password</button> <button class="s p at" data-id="${x.id}" data-a="${x.attivo}">${x.attivo ? 'Disattiva' : 'Riattiva'}</button></td></tr>`).join('')}</table></div>
+    <td><span class="tag ${x.attivo ? 'ok' : 'no'}">${x.attivo ? 'attivo' : 'disattivato'}</span><br><span class="tag ${x.mfa_attiva ? 'ok' : ''}">MFA ${x.mfa_attiva ? 'sì' : 'no'}</span>${(x.identita || []).map((i) => `<span class="tag">${esc(i)}</span>`).join('')}</td>
+    <td><button class="s p pw" data-id="${x.id}">Password</button> ${x.mfa_attiva ? `<button class="x p mfr" data-id="${x.id}">Reset MFA</button> ` : ''}<button class="s p at" data-id="${x.id}" data-a="${x.attivo}">${x.attivo ? 'Disattiva' : 'Riattiva'}</button></td></tr>`).join('')}</table></div>
     <div class="card"><h3>Nuovo utente</h3><div class="riga"><div><label>Nome</label><input id="u_n"></div><div><label>Email</label><input id="u_e" type="email"></div>
     <div><label>Ruolo</label><select id="u_r">${RUOLI.map((r) => `<option value="${r}">${RUOLO_ET[r]}</option>`).join('')}</select></div>
-    <div><label>Password (min. 8)</label><input id="u_p" type="text"></div><div class="stretto"><button class="b" id="u_ok">Crea</button></div></div></div>`;
+    <div><label>Password (min. 8)</label><input id="u_p" type="text"></div>
+    <div><label>Solo accesso Google/Microsoft</label><label style="font-size:14px;color:inherit"><input type="checkbox" id="u_sso"> senza password</label></div><div class="stretto"><button class="b" id="u_ok">Crea</button></div></div></div>`;
   document.querySelectorAll('.ru').forEach((s) => { s.onchange = () => fai(() => api(`/utenti/${s.dataset.id}`, { method: 'PATCH', body: { ruolo: s.value } }), 'Ruolo aggiornato'); });
   document.querySelectorAll('.ug').forEach((s) => { s.onchange = () => fai(() => api(`/utenti/${s.dataset.id}`, { method: 'PATCH', body: { evento_id: s.value || null } }), 'Gara assegnata'); });
+  document.querySelectorAll('.mfr').forEach((b) => { b.onclick = () => { if (confirm('Azzerare la MFA di questo utente? Al prossimo accesso dovrà rifare la configurazione.')) fai(() => api(`/utenti/${b.dataset.id}/mfa-reset`, { body: {} }), 'MFA azzerata'); }; });
   document.querySelectorAll('.at').forEach((b) => { b.onclick = () => fai(() => api(`/utenti/${b.dataset.id}`, { method: 'PATCH', body: { attivo: b.dataset.a !== 'true' } })); });
   document.querySelectorAll('.pw').forEach((b) => { b.onclick = () => { const p = prompt('Nuova password (min. 8 caratteri):'); if (p) fai(() => api(`/utenti/${b.dataset.id}`, { method: 'PATCH', body: { password: p } }), 'Password cambiata'); }; });
-  $('#u_ok').onclick = () => fai(() => api('/utenti', { body: { nome: $('#u_n').value.trim(), email: $('#u_e').value.trim(), ruolo: $('#u_r').value, password: $('#u_p').value } }), 'Utente creato');
+  $('#u_ok').onclick = () => fai(() => api('/utenti', { body: { nome: $('#u_n').value.trim(), email: $('#u_e').value.trim(), ruolo: $('#u_r').value, password: $('#u_p').value, solo_sso: $('#u_sso').checked } }), 'Utente creato');
 }
 
 async function render() {

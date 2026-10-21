@@ -7,6 +7,7 @@ import { creaPool, inTransazione } from '../src/db.js';
 import { hashPassword } from '../src/auth.js';
 import { importaExcel } from '../src/services/import-excel.js';
 
+process.env.MFA_ORG = '0';   // i test storici usano utenti org senza MFA; i test MFA la riattivano
 const ADMIN_URL = process.env.TEST_ADMIN_URL || 'postgres://postgres@localhost:5433/postgres';
 const TEST_URL = ADMIN_URL.replace(/\/[^/]*$/, '/garecri_test');
 let pool, app, ev, tok = {};
@@ -561,4 +562,91 @@ test('P-1 pagina pubblica: senza login solo notizie pubbliche e percorso; mappa 
   assert.ok(d.avvisi.some((a) => a.titolo === 'Pubblica')); assert.ok(!d.avvisi.some((a) => a.titolo === 'Riservata'));
   const e = d.eventi.find((x) => x.id === ev); assert.ok(e.mappa_url.startsWith('https://www.google.com/maps/')); assert.ok(e.scene.length >= 1 && e.scene[0].indirizzo);
   assert.equal((await chiama('GET', '/api/eventi')).statusCode, 401);   // il resto resta protetto
+});
+
+import { totp, nuovoSegreto, verificaTotp } from '../src/mfa.js';
+const get = (url, headers = {}) => app.inject({ method: 'GET', url, headers });
+
+test('MFA-1 TOTP: vettore RFC 6238; segreto cifrato a riposo', async () => {
+  assert.equal(totp('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 59000, 8), '94287082');
+  const s = nuovoSegreto(); assert.ok(verificaTotp(s, totp(s))); assert.ok(!verificaTotp(s, '000000') || totp(s) === '000000');
+});
+
+test('MFA-2 attivazione, login in due passi, codice di recupero monouso, reset da admin', async () => {
+  const org = tok['org@t'];
+  const ini = json(await chiama('POST', '/api/mfa/inizia', { token: org, body: {} }));
+  assert.ok(ini.qr.startsWith('data:image/png')); assert.match(ini.otpauth, /^otpauth:\/\/totp\//);
+  const { rows: [r] } = await pool.query(`select mfa_secret from utente where email='org@t'`); assert.ok(!r.mfa_secret.includes(ini.segreto));   // cifrato
+  assert.equal((await chiama('POST', '/api/mfa/conferma', { token: org, body: { codice: '123456' } })).statusCode, 400);
+  const rc = await chiama('POST', '/api/mfa/conferma', { token: org, body: { codice: totp(ini.segreto) } }); assert.equal(rc.statusCode, 200, rc.body);
+  const c = json(rc);
+  assert.equal(c.codici_recupero.length, 8);
+  // login: la password da sola non basta
+  const l = json(await chiama('POST', '/api/login', { body: { email: 'org@t', password: 'pw' } }));
+  assert.equal(l.mfa, true); assert.ok(!l.token);
+  assert.equal((await chiama('POST', '/api/login/mfa', { body: { ticket: l.ticket, codice: '000001' } })).statusCode, 401);
+  const ok = json(await chiama('POST', '/api/login/mfa', { body: { ticket: l.ticket, codice: totp(ini.segreto) } }));
+  assert.ok(ok.token && ok.utente.mfa_attiva);
+  assert.equal((await chiama('POST', '/api/login/mfa', { body: { ticket: 'falso', codice: '1' } })).statusCode, 401);
+  // codice di recupero: vale una volta sola
+  const l2 = json(await chiama('POST', '/api/login', { body: { email: 'org@t', password: 'pw' } }));
+  assert.equal((await chiama('POST', '/api/login/mfa', { body: { ticket: l2.ticket, codice: c.codici_recupero[0] } })).statusCode, 200);
+  assert.equal((await chiama('POST', '/api/login/mfa', { body: { ticket: l2.ticket, codice: c.codici_recupero[0] } })).statusCode, 401);
+  // reset da admin: solo admin
+  const { rows: [u] } = await pool.query(`select id from utente where email='org@t'`);
+  assert.equal((await chiama('POST', `/api/utenti/${u.id}/mfa-reset`, { token: org, body: {} })).statusCode, 403);
+  assert.equal((await chiama('POST', `/api/utenti/${u.id}/mfa-reset`, { token: tok['adm@t'], body: {} })).statusCode, 200);
+  assert.ok(!json(await chiama('POST', '/api/login', { body: { email: 'org@t', password: 'pw' } })).mfa);
+});
+
+test('MFA-3 MFA obbligatoria per organizzazione/admin con password: fino all\'attivazione solo la pagina di configurazione', async () => {
+  process.env.MFA_ORG = '1';
+  try {
+    const t = json(await chiama('POST', '/api/login', { body: { email: 'org@t', password: 'pw' } }));
+    assert.equal(t.utente.mfa_da_configurare, true);
+    assert.equal((await chiama('GET', '/api/eventi', { token: t.token })).statusCode, 403);
+    assert.equal((await chiama('GET', '/api/me', { token: t.token })).statusCode, 200);
+    assert.equal((await chiama('POST', '/api/mfa/inizia', { token: t.token, body: {} })).statusCode, 200);
+    const g = json(await chiama('POST', '/api/login', { body: { email: 'giu@t', password: 'pw' } }));   // il giudice non è obbligato
+    assert.equal((await chiama('GET', '/api/eventi', { token: g.token })).statusCode, 200);
+  } finally { process.env.MFA_ORG = '0'; }
+});
+
+test('SSO-1 Google/Microsoft: ticket monouso, solo utenti già registrati, email verificata, nonce e tenant controllati', async () => {
+  const { buildApp: costruisci } = await import('../src/app.js');
+  const TEN = '11111111-2222-3333-4444-555555555555';
+  Object.assign(process.env, { GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gs', MS_CLIENT_ID: 'mid', MS_CLIENT_SECRET: 'ms', MS_TENANT: TEN });
+  let claims = {};
+  const finto = async (url, o) => ({ ok: true, json: async () => ({ id_token: 'x.' + Buffer.from(JSON.stringify(typeof claims === 'function' ? claims(o) : claims)).toString('base64url') + '.y' }) });
+  const a2 = costruisci(pool, { fetchImpl: finto });
+  const via = async (prov, make) => {
+    const i = await a2.inject({ method: 'GET', url: `/api/auth/${prov}/inizio` });
+    assert.equal(i.statusCode, 302); const loc = new URL(i.headers.location); const cookie = String(i.headers['set-cookie']).split(';')[0];
+    assert.ok(loc.searchParams.get('code_challenge')); const nonce = loc.searchParams.get('nonce'), state = loc.searchParams.get('state');
+    claims = make(nonce);
+    return a2.inject({ method: 'GET', url: `/api/auth/${prov}/callback?code=abc&state=${state}`, headers: { cookie } });
+  };
+  const gOk = (nonce, extra = {}) => ({ iss: 'https://accounts.google.com', aud: 'gid', exp: Date.now() / 1000 + 600, nonce, sub: 'g-1', email: 'giu@t', email_verified: true, ...extra });
+  assert.deepEqual(json(await a2.inject({ method: 'GET', url: '/api/auth/config' })), { google: true, microsoft: true });
+  const r = await via('google', (n) => gOk(n));
+  assert.equal(r.statusCode, 302); const tk = r.headers.location.split('#sso=')[1]; assert.ok(tk);
+  const s1 = await a2.inject({ method: 'POST', url: '/api/auth/ticket', payload: { ticket: tk } }); assert.equal(s1.statusCode, 200);
+  assert.equal(JSON.parse(s1.body).utente.ruolo, 'giudice');
+  assert.equal((await a2.inject({ method: 'POST', url: '/api/auth/ticket', payload: { ticket: tk } })).statusCode, 401);   // monouso
+  assert.match((await via('google', (n) => gOk(n, { email: 'sconosciuto@x.it', sub: 'g-2' }))).headers.location, /sso-errore=non_autorizzato/);
+  assert.match((await via('google', (n) => gOk(n, { email_verified: false, sub: 'g-3' }))).headers.location, /sso-errore=email_non_verificata/);
+  assert.match((await via('google', (n) => gOk('altro-nonce', { sub: 'g-4' }))).headers.location, /sso-errore=token/);
+  const mOk = (nonce, extra = {}) => ({ iss: `https://login.microsoftonline.com/${TEN}/v2.0`, aud: 'mid', exp: Date.now() / 1000 + 600, nonce, sub: 'm-1', tid: TEN, email: 'org@t', ...extra });
+  assert.match((await via('microsoft', (n) => mOk(n))).headers.location, /#sso=/);
+  assert.match((await via('microsoft', (n) => mOk(n, { tid: 'altro-tenant', sub: 'm-2' }))).headers.location, /sso-errore=tenant/);
+  // stato non corrispondente (CSRF)
+  const i = await a2.inject({ method: 'GET', url: '/api/auth/google/inizio' });
+  const csrf = await a2.inject({ method: 'GET', url: '/api/auth/google/callback?code=abc&state=falso', headers: { cookie: String(i.headers['set-cookie']).split(';')[0] } });
+  assert.match(csrf.headers.location, /sso-errore=sessione/);
+  // Microsoft senza tenant specifico: non attivo
+  process.env.MS_TENANT = 'common'; assert.equal(json(await a2.inject({ method: 'GET', url: '/api/auth/config' })).microsoft, false);
+  for (const k of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'MS_CLIENT_ID', 'MS_CLIENT_SECRET', 'MS_TENANT']) delete process.env[k];
+  // l'identità collegata resta legata all'utente
+  assert.equal((await pool.query(`select count(*)::int n from utente_identita`)).rows[0].n, 2);
+  await a2.close();
 });

@@ -8,10 +8,11 @@ import { generaPdfSchede } from './services/stampa.js';
 import { registraGestione } from './routes-gestione.js';
 import { aggiungiSchedaDaPatologia, creaScena, duplicaScena } from './services/scene.js';
 import { importaExcel } from './services/import-excel.js';
+import { registraAuth, creaSessione, profilo, mfaObbligatoria } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
 
-export function buildApp(pool, { logger = false } = {}) {
+export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   const app = Fastify({ logger, trustProxy: process.env.TRUST_PROXY === '1' });   // TRUST_PROXY=1 solo dietro a un proxy fidato (es. hosting con HTTPS)
   app.addHook('onError', async (req, reply, err) => { if (process.env.DEBUG_ERR) console.error('ERR', err); });
 
@@ -33,12 +34,14 @@ export function buildApp(pool, { logger = false } = {}) {
     const rotta = req.routeOptions?.url || '';
     let decodificato; try { decodificato = decodeURIComponent(req.url.split('?')[0]); } catch { throw httpErr(400, 'URL non valido'); }
     const api = rotta.startsWith('/api/') || decodificato.startsWith('/api/');
-    if (!api || rotta === '/api/login' || rotta === '/api/pubblico') return;
+    if (!api || ['/api/login', '/api/login/mfa', '/api/pubblico'].includes(rotta) || rotta.startsWith('/api/auth/')) return;
     const t = leggiToken((req.headers.authorization || '').replace(/^Bearer /, ''));
     if (!t) throw httpErr(401, 'non autenticato');
-    const { rows: [u] } = await pool.query('select id, ruolo, nome, evento_id from utente where id=$1 and attivo', [t.id]);
+    const { rows: [u] } = await pool.query('select id, ruolo, nome, evento_id, mfa_attiva from utente where id=$1 and attivo', [t.id]);
     if (!u) throw httpErr(401, 'utente non valido');
-    req.utente = u;
+    req.utente = { ...u, via: t.via || 'pwd' };
+    // organizzazione e admin con password devono prima attivare la MFA: fino ad allora solo la pagina di configurazione
+    if (mfaObbligatoria(u, req.utente.via) && !(rotta === '/api/me' || rotta.startsWith('/api/mfa'))) throw httpErr(403, 'configura_mfa');
     if (!RUOLI_ORG.includes(u.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
       const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);
       if (m && m[1].toLowerCase() !== u.evento_id) throw httpErr(403, 'gara non assegnata');
@@ -65,9 +68,10 @@ export function buildApp(pool, { logger = false } = {}) {
     const ok = u ? verificaPassword(password, u.password_hash) : (verificaPasswordFinta(password), false);   // stesso tempo di risposta
     if (!ok) { registraFallimento(chiave); throw httpErr(401, 'credenziali errate'); }
     azzeraFallimenti(chiave);
-    return { token: firmaToken({ id: u.id }), utente: { id: u.id, nome: u.nome, ruolo: u.ruolo, evento_id: u.evento_id } };
+    if (u.mfa_attiva) return { mfa: true, ticket: firmaToken({ id: u.id, t: 'mfa' }, 0.1) };   // 6 minuti per inserire il codice
+    return creaSessione(u, 'pwd');
   });
-  app.get('/api/me', async (req) => req.utente);
+  app.get('/api/me', async (req) => profilo((await pool.query('select * from utente where id=$1', [req.utente.id])).rows[0], req.utente.via));
 
   // ── pagina pubblica (senza login): notizie, gare, percorso ──
   app.get('/api/pubblico', async () => {
@@ -291,6 +295,7 @@ export function buildApp(pool, { logger = false } = {}) {
   });
 
   registraGestione(app, pool, { soloOrg, soloAdmin });
+  registraAuth(app, pool, { fetchImpl, soloAdmin });
 
   app.setErrorHandler((err, req, reply) => {
     let status = err.statusCode || 500, msg = err.message;

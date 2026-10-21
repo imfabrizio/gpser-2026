@@ -16,3 +16,15 @@ services:
         generateValue: true    # Render genera una stringa casuale
       - key: TRUST_PROXY
         value: "1"             # dietro il proxy HTTPS di Render: limite login per IP reale
+      - key: PUBLIC_URL
+        sync: false            # indirizzo pubblico, es. https://garecri-xxxx.onrender.com (serve per Google/Microsoft)
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: MS_CLIENT_ID
+        sync: false
+      - key: MS_CLIENT_SECRET
+        sync: false
+      - key: MS_TENANT
+        sync: false            # ID (GUID) del tenant Microsoft Entra della tua organizzazione

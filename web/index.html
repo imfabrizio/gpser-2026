@@ -44,6 +44,7 @@
   .barra .stato { flex:1; font-size:14px; }
   table { width:100%; border-collapse:collapse; } td, th { padding:8px 6px; border-bottom:1px solid var(--bordo); text-align:left; }
   td.n, th.n { text-align:right; }
+  [hidden] { display:none !important; }
   .err { color:#C62828; } .ok { color:#2E7D32; }
   .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:14px; }
   .tile { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; text-align:center; text-decoration:none; color:#222; background:#fff; border:2px solid var(--bordo); border-radius:18px; padding:28px 12px; min-height:190px; }
@@ -55,7 +56,7 @@
 </style>
 </head>
 <body>
-<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GareCRI</h1><a id="hhome" href="#" hidden>Home</a><button id="esci" hidden>Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GareCRI</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#sicurezza" hidden>Sicurezza</a><button id="esci" hidden>Esci</button></header>
 <main id="app"></main>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
@@ -69,8 +70,9 @@ async function api(path, opt = {}) {
   const r = await fetch('/api' + path, { method: opt.method || (opt.body ? 'POST' : 'GET'),
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
     body: opt.body ? JSON.stringify(opt.body) : undefined });
-  if (r.status === 401 && path !== '/login') { logout(); throw new Error('sessione scaduta'); }
+  if (r.status === 401 && !path.startsWith('/login') && !path.startsWith('/auth/')) { logout(); throw new Error('sessione scaduta'); }
   const j = await r.json().catch(() => ({}));
+  if (r.status === 403 && j.errore === 'configura_mfa') { location.hash = '#sicurezza'; throw new Error('Per continuare attiva la verifica in due passaggi (MFA)'); }
   if (!r.ok) throw Object.assign(new Error(j.errore || r.statusText), { stato: r.status, definitivo: r.status >= 400 && r.status < 500 && r.status !== 401 && r.status !== 429 });
   return j;
 }
@@ -84,7 +86,7 @@ async function apriPdf(url) {
   } catch (e) { w.close(); alert('PDF non generato: ' + e.message); }
 }
 // il logout NON cancella la coda: i dati non inviati restano legati all'utente e ripartono al suo prossimo accesso
-function logout() { localStorage.removeItem('token'); localStorage.removeItem('me'); token = me = coda = null; location.hash = ''; route(); }
+function logout() { localStorage.removeItem('token'); localStorage.removeItem('me'); token = me = coda = null; window.__meOk = false; location.hash = ''; route(); }
 $('#esci').onclick = logout;
 
 
@@ -117,19 +119,69 @@ async function vistaPubblica() {
     ${passate.length ? `<div class="card pub"><h2>Edizioni passate</h2>${passate.map(riga).join('')}</div>` : ''}`;
 }
 
-function vistaLogin() {
-  $('#esci').hidden = true; $('#hhome').hidden = false;
+const ERR_SSO = { non_autorizzato: 'Questo account non è abilitato: chiedi all\'organizzazione di registrare la tua email.', email_non_verificata: 'Email del provider non verificata.', sessione: 'Sessione di accesso scaduta: riprova.', provider: 'Il provider non ha risposto: riprova.', token: 'Risposta del provider non valida.', tenant: 'Account di un\'altra organizzazione.', non_configurato: 'Accesso non configurato.' };
+async function avviaSessione(r) {
+  token = r.token; me = r.utente; localStorage.setItem('token', token); localStorage.setItem('me', JSON.stringify(me));
+  await preparaCoda(); location.hash = me.mfa_da_configurare ? '#sicurezza' : ''; route();
+}
+async function vistaLogin(msg = '') {
+  $('#esci').hidden = true; $('#hhome').hidden = false; $('#hsic').hidden = true;
+  const cfg = await api('/auth/config').catch(() => ({}));
   $('#app').innerHTML = `<div class="card"><h2>Accesso</h2>
-    <label>Email</label><input id="em" type="email" autocomplete="username">
+    ${cfg.google || cfg.microsoft ? `<div class="sso">${cfg.google ? '<a class="btn sec" href="/api/auth/google/inizio">Accedi con Google</a> ' : ''}${cfg.microsoft ? '<a class="btn sec" href="/api/auth/microsoft/inizio">Accedi con Microsoft</a>' : ''}</div><p><small>oppure con email e password</small></p>` : ''}
+    <div id="passo1"><label>Email</label><input id="em" type="email" autocomplete="username">
     <label>Password</label><input id="pw" type="password" autocomplete="current-password">
-    <button class="btn" id="go">Entra</button> <span id="msg" class="err"></span></div>`;
+    <button class="btn" id="go">Entra</button></div>
+    <div id="passo2" hidden><p>Inserisci il codice a 6 cifre dell'app di autenticazione (o un codice di recupero).</p>
+    <input id="cod" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"><button class="btn" id="go2">Conferma</button></div>
+    <p id="msg" class="err">${esc(msg)}</p></div>`;
   $('#pw').onkeydown = (e) => { if (e.key === 'Enter') $('#go').click(); };
+  $('#cod').onkeydown = (e) => { if (e.key === 'Enter') $('#go2').click(); };
+  let ticketMfa = null;
   $('#go').onclick = async () => {
     try {
       const r = await api('/login', { body: { email: $('#em').value, password: $('#pw').value } });
-      token = r.token; me = r.utente; localStorage.setItem('token', token); localStorage.setItem('me', JSON.stringify(me));
-      await preparaCoda(); location.hash = ''; route();
+      if (r.mfa) { ticketMfa = r.ticket; $('#passo1').hidden = true; $('#passo2').hidden = false; $('#cod').focus(); $('#msg').textContent = ''; return; }
+      await avviaSessione(r);
     } catch (e) { $('#msg').textContent = e.message; }
+  };
+  $('#go2').onclick = async () => {
+    try { await avviaSessione(await api('/login/mfa', { body: { ticket: ticketMfa, codice: $('#cod').value } })); } catch (e) { $('#msg').textContent = e.message; }
+  };
+}
+// ── sicurezza: verifica in due passaggi (MFA) ──
+async function vistaSicurezza() {
+  $('#esci').hidden = false; $('#hhome').hidden = !!(me && me.mfa_da_configurare); $('#titolo').textContent = 'Sicurezza';
+  const st = await api('/mfa');
+  const obbl = me && me.mfa_da_configurare;
+  $('#app').innerHTML = `${obbl ? '<div class="avviso"><strong>Per continuare devi attivare la verifica in due passaggi.</strong> Serve un\'app di autenticazione (Microsoft Authenticator, Google Authenticator, …).</div>' : ''}
+    <div class="card"><h2>Verifica in due passaggi (MFA)</h2>
+    ${st.attiva ? `<p class="ok"><strong>Attiva.</strong> Codici di recupero rimasti: ${st.recupero_rimasti}.</p>
+      ${st.obbligatoria ? '' : ''}<label>Per disattivarla inserisci un codice</label><input id="dc" inputmode="numeric" placeholder="123456"><button class="btn sec" id="dis">Disattiva</button>`
+    : `<p>Non attiva. Aggiunge un codice temporaneo all'accesso con password.</p><button class="btn" id="ini">Attiva MFA</button><div id="conf"></div>`}
+    <p id="msg" class="err"></p></div>
+    <div class="card"><strong>Accesso con provider esterni</strong><p>${st.identita.length ? 'Collegato a: ' + st.identita.map(esc).join(', ') : 'Nessun provider collegato. Si collega al primo accesso con Google o Microsoft, se la tua email è quella registrata.'}</p></div>
+    ${obbl ? '' : '<a class="btn sec" href="#">Home</a>'}`;
+  if ($('#ini')) $('#ini').onclick = async () => {
+    try {
+      const r = await api('/mfa/inizia', { body: {} });
+      $('#ini').hidden = true;
+      $('#conf').innerHTML = `<p>1. Scansiona il codice QR con l'app di autenticazione.</p><img src="${r.qr}" alt="QR code" width="220" height="220">
+        <p><small>Non riesci a scansionare? Inserisci a mano questa chiave: <code>${esc(r.segreto)}</code></small></p>
+        <p>2. Scrivi il codice a 6 cifre che mostra l'app.</p><input id="cc" inputmode="numeric" placeholder="123456"><button class="btn" id="cf">Conferma e attiva</button>`;
+      $('#cf').onclick = async () => {
+        try {
+          const c = await api('/mfa/conferma', { body: { codice: $('#cc').value } });
+          me = await api('/me'); localStorage.setItem('me', JSON.stringify(me));
+          $('#app').innerHTML = `<div class="card"><h2>MFA attiva</h2><p><strong>Salva questi codici di recupero.</strong> Servono se perdi il telefono; ognuno vale una sola volta e non verranno più mostrati.</p>
+            <pre style="font-size:18px;line-height:1.7">${c.codici_recupero.join('\n')}</pre><button class="btn" id="ok">Li ho salvati</button></div>`;
+          $('#ok').onclick = () => { location.hash = ''; route(); };
+        } catch (e) { $('#msg').textContent = e.message; }
+      };
+    } catch (e) { $('#msg').textContent = e.message; }
+  };
+  if ($('#dis')) $('#dis').onclick = async () => {
+    try { await api('/mfa/disattiva', { body: { codice: $('#dc').value } }); me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); vistaSicurezza(); } catch (e) { $('#msg').textContent = e.message; }
   };
 }
 
@@ -304,12 +356,21 @@ async function vistaMonitor() {
 }
 
 async function route() {
+  if (location.hash.startsWith('#sso=')) {           // ritorno da Google/Microsoft: il ticket monouso diventa la sessione
+    const t = location.hash.slice(5); history.replaceState(null, '', location.pathname);
+    try { return await avviaSessione(await api('/auth/ticket', { body: { ticket: t } })); } catch (e) { return vistaLogin(e.message); }
+  }
+  if (location.hash.startsWith('#sso-errore=')) { const c = location.hash.slice(12); history.replaceState(null, '', location.pathname + '#login'); return vistaLogin(ERR_SSO[c] || 'Accesso non riuscito.'); }
+  $('#hsic').hidden = !token;
   if (!token) { return location.hash === '#login' ? vistaLogin() : vistaPubblica(); }
+  if (!window.__meOk) { window.__meOk = true; try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch { /* offline: resta il profilo salvato */ } }
+  if (me.mfa_da_configurare) return vistaSicurezza();
   if (!coda) { try { await preparaCoda(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
   const [v, a, b] = location.hash.slice(1).split('/');
   $('#app').classList.toggle('largo', v === 'valuta'); if (v !== 'valuta') $('#app').classList.remove('sola-lettura');
   try {
     if (v === 'valuta') return await vistaValuta(a, b);
+    if (v === 'sicurezza') return await vistaSicurezza();
     if (v === 'valutazione') return await vistaSelezione();
     if (v === 'classifica') { localStorage.setItem('tab', 'classifiche'); location.href = '/admin.html'; return; }
     if (v === 'monitor') return await vistaMonitor();

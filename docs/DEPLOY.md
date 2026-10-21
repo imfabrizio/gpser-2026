@@ -37,3 +37,16 @@ Se non usi il Blueprint: Web Service, Build `npm ci`, Start `npm start`, Health 
 | errore SSL / `no pg_hba.conf entry` | manca `?sslmode=require` |
 | primo caricamento lentissimo | servizio o database in risveglio |
 | `/salute` 500 | `DATABASE_URL` errato o database non raggiungibile |
+
+## 5. Accesso con Google / Microsoft e MFA
+Gli utenti restano quelli creati da Gestione → Utenti: **chi non è registrato non entra**, nemmeno con un account Google/Microsoft valido. Al primo accesso la email del provider viene collegata all'utente con la stessa email. Per chi usa solo i provider, spunta «Solo accesso Google/Microsoft» alla creazione (la password è casuale e non serve).
+
+Il pulsante compare in login solo se le variabili sono impostate su Render (poi riavvia il servizio). `PUBLIC_URL` = indirizzo dell'app, senza `/` finale.
+
+**Google**: console.cloud.google.com → API e servizi → Schermata consenso OAuth (tipo Esterno, anche in «Test» con i tuoi utenti) → Credenziali → Crea ID client OAuth → *Applicazione web*. URI di reindirizzamento: `PUBLIC_URL/api/auth/google/callback`. Copia ID e segreto in `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+
+**Microsoft**: entra.microsoft.com → Applicazioni → Registrazioni app → Nuova registrazione (*solo questa directory*). URI di reindirizzamento (Web): `PUBLIC_URL/api/auth/microsoft/callback`. Da «Panoramica» copia *ID applicazione* in `MS_CLIENT_ID` e *ID directory (tenant)* in `MS_TENANT` (serve il GUID, non «common»: con tenant aperti le email non sono verificabili). In «Certificati e segreti» crea un segreto client → `MS_CLIENT_SECRET` (usa il *Valore*, che scade: annota la data).
+
+**MFA (TOTP)**: ogni utente la attiva da «Sicurezza» (QR per Microsoft/Google Authenticator + 8 codici di recupero monouso). È **obbligatoria per organizzazione e admin** quando entrano con password (disattivabile con `MFA_ORG=0`). Con Google/Microsoft si considera valida la MFA del provider (per richiederla anche lì: `SSO_RICHIEDE_MFA=1`). Se un utente perde telefono e codici: Gestione → Utenti → «Reset MFA» (solo admin). Il segreto TOTP è cifrato nel database con una chiave derivata da `JWT_SECRET`: cambiarlo invalida le MFA già configurate.
+
+Se l'**unico admin** perde telefono e codici di recupero, si azzera dal database (SQL Editor di Neon): `update utente set mfa_attiva=false, mfa_secret=null, mfa_recupero='{}' where email='tua@email';` — al login successivo la MFA va riconfigurata.

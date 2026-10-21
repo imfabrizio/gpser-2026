@@ -22,6 +22,9 @@ create table utente (
   ruolo         ruolo_utente not null default 'giudice',
   attivo        boolean not null default true,
   evento_id     uuid,                            -- gara a cui l'utente è legato (FK aggiunta dopo la tabella evento)
+  mfa_secret    text,                            -- segreto TOTP cifrato
+  mfa_attiva    boolean not null default false,
+  mfa_recupero  text[] not null default '{}',    -- hash dei codici di recupero
   created_at    timestamptz not null default now()
 );
 
@@ -42,6 +45,15 @@ create table evento (
 );
 create unique index evento_unico_attivo on evento ((true)) where attivo;   -- un solo evento attivo
 alter table utente add constraint utente_evento_fk foreign key (evento_id) references evento(id) on delete set null;
+
+create table utente_identita (                   -- accesso con Google / Microsoft
+  provider  text not null,
+  sub       text not null,
+  utente_id uuid not null references utente(id) on delete cascade,
+  email     text,
+  creata_at timestamptz not null default now(),
+  primary key (provider, sub)
+);
 
 create table avviso (                            -- bacheca della Home
   id         uuid primary key default gen_random_uuid(),
@@ -267,4 +279,4 @@ create table scena_master (
 
 -- ───────── versione dello schema ─────────
 create table schema_migrazioni (nome text primary key, applicata_at timestamptz not null default now());
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql');   -- lo schema qui sopra le include già tutte
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql');   -- lo schema qui sopra le include già tutte
