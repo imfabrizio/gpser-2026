@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { hashPassword } from './auth.js';
 import { cifra, decifra } from './mfa.js';
 import { verificaCodiceFiscale } from './codice-fiscale.js';
+import { hashCf } from './anagrafica.js';
 import { inTransazione } from './db.js';
 import { httpErr } from './services/compilazioni.js';
 
@@ -13,7 +14,6 @@ export const RUOLI_GARA = {
 };
 const CON_SQUADRA = ['partecipante_leader', 'partecipante_membro', 'allenatore', 'fotografo', 'supporter'];
 const RUOLO_APP = { giudice: 'giudice', giudice_master: 'giudice_master' };       // gli altri partono come "partecipante" (nessun potere)
-const RUOLI_APP = ['admin', 'organizzazione', 'giudice', 'giudice_master', 'partecipante'];
 const pulisci = (v, max = 80) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
 export const eliminaRichiesteScadute = (pool) => pool.query('delete from richiesta_accesso where scade_il < now()');
@@ -84,16 +84,27 @@ export function registraRichieste(app, pool, { soloAdmin, fetchImpl = fetch }) {
 
   app.post('/api/richieste/:id/approva', { preHandler: soloAdmin }, async (req) => {
     const ruolo = req.body?.ruolo;
-    if (!RUOLI_APP.includes(ruolo)) throw httpErr(400, 'scegli il ruolo da assegnare');
+    if (!ruolo || !(await pool.query('select 1 from ruolo where codice=$1', [ruolo])).rowCount) throw httpErr(400, 'scegli il ruolo da assegnare');
     return inTransazione(pool, async (db) => {
       const { rows: [r] } = await db.query('select * from richiesta_accesso where id=$1 and compilata and scade_il > now() for update', [req.params.id]);
       if (!r) throw httpErr(404, 'richiesta inesistente o scaduta');
       const { rows: [dup] } = await db.query('select 1 from utente where lower(email)=lower($1)', [r.email]);
       if (dup) throw httpErr(409, 'esiste già un utente con questa email');
       const { rows: [u] } = await db.query(
-        `insert into utente (email, nome, ruolo, password_hash, ruolo_gara, squadra_id, cf_cifrato, comitato, provincia, evento_id)
-         values (lower($1),$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id, email, nome, ruolo`,
-        [r.email, `${r.nome} ${r.cognome}`, ruolo, hashPassword(crypto.randomBytes(24).toString('base64url')), r.ruolo_gara, r.squadra_id, r.cf_cifrato, r.comitato, r.provincia, req.body?.evento_id || null]);
+        `insert into utente (email, nome, ruolo, admin, password_hash, ruolo_gara, squadra_id, comitato, provincia, evento_id)
+         values (lower($1),$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id, email, nome, ruolo, admin`,
+        [r.email, `${r.nome} ${r.cognome}`, ruolo, req.body?.admin === true, hashPassword(crypto.randomBytes(24).toString('base64url')), r.ruolo_gara, r.squadra_id, r.comitato, r.provincia, req.body?.evento_id || null]);
+      // anagrafica: la persona c'è già (stesso codice fiscale o stessa email) → si collega e si aggiorna, altrimenti si crea
+      const cf = decifra(r.cf_cifrato), h = hashCf(cf);
+      let { rows: [p] } = await db.query('select id, utente_id from partecipante where cf_hash=$1', [h]);
+      if (!p) ({ rows: [p] } = await db.query('select id, utente_id from partecipante where lower(email)=lower($1) and utente_id is null order by created_at limit 1', [r.email]));
+      if (p?.utente_id) throw httpErr(409, 'la persona in anagrafica ha già un altro accesso');
+      if (p) await db.query(`update partecipante set cognome=$2, nome=$3, email=$4, comitato=$5, provincia=$6, cf_cifrato=$7, cf_hash=$8, ruolo_gara=$9, utente_id=$10 where id=$1`,
+        [p.id, r.cognome, r.nome, r.email, r.comitato, r.provincia, r.cf_cifrato, h, r.ruolo_gara, u.id]);
+      else ({ rows: [p] } = await db.query(`insert into partecipante (cognome, nome, email, comitato, provincia, cf_cifrato, cf_hash, ruolo_gara, utente_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
+        [r.cognome, r.nome, r.email, r.comitato, r.provincia, r.cf_cifrato, h, r.ruolo_gara, u.id]));
+      if (r.squadra_id && ['partecipante_leader', 'partecipante_membro'].includes(r.ruolo_gara))     // chi gareggia entra nella squadra scelta
+        await db.query('insert into squadra_membro (squadra_id, partecipante_id, ruolo) values ($1,$2,$3) on conflict do nothing', [r.squadra_id, p.id, r.ruolo_gara === 'partecipante_leader' ? 'capo squadra' : 'componente']);
       await db.query('insert into utente_identita (provider, sub, utente_id, email) values ($1,$2,$3,$4) on conflict do nothing', [r.provider, r.sub, u.id, r.email]);
       await db.query(`insert into audit_log (utente_id, azione, entita, entita_id) values ($1::uuid,'richiesta_approvata','utente',$2::text)`, [req.utente.id, u.id]);
       await db.query('delete from richiesta_accesso where id=$1', [r.id]);

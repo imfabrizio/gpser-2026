@@ -8,8 +8,9 @@ import { generaPdfSchede } from './services/stampa.js';
 import { registraGestione } from './routes-gestione.js';
 import { aggiungiSchedaDaPatologia, creaScena, duplicaScena } from './services/scene.js';
 import { importaExcel } from './services/import-excel.js';
+import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
-import { registraAuth, creaSessione, profilo, mfaObbligatoria } from './routes-auth.js';
+import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
 
@@ -44,14 +45,18 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       if (!['/api/me', '/api/registrazione'].includes(rotta)) throw httpErr(403, 'accesso in attesa di approvazione');
       req.richiesta = r; return;
     }
-    const { rows: [u] } = await pool.query('select id, ruolo, nome, evento_id, mfa_attiva from utente where id=$1 and attivo', [t.id]);
+    const { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.id=$1 and u.attivo', [t.id]);
     if (!u) throw httpErr(401, 'utente non valido');
-    req.utente = { ...u, via: t.via || 'pwd' };
+    req.utente = { id: u.id, nome: u.nome, evento_id: u.evento_id, mfa_attiva: u.mfa_attiva, admin: u.admin, aree: u.aree, ruolo_codice: u.ruolo, ruolo: ruoloEffettivo(u), via: t.via || 'pwd' };
     // organizzazione e admin con password devono prima attivare la MFA: fino ad allora solo la pagina di configurazione
     if (mfaObbligatoria(u, req.utente.via) && !(rotta === '/api/me' || rotta.startsWith('/api/mfa'))) throw httpErr(403, 'configura_mfa');
-    if (u.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi'].includes(rotta))))
+    if (req.utente.ruolo === 'organizzazione') {                 // ruolo con aree: solo quelle consentite
+      const serve = areeRichieste(req.method, rotta);
+      if (serve && !serve.some((a) => u.aree.includes(a))) throw httpErr(403, 'area non consentita al tuo ruolo');
+    }
+    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi'].includes(rotta))))
       throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
-    if (!RUOLI_ORG.includes(u.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
+    if (!RUOLI_ORG.includes(req.utente.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
       const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);
       if (m && m[1].toLowerCase() !== u.evento_id) throw httpErr(403, 'gara non assegnata');
     }
@@ -73,14 +78,14 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (typeof email !== 'string' || typeof password !== 'string') throw httpErr(400, 'email e password obbligatorie');
     const chiave = `${req.ip}|${email.toLowerCase()}`;
     if (troppiTentativi(chiave)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
-    const { rows: [u] } = await pool.query('select * from utente where lower(email)=lower($1) and attivo', [email]);
+    const { rows: [u] } = await pool.query(SQL_UTENTE + ' where lower(u.email)=lower($1) and u.attivo', [email]);
     const ok = u ? verificaPassword(password, u.password_hash) : (verificaPasswordFinta(password), false);   // stesso tempo di risposta
     if (!ok) { registraFallimento(chiave); throw httpErr(401, 'credenziali errate'); }
     azzeraFallimenti(chiave);
     if (u.mfa_attiva) return { mfa: true, ticket: firmaToken({ id: u.id, t: 'mfa' }, 0.1) };   // 6 minuti per inserire il codice
     return creaSessione(u, 'pwd');
   });
-  app.get('/api/me', async (req) => req.richiesta ? { in_attesa: true, nome: [req.richiesta.nome, req.richiesta.cognome].filter(Boolean).join(' ') || req.richiesta.email, compilata: req.richiesta.compilata } : profilo((await pool.query('select * from utente where id=$1', [req.utente.id])).rows[0], req.utente.via));
+  app.get('/api/me', async (req) => req.richiesta ? { in_attesa: true, nome: [req.richiesta.nome, req.richiesta.cognome].filter(Boolean).join(' ') || req.richiesta.email, compilata: req.richiesta.compilata } : profilo((await pool.query(SQL_UTENTE + ' where u.id=$1', [req.utente.id])).rows[0], req.utente.via));
 
   // ── pagina pubblica (senza login): notizie, gare, percorso ──
   app.get('/api/pubblico', async () => {
@@ -215,7 +220,10 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/libreria/voci', { preHandler: soloOrg }, async (req) => (await pool.query(
     `select * from voce where $1::text is null or testo ilike '%'||$1||'%' order by testo limit 200`, [req.query.q ?? null])).rows);
   app.get('/api/libreria/patologie', { preHandler: soloOrg }, async () => (await pool.query(
-    `select p.*, (select count(*) from patologia_voce where patologia_id=p.id) as voci from patologia p order by nome`)).rows);
+    `select p.*, (select count(*) from patologia_voce where patologia_id=p.id) as voci,
+       (select coalesce(jsonb_agg(distinct jsonb_build_object('evento', e.nome, 'luogo', e.luogo)), '[]'::jsonb)
+          from scena_scheda ss join scena s on s.id = ss.scena_id join evento e on e.id = s.evento_id where ss.patologia_id = p.id) as usi
+       from patologia p order by nome`)).rows);
   app.get('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => (await pool.query(
     `select pv.ordine, pv.sezione, v.testo, sp.codice as scala, pv.is_sep from patologia_voce pv
        join voce v on v.id=pv.voce_id join scala_punteggio sp on sp.id=pv.scala_id

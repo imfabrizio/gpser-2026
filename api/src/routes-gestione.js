@@ -3,36 +3,78 @@ import crypto from 'node:crypto';
 import { hashPassword } from './auth.js';
 import { inTransazione } from './db.js';
 import { httpErr } from './services/compilazioni.js';
+import { AREE } from './permessi.js';
+import { decifra } from './mfa.js';
+import { verificaCodiceFiscale } from './codice-fiscale.js';
+import { datiCf, hashCf } from './anagrafica.js';
 
-const RUOLI = ['admin', 'organizzazione', 'giudice', 'giudice_master', 'partecipante'];
 
 export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
-  // ── utenti (solo admin) ──
+  // ── ruoli e utenti (solo admin) ──
+  const slug = (t) => String(t).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+  const areeValide = (a) => { if (!Array.isArray(a) || a.some((x) => !(x in AREE))) throw httpErr(400, 'aree non valide'); return [...new Set(a)]; };
+  app.get('/api/ruoli', { preHandler: soloAdmin }, async () => ({ aree: AREE, ruoli: (await pool.query(
+    `select r.codice, r.nome, r.sistema, r.aree, (select count(*)::int from utente u where u.ruolo = r.codice) as utenti from ruolo r order by r.sistema desc, r.nome`)).rows }));
+  app.post('/api/ruoli', { preHandler: soloAdmin }, async (req) => {
+    const nome = String(req.body?.nome || '').trim().slice(0, 60); const codice = slug(nome);
+    if (!codice || codice === 'admin') throw httpErr(400, 'nome del ruolo non valido');
+    const aree = areeValide(req.body?.aree ?? []);
+    try { return (await pool.query('insert into ruolo (codice, nome, aree) values ($1,$2,$3) returning codice, nome, sistema, aree', [codice, nome, aree])).rows[0]; }
+    catch (e) { if (e.code === '23505') throw httpErr(409, 'esiste già un ruolo con questo nome'); throw e; }
+  });
+  app.put('/api/ruoli/:codice', { preHandler: soloAdmin }, async (req) => {
+    const { rows: [r] } = await pool.query('select * from ruolo where codice=$1', [req.params.codice]); if (!r) throw httpErr(404, 'ruolo inesistente');
+    if (r.sistema && r.codice !== 'organizzazione') throw httpErr(400, 'i ruoli di base (giudice, giudice master, partecipante) non si modificano');
+    const aree = req.body?.aree === undefined ? r.aree : areeValide(req.body.aree);
+    const nome = r.sistema ? r.nome : (String(req.body?.nome || r.nome).trim().slice(0, 60) || r.nome);
+    return (await pool.query('update ruolo set nome=$2, aree=$3 where codice=$1 returning codice, nome, sistema, aree', [r.codice, nome, aree])).rows[0];
+  });
+  app.delete('/api/ruoli/:codice', { preHandler: soloAdmin }, async (req) => {
+    const { rows: [r] } = await pool.query('select * from ruolo where codice=$1', [req.params.codice]); if (!r) throw httpErr(404, 'ruolo inesistente');
+    if (r.sistema) throw httpErr(400, 'i ruoli di base non si eliminano');
+    const { rows: [{ n }] } = await pool.query('select count(*)::int n from utente where ruolo=$1', [r.codice]);
+    if (n) throw httpErr(409, `${n} utenti hanno questo ruolo: cambialo prima`);
+    await pool.query('delete from ruolo where codice=$1', [r.codice]); return { ok: true };
+  });
+
+  const nomeCognome = (nome, cognome) => {
+    nome = String(nome || '').trim(); cognome = String(cognome || '').trim();
+    if (!cognome) { const i = nome.lastIndexOf(' '); if (i > 0) { cognome = nome.slice(i + 1); nome = nome.slice(0, i); } else cognome = nome; }
+    return { nome, cognome };
+  };
+  const ruoloEsiste = async (db, r) => (await db.query('select 1 from ruolo where codice=$1', [r])).rowCount > 0;
   app.get('/api/utenti', { preHandler: soloAdmin }, async () =>
-    (await pool.query(`select id, email, nome, ruolo, ruolo_gara, comitato, provincia, attivo, evento_id, mfa_attiva, (select coalesce(array_agg(provider), '{}') from utente_identita i where i.utente_id = utente.id) as identita from utente order by nome`)).rows);
+    (await pool.query(`select id, email, nome, ruolo, admin, ruolo_gara, attivo, evento_id, mfa_attiva,
+        (select id from partecipante p where p.utente_id = utente.id) as persona_id,
+        (select coalesce(array_agg(provider), '{}') from utente_identita i where i.utente_id = utente.id) as identita from utente order by nome`)).rows);
   app.post('/api/utenti', { preHandler: soloAdmin }, async (req) => {
-    const { email, nome, ruolo = 'giudice', solo_sso } = req.body || {};
+    const { email, nome, cognome, ruolo = 'giudice', solo_sso, admin = false } = req.body || {};
     const password = solo_sso ? crypto.randomBytes(24).toString('base64url') : req.body?.password;   // solo accesso con Google/Microsoft: password casuale mai comunicata
     if (!email || !nome || !password || password.length < 8) throw httpErr(400, 'email, nome e password (min. 8 caratteri) obbligatori');
-    if (!RUOLI.includes(ruolo)) throw httpErr(400, 'ruolo non valido');
+    if (!(await ruoloEsiste(pool, ruolo))) throw httpErr(400, 'ruolo non valido');
+    const nc = nomeCognome(nome, cognome);
     try {
-      return (await pool.query(
-        'insert into utente (email, nome, ruolo, password_hash) values ($1,$2,$3,$4) returning id, email, nome, ruolo, attivo',
-        [email.trim(), nome.trim(), ruolo, hashPassword(password)])).rows[0];
+      return await inTransazione(pool, async (db) => {
+        const u = (await db.query('insert into utente (email, nome, ruolo, admin, password_hash) values ($1,$2,$3,$4,$5) returning id, email, nome, ruolo, admin, attivo',
+          [email.trim(), `${nc.nome} ${nc.cognome}`.trim(), ruolo, !!admin, hashPassword(password)])).rows[0];
+        // ogni utente è anche in anagrafica: se la persona c'è già (stessa email) la si collega, altrimenti si crea
+        const { rowCount } = await db.query('update partecipante set utente_id=$1 where id = (select id from partecipante where lower(email)=lower($2) and utente_id is null order by created_at limit 1)', [u.id, email.trim()]);
+        if (!rowCount) await db.query('insert into partecipante (cognome, nome, email, utente_id) values ($1,$2,$3,$4)', [nc.cognome, nc.nome, email.trim(), u.id]);
+        return u;
+      });
     } catch (e) { if (e.code === '23505') throw httpErr(409, 'email già registrata'); throw e; }
   });
   app.patch('/api/utenti/:id', { preHandler: soloAdmin }, async (req) => {
     const b = req.body || {};
-    if (req.params.id === req.utente.id && (b.attivo === false || (b.ruolo && b.ruolo !== 'admin')))
-      throw httpErr(400, 'non puoi disattivare o declassare te stesso');
-    if (b.ruolo && !RUOLI.includes(b.ruolo)) throw httpErr(400, 'ruolo non valido');
+    if (req.params.id === req.utente.id && (b.attivo === false || b.admin === false)) throw httpErr(400, 'non puoi disattivare o togliere l\'admin a te stesso');
+    if (b.ruolo && !(await ruoloEsiste(pool, b.ruolo))) throw httpErr(400, 'ruolo non valido');
     if (b.password && b.password.length < 8) throw httpErr(400, 'password: minimo 8 caratteri');
     const { rows: [u] } = await pool.query(
-      `update utente set nome=coalesce($2,nome), ruolo=coalesce($3::ruolo_utente,ruolo), attivo=coalesce($4,attivo),
-         password_hash=coalesce($5,password_hash),
-         evento_id = case when $6 then $7::uuid else evento_id end where id=$1 returning id, email, nome, ruolo, attivo, evento_id`,
+      `update utente set nome=coalesce($2,nome), ruolo=coalesce($3,ruolo), attivo=coalesce($4,attivo),
+         password_hash=coalesce($5,password_hash), admin=coalesce($8,admin),
+         evento_id = case when $6 then $7::uuid else evento_id end where id=$1 returning id, email, nome, ruolo, admin, attivo, evento_id`,
       [req.params.id, b.nome ?? null, b.ruolo ?? null, b.attivo ?? null, b.password ? hashPassword(b.password) : null,
-       'evento_id' in b, b.evento_id || null]);
+       'evento_id' in b, b.evento_id || null, typeof b.admin === 'boolean' ? b.admin : null]);
     if (!u) throw httpErr(404, 'utente inesistente');
     return u;
   });
@@ -76,39 +118,56 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   // ── anagrafica persone (solo organizzazione/admin: contiene dati personali) ──
   const testo = (x) => (typeof x === 'string' && x.trim() ? x.trim() : null);
   const persona = (b) => {
-    const cf = testo(b.codice_fiscale)?.toUpperCase() ?? null;
-    if (cf && !/^[A-Z0-9]{16}$/.test(cf)) throw httpErr(400, 'codice fiscale: 16 caratteri (lettere e cifre)');
+    const cf = testo(b.codice_fiscale)?.toUpperCase().replace(/\s/g, '') ?? null;
+    if (cf) { const v = verificaCodiceFiscale(cf); if (!v.ok) throw httpErr(400, v.errore); }
     const em = testo(b.email);
     if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) throw httpErr(400, 'email non valida');
     if (b.data_nascita && !/^\d{4}-\d{2}-\d{2}$/.test(b.data_nascita)) throw httpErr(400, 'data di nascita non valida');
     return { cognome: testo(b.cognome), nome: testo(b.nome), data_nascita: b.data_nascita || null, cf, email: em,
              comitato: testo(b.comitato), provincia: testo(b.provincia)?.toUpperCase() ?? null, note: testo(b.note) };
   };
-  const COL_PERSONA = `id, cognome, nome, to_char(data_nascita,'YYYY-MM-DD') as data_nascita, codice_fiscale, email, comitato, provincia, note`;
-  app.get('/api/persone', { preHandler: soloOrg }, async (req) => (await pool.query(
-    `select ${COL_PERSONA}, (select count(*) from squadra_membro m where m.partecipante_id = p.id)::int as squadre
-       from partecipante p
-      where $1::text is null or cognome ilike '%'||$1||'%' or nome ilike '%'||$1||'%' or comitato ilike '%'||$1||'%' or codice_fiscale ilike '%'||$1||'%'
-      order by cognome, nome limit 500`, [testo(req.query.q)])).rows);
+  const COL_PERSONA = `p.id, p.cognome, p.nome, to_char(p.data_nascita,'YYYY-MM-DD') as data_nascita, p.cf_cifrato, p.email, p.comitato, p.provincia, p.note, p.ruolo_gara, p.utente_id,
+    (select r.nome from utente u join ruolo r on r.codice = u.ruolo where u.id = p.utente_id) as ruolo_utente, (select u.admin from utente u where u.id = p.utente_id) as admin_utente`;
+  // il codice fiscale in chiaro lo vede solo l'admin; gli altri sanno solo se c'è
+  const uscita = (req) => ({ cf_cifrato, ...r }) => ({ ...r, ha_cf: !!cf_cifrato, codice_fiscale: req.utente.ruolo === 'admin' && cf_cifrato ? decifra(cf_cifrato) : undefined });
+  const duplicato = (e) => { if (e.code === '23505') throw httpErr(409, 'codice fiscale già presente in anagrafica'); throw e; };
+  app.get('/api/persone', { preHandler: soloOrg }, async (req) => {
+    const q = testo(req.query.q); const qcf = q && /^[A-Za-z0-9]{16}$/.test(q) ? hashCf(q) : null;
+    return (await pool.query(
+      `select ${COL_PERSONA}, (select count(*) from squadra_membro m where m.partecipante_id = p.id)::int as squadre
+         from partecipante p
+        where $1::text is null or p.cognome ilike '%'||$1||'%' or p.nome ilike '%'||$1||'%' or p.comitato ilike '%'||$1||'%' or p.email ilike '%'||$1||'%' or p.cf_hash = $2
+        order by p.cognome, p.nome limit 500`, [q, qcf])).rows.map(uscita(req));
+  });
   app.post('/api/persone', { preHandler: soloOrg }, async (req) => {
     const p = persona(req.body || {});
     if (!p.cognome || !p.nome) throw httpErr(400, 'cognome e nome obbligatori');
-    return (await pool.query(
-      `insert into partecipante (cognome, nome, data_nascita, codice_fiscale, email, comitato, provincia, note)
-       values ($1,$2,$3,$4,$5,$6,$7,$8) returning ${COL_PERSONA}`,
-      [p.cognome, p.nome, p.data_nascita, p.cf, p.email, p.comitato, p.provincia, p.note])).rows[0];
+    const cf = datiCf(p.cf);                                                     // si può scrivere da chi gestisce l'anagrafica, ma lo legge solo l'admin
+    try {
+      const { rows: [r] } = await pool.query(
+        `insert into partecipante (cognome, nome, data_nascita, cf_cifrato, cf_hash, email, comitato, provincia, note)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
+        [p.cognome, p.nome, p.data_nascita, cf.cf_cifrato, cf.cf_hash, p.email, p.comitato, p.provincia, p.note]);
+      return (await pool.query(`select ${COL_PERSONA} from partecipante p where p.id=$1`, [r.id])).rows.map(uscita(req))[0];
+    } catch (e) { return duplicato(e); }
   });
   app.patch('/api/persone/:id', { preHandler: soloOrg }, async (req) => {
-    const p = persona(req.body || {});
+    const b = req.body || {}, p = persona(b);
     if (!p.cognome || !p.nome) throw httpErr(400, 'cognome e nome obbligatori');
-    const { rows: [r] } = await pool.query(
-      `update partecipante set cognome=$2, nome=$3, data_nascita=$4, codice_fiscale=$5, email=$6, comitato=$7, provincia=$8, note=$9
-        where id=$1 returning ${COL_PERSONA}`,
-      [req.params.id, p.cognome, p.nome, p.data_nascita, p.cf, p.email, p.comitato, p.provincia, p.note]);
-    if (!r) throw httpErr(404, 'persona inesistente');
-    return r;
+    const tocca = 'codice_fiscale' in b;                                         // se il campo non c'è (chi non è admin non lo vede) resta com'è
+    const cf = tocca ? datiCf(p.cf) : null;
+    try {
+      const { rowCount } = await pool.query(
+        `update partecipante set cognome=$2, nome=$3, data_nascita=$4, email=$5, comitato=$6, provincia=$7, note=$8,
+           cf_cifrato = case when $9 then $10 else cf_cifrato end, cf_hash = case when $9 then $11 else cf_hash end where id=$1`,
+        [req.params.id, p.cognome, p.nome, p.data_nascita, p.email, p.comitato, p.provincia, p.note, tocca, cf?.cf_cifrato ?? null, cf?.cf_hash ?? null]);
+      if (!rowCount) throw httpErr(404, 'persona inesistente');
+    } catch (e) { if (e.statusCode) throw e; return duplicato(e); }
+    return (await pool.query(`select ${COL_PERSONA} from partecipante p where p.id=$1`, [req.params.id])).rows.map(uscita(req))[0];
   });
   app.delete('/api/persone/:id', { preHandler: soloOrg }, async (req) => {
+    const { rows: [x] } = await pool.query('select utente_id from partecipante where id=$1', [req.params.id]);
+    if (x?.utente_id) throw httpErr(409, 'la persona ha un accesso al sito: disattiva prima l\'utente');
     try { await pool.query('delete from partecipante where id=$1', [req.params.id]); }
     catch (e) { if (e.code === '23503') throw httpErr(409, 'la persona fa parte di una squadra: toglila prima dalla squadra'); throw e; }
     return { ok: true };

@@ -24,8 +24,8 @@ before(async () => {
   const rep = await inTransazione(pool, (db) => importaExcel(db, new URL('./fixtures/scena-alfa.xlsx', import.meta.url).pathname,
     { eventoCodice: 'T-1', nomeEvento: 'Test', titoloStampa: 'Gara Test', luogo: 'Piacenza', data: '2026-04-18' }));
   ev = rep.eventoId;
-  for (const [email, ruolo] of [['org@t', 'organizzazione'], ['giu@t', 'giudice'], ['adm@t', 'admin']])
-    await pool.query('insert into utente (email, nome, ruolo, password_hash) values ($1,$2,$3,$4)', [email, email, ruolo, hashPassword('pw')]);
+  for (const [email, ruolo, admin] of [['org@t', 'organizzazione', false], ['giu@t', 'giudice', false], ['adm@t', 'organizzazione', true]])
+    await pool.query('insert into utente (email, nome, ruolo, admin, password_hash) values ($1,$2,$3,$4,$5)', [email, email, ruolo, admin, hashPassword('pw')]);
   app = buildApp(pool);
   for (const e of ['org@t', 'giu@t', 'adm@t']) tok[e] = json(await chiama('POST', '/api/login', { body: { email: e, password: 'pw' } })).token;
 });
@@ -145,7 +145,7 @@ test('gestione utenti: solo admin; password minima; niente auto-declassamento', 
   assert.equal(ok.ruolo, 'giudice');
   assert.equal((await chiama('POST', '/api/utenti', { token: tok['adm@t'], body: { email: 'n@t', nome: 'N', password: 'password-lunga' } })).statusCode, 409);
   const me = json(await chiama('GET', '/api/me', { token: tok['adm@t'] }));
-  assert.equal((await chiama('PATCH', `/api/utenti/${me.id}`, { token: tok['adm@t'], body: { ruolo: 'giudice' } })).statusCode, 400);
+  assert.equal((await chiama('PATCH', `/api/utenti/${me.id}`, { token: tok['adm@t'], body: { admin: false } })).statusCode, 400);
   const login = await chiama('POST', '/api/login', { body: { email: 'n@t', password: 'password-lunga' } });
   assert.equal(login.statusCode, 200);
   await chiama('PATCH', `/api/utenti/${ok.id}`, { token: tok['adm@t'], body: { attivo: false } });
@@ -468,11 +468,13 @@ test('M-3 anagrafica: persone, squadre con comitato e componenti; solo organizza
   assert.equal((await P({ cognome: 'Rossi' })).statusCode, 400);                                           // nome mancante
   assert.equal((await P({ cognome: 'Rossi', nome: 'Mario', codice_fiscale: 'corto' })).statusCode, 400);
   assert.equal((await P({ cognome: 'Rossi', nome: 'Mario', email: 'non-una-email' })).statusCode, 400);
-  const m = json(await P({ cognome: 'Rossi', nome: 'Mario', data_nascita: '1990-05-17', codice_fiscale: 'rssmra90e17f257x', email: 'm@x.it', comitato: 'Modena', provincia: 'mo' }));
-  assert.equal(m.codice_fiscale, 'RSSMRA90E17F257X'); assert.equal(m.provincia, 'MO'); assert.equal(m.data_nascita, '1990-05-17');
-  assert.equal((await P({ cognome: 'Bis', nome: 'Doppio', codice_fiscale: 'RSSMRA90E17F257X' })).statusCode, 409);   // CF già presente
+  const m = json(await P({ cognome: 'Rossi', nome: 'Mario', data_nascita: '1990-05-17', codice_fiscale: 'rssmra90e17f257i', email: 'm@x.it', comitato: 'Modena', provincia: 'mo' }));
+  assert.equal(m.codice_fiscale, undefined); assert.equal(m.ha_cf, true); assert.equal(m.provincia, 'MO');   // chi non è admin non legge il codice fiscale
+  assert.equal(json(await chiama('GET', '/api/persone?q=RSSMRA90E17F257I', { token: tok['adm@t'] }))[0].codice_fiscale, 'RSSMRA90E17F257I');   // l'admin sì, e lo cerca per codice
+  assert.ok(!JSON.stringify((await pool.query('select cf_cifrato from partecipante where id=$1', [m.id])).rows).includes('RSSMRA'));   // nel database è cifrato assert.equal(m.data_nascita, '1990-05-17');
+  assert.equal((await P({ cognome: 'Bis', nome: 'Doppio', codice_fiscale: 'RSSMRA90E17F257I' })).statusCode, 409);   // CF già presente
   const l = json(await P({ cognome: 'Verdi', nome: 'Luca' }));                                             // CF, email e data non obbligatori
-  assert.equal(l.codice_fiscale, null);
+  assert.equal(l.ha_cf, false);
   assert.equal((await P({ cognome: 'Neri', nome: 'Ada' })).statusCode, 200);                              // due senza CF: consentito
   const ricerca = json(await chiama('GET', '/api/persone?q=ross', { token: tok['org@t'] }));
   assert.equal(ricerca.length, 1);
@@ -716,4 +718,53 @@ test('R-1 richieste di accesso: modulo, CF controllato e cifrato, approvazione c
   await pool.query(`update evento set data = '2026-04-18' where id=$1`, [ev]);
   for (const k of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'RESEND_API_KEY', 'NOTIFICA_EMAIL']) delete process.env[k];
   await a2.close();
+});
+
+test('R-2 ruoli con aree, admin come spunta, anagrafica collegata agli utenti', async () => {
+  const A = tok['adm@t'], O = tok['org@t'];
+  assert.equal((await chiama('GET', '/api/ruoli', { token: O })).statusCode, 403);
+  assert.equal((await chiama('POST', '/api/ruoli', { token: A, body: { nome: 'Strano', aree: ['inesistente'] } })).statusCode, 400);
+  assert.equal((await chiama('POST', '/api/ruoli', { token: A, body: { nome: 'Admin', aree: [] } })).statusCode, 400);              // nome riservato
+  const r = json(await chiama('POST', '/api/ruoli', { token: A, body: { nome: 'Gestore news', aree: ['notizie'] } }));
+  assert.equal(r.codice, 'gestore_news');
+  assert.equal((await chiama('POST', '/api/ruoli', { token: A, body: { nome: 'Gestore news', aree: [] } })).statusCode, 409);
+  // utente con quel ruolo: finisce anche in anagrafica
+  const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'news@t', nome: 'Anna', cognome: 'Bianchi', ruolo: 'gestore_news', password: 'password-lunga' } }));
+  const lista = json(await chiama('GET', '/api/utenti', { token: A })); assert.ok(lista.find((x) => x.id === u.id).persona_id);
+  const pers = (await pool.query('select cognome, nome, email from partecipante where utente_id=$1', [u.id])).rows[0];
+  assert.deepEqual(pers, { cognome: 'Bianchi', nome: 'Anna', email: 'news@t' });
+  const T = json(await chiama('POST', '/api/login', { body: { email: 'news@t', password: 'password-lunga' } })).token;
+  const me = json(await chiama('GET', '/api/me', { token: T })); assert.deepEqual(me.aree, ['notizie']); assert.equal(me.admin, false); assert.equal(me.ruolo, 'organizzazione');
+  assert.equal((await chiama('POST', '/api/avvisi', { token: T, body: { titolo: 'Ciao', testo: 'x' } })).statusCode, 200);          // la sua area
+  for (const [m, url] of [['POST', `/api/eventi/${ev}/squadre`], ['GET', '/api/persone'], ['GET', '/api/utenti'], ['GET', '/api/ruoli'], ['GET', `/api/eventi/${ev}/classifica?tipo=generale`], ['GET', `/api/eventi/${ev}/stampa.pdf`]])
+    assert.equal((await chiama(m, url, { token: T, body: {} })).statusCode, 403, `${m} ${url}`);
+  assert.equal((await chiama('GET', '/api/eventi', { token: T })).statusCode, 200);
+  // aggiungere un'area vale subito
+  assert.equal(json(await chiama('PUT', '/api/ruoli/gestore_news', { token: A, body: { aree: ['notizie', 'anagrafiche'] } })).aree.length, 2);
+  assert.equal((await chiama('GET', '/api/persone', { token: T })).statusCode, 200);
+  // admin = spunta in più
+  assert.equal((await chiama('GET', '/api/utenti', { token: T })).statusCode, 403);
+  assert.equal((await chiama('PATCH', `/api/utenti/${u.id}`, { token: A, body: { admin: true } })).statusCode, 200);
+  assert.equal((await chiama('GET', '/api/utenti', { token: T })).statusCode, 200);
+  assert.equal((await chiama('PATCH', `/api/utenti/${u.id}`, { token: A, body: { admin: false } })).statusCode, 200);
+  // ruoli: di base intoccabili, con utenti non eliminabili
+  assert.equal((await chiama('DELETE', '/api/ruoli/giudice', { token: A })).statusCode, 400);
+  assert.equal((await chiama('PUT', '/api/ruoli/giudice', { token: A, body: { aree: ['gara'] } })).statusCode, 400);
+  assert.equal((await chiama('DELETE', '/api/ruoli/gestore_news', { token: A })).statusCode, 409);
+  await chiama('PATCH', `/api/utenti/${u.id}`, { token: A, body: { ruolo: 'giudice' } });
+  assert.equal((await chiama('GET', '/api/persone', { token: T })).statusCode, 403);                                                  // da giudice perde la Gestione
+  assert.equal((await chiama('DELETE', '/api/ruoli/gestore_news', { token: A })).statusCode, 200);
+  // approvazione di una richiesta: collega la persona già in anagrafica (stesso CF), la mette in squadra e può dare l'admin
+  const { cifra } = await import('../src/mfa.js'); const { hashCf } = await import('../src/anagrafica.js');
+  const CF = 'VRDLCU85T10A562E';
+  const { rows: [sq] } = await pool.query('select id from squadra limit 1');
+  await pool.query('insert into partecipante (cognome, nome, comitato, cf_cifrato, cf_hash) values ($1,$2,$3,$4,$5)', ['Verdi', 'Luca', 'Vecchio comitato', cifra(CF), hashCf(CF)]);
+  const { rows: [rq] } = await pool.query(`insert into richiesta_accesso (provider, sub, email, nome, cognome, cf_cifrato, comitato, provincia, ruolo_gara, squadra_id, compilata)
+    values ('google','z-1','luca@gmail.com','Luca','Verdi',$1,'Modena','MO','partecipante_leader',$2,true) returning id`, [cifra(CF), sq.id]);
+  const ap = json(await chiama('POST', `/api/richieste/${rq.id}/approva`, { token: A, body: { ruolo: 'partecipante', admin: true } }));
+  assert.equal(ap.admin, true);
+  const p = (await pool.query('select comitato, utente_id, ruolo_gara from partecipante where cf_hash=$1', [hashCf(CF)])).rows;
+  assert.equal(p.length, 1); assert.equal(p[0].comitato, 'Modena'); assert.equal(p[0].utente_id, ap.id); assert.equal(p[0].ruolo_gara, 'partecipante_leader');
+  assert.equal((await pool.query(`select count(*)::int n from squadra_membro where squadra_id=$1 and ruolo='capo squadra'`, [sq.id])).rows[0].n, 1);
+  assert.equal((await chiama('DELETE', `/api/persone/${(await pool.query('select id from partecipante where utente_id=$1', [ap.id])).rows[0].id}`, { token: A })).statusCode, 409);   // ha un accesso
 });

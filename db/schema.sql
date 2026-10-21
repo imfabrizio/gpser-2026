@@ -14,12 +14,26 @@ create type stato_scheda as enum ('bozza', 'completata', 'verificata');
 create type origine_dato as enum ('carta', 'tablet_online', 'tablet_offline');
 
 -- ───────── utenti ─────────
+create table ruolo (
+  codice     text primary key,
+  nome       text not null,
+  sistema    boolean not null default false,
+  aree       text[] not null default '{}',
+  created_at timestamptz not null default now()
+);
+insert into ruolo (codice, nome, sistema, aree) values
+  ('giudice', 'Giudice', true, '{}'),
+  ('giudice_master', 'Giudice master', true, '{}'),
+  ('partecipante', 'Partecipante e altri ruoli', true, '{}'),
+  ('organizzazione', 'Organizzazione', true, '{gara,scene,schede,squadre,notizie,anagrafiche,classifiche,stampa,importa}');
+
 create table utente (
   id            uuid primary key default gen_random_uuid(),
   email         text not null unique,
   nome          text not null,
   password_hash text not null,
-  ruolo         ruolo_utente not null default 'giudice',
+  ruolo         text not null default 'giudice' references ruolo(codice),
+  admin         boolean not null default false,  -- amministratore: accesso a tutto, in aggiunta al ruolo
   attivo        boolean not null default true,
   evento_id     uuid,                            -- gara a cui l'utente è legato (FK aggiunta dopo la tabella evento)
   mfa_secret    text,                            -- segreto TOTP cifrato
@@ -86,7 +100,11 @@ create table partecipante (
   cognome       text not null,
   nome          text not null,
   data_nascita  date,
-  codice_fiscale text unique,
+  codice_fiscale text unique,                    -- (non più usato: il codice fiscale è in cf_cifrato)
+  utente_id     uuid unique references utente(id) on delete set null,
+  cf_cifrato    text,
+  cf_hash       text unique,
+  ruolo_gara    text,
   email         text,
   comitato      text,
   provincia     text,
@@ -306,4 +324,4 @@ create table richiesta_accesso (
   unique (provider, sub)
 );
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql');   -- lo schema qui sopra le include già tutte
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql');   -- lo schema qui sopra le include già tutte

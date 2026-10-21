@@ -60,3 +60,10 @@ Senza risposta entro 48 ore viene cancellata. Il codice fiscale è cifrato nel d
 Email di avviso (facoltativa, servizio gratuito Resend): crea un account su resend.com, genera una API key e imposta su Render
 `RESEND_API_KEY`, `NOTIFICA_EMAIL` (dove ricevere l'avviso) e, se hai un dominio verificato, `NOTIFICA_DA` (es. `GareCRI <avvisi@fbcri.eu>`).
 Senza dominio verificato Resend permette di scrivere solo all'indirizzo con cui ti sei registrato: va bene per avvisare te stesso.
+
+## 7. Ruoli, aree e admin
+
+**Gestione → Ruoli e permessi** (solo admin): crei ruoli (es. Segreteria, Gestore news) e spunti le aree di Gestione che possono usare.
+Giudice, giudice master e partecipante sono ruoli di base senza accesso alla Gestione. "Admin" è una spunta in più sull'utente: dà accesso a tutto, compresi Utenti, Ruoli e Richieste.
+Ogni utente ha anche una scheda in **Anagrafiche** (creata alla registrazione, all'approvazione di una richiesta o alla creazione manuale). Il codice fiscale è cifrato e lo legge solo l'admin.
+Al primo avvio dopo l'aggiornamento gli utenti con vecchio ruolo "admin" diventano "organizzazione + admin".

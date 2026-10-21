@@ -2,11 +2,12 @@ import crypto from 'node:crypto';
 import QRCode from 'qrcode';
 import { firmaToken, leggiToken, troppiTentativi, registraFallimento, azzeraFallimenti } from './auth.js';
 import { httpErr } from './services/compilazioni.js';
+import { eStaff, ruoloEffettivo, AREE } from './permessi.js';
 import { nuovoSegreto, verificaTotp, cifra, decifra, otpauth, nuoviCodiciRecupero, hashRecupero } from './mfa.js';
 
-const RUOLI_ORG = ['admin', 'organizzazione'];
-export const mfaObbligatoria = (u, via) => process.env.MFA_ORG !== '0' && RUOLI_ORG.includes(u.ruolo) && !u.mfa_attiva && via === 'pwd';
-export const profilo = (u, via) => ({ id: u.id, nome: u.nome, ruolo: u.ruolo, evento_id: u.evento_id, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
+export const SQL_UTENTE = `select u.*, coalesce(r.aree, '{}') as aree from utente u left join ruolo r on r.codice = u.ruolo`;
+export const mfaObbligatoria = (u, via) => process.env.MFA_ORG !== '0' && eStaff(u) && !u.mfa_attiva && via === 'pwd';
+export const profilo = (u, via) => ({ id: u.id, nome: u.nome, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
 export const creaSessione = (u, via) => ({ token: firmaToken({ id: u.id, via }), utente: profilo(u, via) });
 
 // ── provider esterni (OpenID Connect, flusso "authorization code" + PKCE) ──
@@ -58,9 +59,9 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
     if (!idt.sub) return errore('token');
     if (prov === 'google' && !(idt.email_verified === true || idt.email_verified === 'true')) return errore('email_non_verificata');
     // 1) identità già collegata; 2) altrimenti l'utente registrato con quella email (l'admin deve averlo creato prima)
-    let { rows: [u] } = await pool.query(`select u.* from utente_identita i join utente u on u.id=i.utente_id where i.provider=$1 and i.sub=$2 and u.attivo`, [prov, idt.sub]);
+    let { rows: [u] } = await pool.query(`select u.*, coalesce(r.aree, '{}') as aree from utente_identita i join utente u on u.id=i.utente_id left join ruolo r on r.codice=u.ruolo where i.provider=$1 and i.sub=$2 and u.attivo`, [prov, idt.sub]);
     if (!u && email) {
-      ({ rows: [u] } = await pool.query('select * from utente where lower(email)=$1 and attivo', [email]));
+      ({ rows: [u] } = await pool.query(SQL_UTENTE + ' where lower(u.email)=$1 and u.attivo', [email]));
       if (u) await pool.query('insert into utente_identita (provider, sub, utente_id, email) values ($1,$2,$3,$4) on conflict do nothing', [prov, idt.sub, u.id, email]);
     }
     if (!u) {            // sconosciuto: non entra, ma può presentare una richiesta (valida 48 ore) che l'amministratore approva o rifiuta
@@ -81,7 +82,7 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
     const t = ticket.get(req.body?.ticket); ticket.delete(req.body?.ticket);
     if (!t || t.exp < Date.now()) throw httpErr(401, 'accesso scaduto: riprova');
     if (t.rid) return { token: firmaToken({ rid: t.rid, via: 'sso' }, 48), utente: { in_attesa: true } };
-    const { rows: [u] } = await pool.query('select * from utente where id=$1 and attivo', [t.id]);
+    const { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.id=$1 and u.attivo', [t.id]);
     if (!u) throw httpErr(401, 'utente non valido');
     return creaSessione(u, process.env.SSO_RICHIEDE_MFA === '1' && u.mfa_attiva ? 'pwd' : 'sso');
   });
@@ -90,7 +91,7 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
   app.post('/api/login/mfa', async (req) => {
     const t = leggiToken(req.body?.ticket); if (!t || t.t !== 'mfa') throw httpErr(401, 'accesso scaduto: ricomincia');
     const chiave = `mfa|${req.ip}|${t.id}`; if (troppiTentativi(chiave)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
-    const { rows: [u] } = await pool.query('select * from utente where id=$1 and attivo and mfa_attiva', [t.id]);
+    const { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.id=$1 and u.attivo and u.mfa_attiva', [t.id]);
     if (!u) throw httpErr(401, 'accesso non valido');
     const cod = String(req.body?.codice || '').trim();
     let ok = verificaTotp(decifra(u.mfa_secret), cod);
@@ -104,7 +105,7 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
   });
 
   // ── gestione del proprio MFA ──
-  const utenteDb = async (id) => (await pool.query('select * from utente where id=$1', [id])).rows[0];
+  const utenteDb = async (id) => (await pool.query(SQL_UTENTE + ' where u.id=$1', [id])).rows[0];
   app.get('/api/mfa', async (req) => {
     const u = await utenteDb(req.utente.id);
     const { rows } = await pool.query('select provider from utente_identita where utente_id=$1', [u.id]);
