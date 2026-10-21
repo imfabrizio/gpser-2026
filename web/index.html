@@ -44,6 +44,10 @@
   table { width:100%; border-collapse:collapse; } td, th { padding:8px 6px; border-bottom:1px solid var(--bordo); text-align:left; }
   td.n, th.n { text-align:right; }
   .err { color:#C62828; } .ok { color:#2E7D32; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:14px; }
+  .tile { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; text-align:center; text-decoration:none; color:#222; background:#fff; border:2px solid var(--bordo); border-radius:18px; padding:28px 12px; min-height:190px; }
+  .tile .ico { width:80px; height:80px; color:#fff; background:var(--rosso); border-radius:50%; display:flex; align-items:center; justify-content:center; } .tile .ico svg { width:48px; height:48px; }
+  .tile b { font-size:22px; } .tile span { font-size:13px; color:#555; } .tile:active, .tile:hover { border-color:var(--rosso); box-shadow:0 4px 14px #0002; }
   .btn.grande { display:block; text-align:center; font-size:18px; padding:16px 12px; }
   .avv { border-top:1px solid var(--bordo); padding:8px 0; }
   @media (max-width:860px) { .liv { width:100%; } .liv button { flex:1 1 0; width:auto; min-width:0; font-size:12px; } }
@@ -138,6 +142,7 @@ async function garaCorrente() {
   window.__ev = ev;
   return { ev, eventi };
 }
+const ICONE = {"valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>"};
 const oggi = () => new Date().toISOString().slice(0, 10);
 const statoGara = (e) => (e.attivo ? 'in corso' : (e.data && e.data > oggi() ? 'prossima' : 'passata'));
 function menuGare(eventi, corrente) {
@@ -154,8 +159,10 @@ async function vistaHome() {
   $('#app').innerHTML = `<div class="card"><small>${tipoGara} ${statoGara(ev)}</small><h2 style="margin:2px 0 4px">${esc(ev.nome)}</h2>
     <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
     ${org() ? `<label>Cambia gara</label>${menuGare(eventi, ev)}` : ''}
-    <p style="margin-top:14px"><a class="btn grande" href="#valutazione">Valutazione · ${esc(ev.nome)}</a></p>
-    ${org() ? `<p><a class="btn sec" href="/admin.html">Gestione</a> <a class="btn sec" href="#monitor">Monitor avanzamento</a></p>` : ''}</div>
+    <div class="tiles">
+      <a class="tile" href="#valutazione"><i class="ico">${ICONE.valutazione}</i><b>Valutazione</b><span>${esc(ev.nome)}</span></a>
+      ${org() ? `<a class="tile" href="/admin.html"><i class="ico">${ICONE.gestione}</i><b>Gestione</b><span>Scene, schede, squadre, classifiche</span></a>
+      <a class="tile" href="#monitor"><i class="ico">${ICONE.monitor}</i><b>Monitor</b><span>Avanzamento delle schede</span></a>` : ''}</div></div>
     ${mappaHtml(ev, scene)}
     <div class="card"><strong>Avvisi e informazioni</strong>${avvisi.length ? avvisi.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessun avviso.</small></p>'}</div>`;
   if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem('ev', $('#selgara').value); vistaHome(); };
