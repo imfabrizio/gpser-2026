@@ -95,6 +95,7 @@ $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.remo
 
 const TABS = [['menu', 'Gestione'], ['evento', 'Gara'], ['scene', 'Scene'], ['libreria', 'Schede'], ['squadre', 'Squadre'], ['persone', 'Anagrafiche'], ['news', 'Notizie'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['stampa', 'Stampa'], ['importa', 'Importa'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
 const AREA_TAB = { evento: 'gara', scene: 'scene', libreria: 'schede', punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', news: 'notizie', classifiche: 'classifiche', stampa: 'stampa', importa: 'importa' };
+const PADRE = { punteggi: 'libreria' };
 const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli'];
 const admin = () => me.ruolo === 'admin';
 const consentito = (k) => k === 'menu' || (SOLO_ADMIN.includes(k) ? admin() : admin() || (me.aree || []).includes(AREA_TAB[k]));
@@ -398,9 +399,10 @@ function gruppiPatologie(pat) {
   return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'it'));
 }
 const opzioniPatologie = (pat) => gruppiPatologie(pat).map(([c, l]) => `<optgroup label="${esc(c)}">${l.map((p) => `<option value="${p.id}">${esc(p.nome)}${p.categoria2 ? ' + ' + esc(p.categoria2) : ''} (${p.voci} voci)</option>`).join('')}</optgroup>`).join('');
-const usiTesto = (p) => (p.usi || []).map((x) => [x.evento, x.luogo].filter(Boolean).join(' · ')).join(' / ');
-const ultimaGara = (p) => { const u = (p.usi || [])[0]; if (!u) return '<span class="evt">mai usata</span>';
-  return `<b style="font-size:13px">${esc(u.evento)}</b><span class="evt">${esc([u.luogo, u.data].filter(Boolean).join(' · '))}${p.usi.length > 1 ? ` · +${p.usi.length - 1} altre` : ''}</span>`; };
+const dataIt = (d) => (d ? d.split('-').reverse().join('/') : '');
+const descGara = (u) => [u.codice || u.evento, u.luogo, dataIt(u.data)].filter(Boolean).join(' - ');
+const usiTesto = (p) => (p.usi || []).map(descGara).join(' / ');
+const ultimaGara = (p) => { const u = (p.usi || [])[0]; return u ? descGara(u) + (p.usi.length > 1 ? ` (+${p.usi.length - 1})` : '') : 'mai usata'; };
 // ───────── PUNTEGGI (scale) ─────────
 async function tPunteggi() {
   const scale = await api('/libreria/scale');
@@ -423,9 +425,9 @@ async function tLibreria() {
   $('#app').innerHTML = `<div class="card"><h3>Schede in libreria (${pat.length})</h3>
     <p><button class="b" id="np">Nuova scheda</button> <button class="s" id="vp">Punteggi MB/BE/SU/IN/NE</button> <button class="s" id="nm">Nuova da modello…</button></p>
     <input id="pf" placeholder="Cerca (es. Ictus, frattura, Olimpiadi, Gara D)" style="margin-bottom:8px">
-    ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:150px"><col style="width:66px"><col style="width:236px"></colgroup>${l.map((p) => `<tr class="pr" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + usiTesto(p)).toLowerCase())}"><td><strong>${esc(p.nome)}</strong> <span class="tag">${esc(p.sigla)}</span>
+    ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:236px"></colgroup>${l.map((p) => `<tr class="pr" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + usiTesto(p)).toLowerCase())}"><td><strong>${esc(p.nome)}</strong> <span class="tag">${esc(p.sigla)}</span>
       ${p.categoria2 ? `<span class="tag">+ ${esc(p.categoria2)}</span>` : ''}${p.is_bls ? '<span class="tag">BLSD</span>' : ''}${p.is_diu ? '<span class="tag">DIU</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}
-</td><td class="ult">${ultimaGara(p)}</td><td>${p.voci} voci</td>
+<span class="evt">${esc(ultimaGara(p))}</span></td><td>${p.voci} voci</td>
       <td style="white-space:nowrap"><button class="s p ed" data-id="${p.id}">Modifica</button> <button class="s p cp" data-id="${p.id}">Copia</button> <button class="x p del" data-id="${p.id}">Elimina</button></td></tr>`).join('')}</table></details>`).join('')}
     <p class="nota">Modificare una patologia non cambia le scene già create: ognuna ne conserva una copia.</p></div>
 `;
@@ -593,8 +595,10 @@ async function render() {
     if (tab === 'menu') tMenu(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
     else if (tab === 'persone') await tPersone(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
-  $('#app').insertAdjacentHTML('afterbegin', `<div class="dove"><a href="#" id="dv_g">Gestione</a>${tab !== 'menu' ? ` › <b>${esc(TABS.find(([k]) => k === tab)?.[1] || '')}</b>` : ''}</div><div class="navbar">${tab !== 'menu' ? '<button id="nv_g">← Torna a Gestione</button>' : ''}<a href="/#">Torna alla Home</a><a class="val" href="/#valutazione">Vai alla Valutazione</a></div>`);
+  $('#app').insertAdjacentHTML('afterbegin', `<div class="dove"><a href="#" id="dv_g">Gestione</a>${PADRE[tab] ? ` › <a href="#" id="dv_p">${esc(TABS.find(([k]) => k === PADRE[tab])[1])}</a>` : ''}${tab !== 'menu' ? ` › <b>${esc(TABS.find(([k]) => k === tab)?.[1] || '')}</b>` : ''}</div><div class="navbar">${PADRE[tab] ? `<button id="nv_p">← Torna a ${esc(TABS.find(([k]) => k === PADRE[tab])[1])}</button>` : ''}${tab !== 'menu' ? '<button id="nv_g">← Torna a Gestione</button>' : ''}<a href="/#">Torna alla Home</a><a class="val" href="/#valutazione">Vai alla Valutazione</a></div>`);
   if ($('#nv_g')) $('#nv_g').onclick = () => vai('menu');
+  if ($('#nv_p')) $('#nv_p').onclick = () => vai(PADRE[tab]);
+  if ($('#dv_p')) $('#dv_p').onclick = (e) => { e.preventDefault(); vai(PADRE[tab]); };
   $('#dv_g').onclick = (e) => { e.preventDefault(); vai('menu'); };
   window.scrollTo(0, 0);
 }

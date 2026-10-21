@@ -221,8 +221,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     `select * from voce where $1::text is null or testo ilike '%'||$1||'%' order by testo limit 200`, [req.query.q ?? null])).rows);
   app.get('/api/libreria/patologie', { preHandler: soloOrg }, async () => (await pool.query(
     `select p.*, (select count(*) from patologia_voce where patologia_id=p.id) as voci,
-       (select coalesce(jsonb_agg(jsonb_build_object('evento', x.nome, 'luogo', x.luogo, 'data', to_char(x.data, 'YYYY-MM-DD')) order by x.data desc nulls last), '[]'::jsonb)
-          from (select distinct e.id, e.nome, e.luogo, e.data from scena_scheda ss join scena s on s.id = ss.scena_id join evento e on e.id = s.evento_id where ss.patologia_id = p.id) x) as usi
+       (select coalesce(jsonb_agg(jsonb_build_object('evento', x.nome, 'codice', x.codice, 'luogo', x.luogo, 'data', to_char(x.data, 'YYYY-MM-DD')) order by x.data desc nulls last), '[]'::jsonb)
+          from (select distinct e.id, e.nome, e.codice, e.luogo, e.data from scena_scheda ss join scena s on s.id = ss.scena_id join evento e on e.id = s.evento_id where ss.patologia_id = p.id) x) as usi
        from patologia p order by nome`)).rows);
   app.get('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => (await pool.query(
     `select pv.ordine, pv.sezione, v.testo, sp.codice as scala, pv.is_sep from patologia_voce pv
