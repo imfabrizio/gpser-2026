@@ -315,9 +315,9 @@ async function vistaValuta(schedaId, squadraId) {
     api(`/eventi/${window.__ev?.id || localStorage.getItem('ev')}/squadre`).catch(() => [])]);
   const nomeSq = (squadreEv.find((x) => x.id === squadraId)?.nome || '').toUpperCase();
   const stato = cur.compilazione?.stato || 'bozza';
-  const chiusa = stato === 'verificata';
+  const chiusa = stato !== 'bozza';                           // conferma del giudice = scheda chiusa
   const puoChiudere = org() || master();                       // organizzazione e giudice master verificano/chiudono
-  const soloLettura = chiusa && !org();                         // scheda chiusa: il giudice non può più modificarla (il master la riapre)
+  const soloLettura = chiusa && !puoChiudere;                         // scheda chiusa: il giudice non può più modificarla (il master la riapre)
   const chiave = `${schedaId}|${squadraId}`;
   const meta = { id: cur.compilazione?.id || coda.idPer(chiave) || crypto.randomUUID(), scheda_id: schedaId, squadra_id: squadraId };
   const ris = new Map(cur.risposte.map(r => [r.voce_id, r.livello]));
@@ -332,13 +332,12 @@ async function vistaValuta(schedaId, squadraId) {
   $('#titolo').textContent = scheda.titolo;
   const chi = cur.compilazione?.giudice ? ` · compilata da ${esc(cur.compilazione.giudice)}` : '';
   const sq = nomeSq ? `${esc(nomeSq)} – ` : '';
-  const banner = chiusa ? `<div class="avviso"><strong>${sq}Scheda chiusa (verificata).</strong>${chi} ${soloLettura ? 'Solo il giudice master o l\'organizzazione possono riaprirla.' : ''}</div>`
-    : stato === 'completata' ? `<div class="avviso"><strong>${sq}Completata${chi}</strong> · in attesa della verifica del giudice master.</div>`
+  const banner = chiusa ? `<div class="avviso"><strong>${sq}Scheda chiusa.</strong>${chi} ${soloLettura ? 'Solo il giudice master o l\'organizzazione possono riaprirla.' : ''}</div>`
     : (master() && cur.compilazione ? `<div class="avviso"><strong>${sq}In compilazione</strong>${chi}.</div>` : (nomeSq ? `<div class="avviso"><strong>${esc(nomeSq)}</strong></div>` : ''));
   $('#app').innerHTML = banner + html + `<div class="barra"><span class="stato" id="st"></span>
     <button class="btn sec" id="indietro">Indietro</button>
     ${chiusa ? (puoChiudere && cur.compilazione ? '<button class="btn" id="riapri">Riapri scheda</button>' : '')
-      : `<button class="btn ${puoChiudere ? 'sec' : ''}" id="compl">Completa</button>${puoChiudere ? '<button class="btn" id="verif">Verifica e chiudi</button>' : ''}`}</div>`;
+      : `<button class="btn" id="verif">Conferma e chiudi</button>`}</div>`;
   if (soloLettura) $('#app').classList.add('sola-lettura');
   else $('#app').classList.remove('sola-lettura');
   const tot = scheda.voci.length;
@@ -378,7 +377,6 @@ async function vistaValuta(schedaId, squadraId) {
     const r = await invia();
     if (r.ok) location.hash = '#valutazione'; else alert('Non ancora salvato: ' + r.errori.join('; ') + '\nI dati restano sul dispositivo e verranno rimandati.');
   };
-  if ($('#compl')) $('#compl').onclick = chiudiScheda('completata');
   if ($('#verif')) $('#verif').onclick = chiudiScheda('verificata');
   if ($('#riapri')) $('#riapri').onclick = async () => {
     try { await api(`/compilazioni/${cur.compilazione.id}/riapri`, { method: 'POST', body: {} }); vistaValuta(schedaId, squadraId); }
@@ -393,10 +391,10 @@ async function vistaMonitor() {
   const righe = await api(`/eventi/${ev.id}/monitor`);
   const sq = [...new Set(righe.map(r => r.squadra))];
   const schede = [...new Set(righe.map(r => `${r.scena}${r.slot}`))];
-  const cella = (r) => !r.stato ? '·' : r.stato === 'bozza' ? `${r.voci_compilate}/${r.voci_totali}` : r.stato === 'completata' ? '✔' : '✔✔';
+  const cella = (r) => !r.stato ? '·' : r.stato === 'bozza' ? `${r.voci_compilate}/${r.voci_totali}` : '✔';
   $('#app').innerHTML = `<div class="card"><table><tr><th>Squadra</th>${schede.map(s => `<th>${esc(s)}</th>`).join('')}</tr>
     ${sq.map(n => `<tr><td>${n}</td>${schede.map(s => `<td>${cella(righe.find(r => r.squadra === n && `${r.scena}${r.slot}` === s))}</td>`).join('')}</tr>`).join('')}</table>
-    <small>· non iniziata · n/m in compilazione · ✔ completata · ✔✔ verificata</small><br><a class="btn sec" href="#">Home</a></div>`;
+    <small>· non iniziata · n/m in compilazione · ✔ chiusa</small><br><a class="btn sec" href="#">Home</a></div>`;
 }
 
 async function route() {

@@ -99,10 +99,9 @@ test('sync idempotente, last-writer-wins per voce, livelli non consentiti rifiut
   assert.equal(bad.statusCode, 400);
 });
 
-test('verifica: il giudice non può verificare né modificare una scheda verificata; l\'organizzazione può riaprirla', async () => {
+test('scheda chiusa: il giudice che conferma la chiude; poi non può né modificarla né riaprirla; l\'organizzazione sì', async () => {
   const base = { id: '11111111-1111-4111-8111-111111111111', scheda_id: scheda, squadra_id: squadra };
-  assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, stato: 'verificata' } })).statusCode, 403);
-  const ok = await chiama('POST', '/api/sync', { token: tok['org@t'], body: { ...base, stato: 'verificata' } });
+  const ok = await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, stato: 'completata' } });   // la conferma del giudice chiude subito
   assert.equal(json(ok)[0].stato, 'verificata');
   const mod = await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, risposte: [{ voce_id: voci[0].id, livello: 'MB' }] } });
   assert.equal(mod.statusCode, 409);
@@ -306,9 +305,11 @@ test('REV-9 modifica di organizzazione su scheda chiusa lascia traccia in audit'
   const { master, sq, vm } = await contesto();
   const voce = vm.find((v) => v.mb !== null);
   await chiama('POST', '/api/sync', { token: tok['org@t'], body: { id: U(3), scheda_id: master, squadra_id: sq, stato: 'completata', risposte: [{ voce_id: voce.id, livello: 'MB' }] } });
+  const cid9 = (await pool.query('select id from compilazione where scheda_id=$1 and squadra_id=$2', [master, sq])).rows[0].id;
   const n0 = (await pool.query(`select count(*)::int n from audit_log where azione='modifica_scheda_chiusa'`)).rows[0].n;
   await chiama('POST', '/api/sync', { token: tok['org@t'], body: { id: U(3), scheda_id: master, squadra_id: sq, risposte: [{ voce_id: voce.id, livello: 'MB' }] } });
   assert.equal((await pool.query(`select count(*)::int n from audit_log where azione='modifica_scheda_chiusa'`)).rows[0].n, n0 + 1);
+  await chiama('POST', `/api/compilazioni/${cid9}/riapri`, { token: tok['org@t'] });   // lascia la scheda aperta per gli altri test
 });
 
 test('REV-10 un solo evento attivo anche a livello DB; attiva evento inesistente → 404; login con limite tentativi', async () => {
@@ -444,15 +445,15 @@ test('M-2 giudice master: vede e corregge tutte le schede della sua scena, verif
   const idc = randomUUID();
   const base = { id: idc, scheda_id: scheda, squadra_id: sq.id };
   const w = async (t, livello, extra = {}) => json(await chiama('POST', '/api/sync', { token: tok[t], body: { ...base, risposte: [{ voce_id: std.id, livello }], ...extra } }));
-  assert.equal((await w('giu@t', 'IN', { stato: 'completata' }))[0].stato, 'completata');
-  assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, stato: 'verificata', risposte: [] } })).statusCode, 403);   // il giudice non chiude
+  assert.equal((await w('giu@t', 'IN'))[0].stato, 'bozza');
   const corr = await w('mas@t', 'MB');
   assert.equal(corr[0].scritte, 1);
   assert.equal((await w('giu@t', 'NE'))[0].scartate, 1);                              // il giudice non scavalca il master
   const { rows: [a] } = await pool.query(`select dettaglio from audit_log where azione='correzione_master' order by id desc limit 1`);
   assert.equal(a.dettaglio.correzioni[0].prima, 'IN'); assert.equal(a.dettaglio.correzioni[0].dopo, 'MB');
-  // il master chiude la scheda
-  assert.equal((await w('mas@t', 'MB', { stato: 'verificata' }))[0].stato, 'verificata');
+  // il giudice conferma: la scheda si chiude da sola
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, stato: 'completata', risposte: [] } })).statusCode, 200);
+  assert.equal((await w('mas@t', 'MB'))[0].stato, 'verificata');   // il master può ancora correggerla
   assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, risposte: [{ voce_id: std.id, livello: 'BE' }] } })).statusCode, 409);
   // riapertura: il master della scena sì, un altro master no
   const { rows: [c] } = await pool.query('select id from compilazione where scheda_id=$1 and squadra_id=$2', [scheda, sq.id]);

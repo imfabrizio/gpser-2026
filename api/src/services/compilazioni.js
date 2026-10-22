@@ -15,7 +15,7 @@ const ORG = ['admin', 'organizzazione'];
  *    (viene limitato all'orario del server) e le scritture di organizzazione/admin vincono sempre
  *  - livello null = annulla la risposta (stessa regola di conflitto)
  *  - lo stato non retrocede: solo `riapri` può farlo
- *  - il giudice scrive solo su schede assegnate e su schede non verificate
+ *  - il giudice scrive solo su schede assegnate e ancora aperte: quando conferma la scheda si chiude (stato 'verificata')
  *  - scheda e squadra devono appartenere allo stesso evento, squadra attiva, evento non archiviato
  *  - ogni modifica di organizzazione/admin su una scheda già completata o verificata finisce in audit_log
  */
@@ -57,7 +57,8 @@ export async function sincronizza(db, utente, payload) {
   const { rows: [c] } = await db.query(
     `select * from compilazione where scheda_id=$1 and squadra_id=$2 for update`, [scheda_id, squadra_id]);
   if (!c) throw httpErr(409, 'id compilazione già usato per un\'altra scheda: genera un nuovo UUID');
-  if (c.stato === 'verificata' && !isOrg) throw httpErr(409, 'scheda verificata: modifica non consentita');
+  // scheda chiusa: dopo la conferma del giudice la modifica spetta solo a organizzazione, admin e giudice master della scena
+  if (c.stato !== 'bozza' && !isOrg && !isMasterScena) throw httpErr(409, 'scheda chiusa: solo il giudice master o l\'organizzazione possono modificarla');
 
   let scritte = 0, scartate = 0;
   const correzioni = [];   // solo per il master: cosa ha cambiato nelle schede compilate da altri
@@ -89,8 +90,7 @@ export async function sincronizza(db, utente, payload) {
 
   let stato = c.stato;
   if (payload.stato && RANGO[payload.stato] > RANGO[c.stato]) {
-    if (payload.stato === 'verificata' && !isOrg && !isMasterScena) throw httpErr(403, 'solo l\'organizzazione o il giudice master verificano');
-    stato = payload.stato;
+    stato = 'verificata';   // la conferma del giudice chiude subito la scheda (niente più verifica separata del master)
   }
   await db.query(
     `update compilazione set stato=$2::stato_scheda, updated_at=now(),
