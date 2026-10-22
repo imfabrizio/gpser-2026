@@ -851,3 +851,28 @@ test('CL-1 classifica in PDF: solo area classifiche, tipo validato', async () =>
   assert.equal((await chiama('GET', `${base}/classifica.pdf?tipo=boh`, { token: tok['org@t'] })).statusCode, 400);
   assert.equal((await chiama('GET', `${base}/classifica.pdf`, { token: tok['giu@t'] })).statusCode, 403);
 });
+
+test('ES-1 esami e corsi: tipo, soglia 75%, punti visibili al giudice solo se l\'evento lo prevede, PDF esito', async () => {
+  const O = tok['org@t'], G = tok['giu@t'];
+  const nuovo = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'ESAME-T', nome: 'Esame di prova', tipo: 'esame' } }));
+  assert.equal(nuovo.tipo, 'esame'); assert.equal(Number(nuovo.soglia_pct), 75); assert.equal(nuovo.mostra_punteggi, true);
+  assert.equal((await chiama('POST', '/api/eventi', { token: O, body: { codice: 'X-T', nome: 'x', tipo: 'boh' } })).statusCode, 400);
+  assert.equal((await chiama('PATCH', `/api/eventi/${nuovo.id}`, { token: O, body: { soglia_pct: 150 } })).statusCode, 400);
+  assert.equal(Number(json(await chiama('PATCH', `/api/eventi/${nuovo.id}`, { token: O, body: { soglia_pct: 80 } })).soglia_pct), 80);
+  // sull'evento di gara il giudice non vede i punti; attivando "mostra punteggi" sì
+  const sq = json(await chiama('GET', `/api/eventi/${ev}/squadre`, { token: O }))[0].id;
+  const { rows: [sk] } = await pool.query('select ss.id from scena_scheda ss join scena sc on sc.id = ss.scena_id where sc.evento_id=$1 limit 1', [ev]);
+  const { rows: [gu] } = await pool.query(`select id from utente where email='giu@t'`);
+  await pool.query('insert into assegnazione values ($1,$2) on conflict do nothing', [sk.id, gu.id]);
+  const scheda = sk.id;
+  const nascosti = json(await chiama('GET', `/api/schede/${scheda}`, { token: G }));
+  assert.ok(!('punti' in nascosti.voci[0]));
+  assert.equal((await chiama('GET', `/api/schede/${scheda}/esito.pdf?squadra=${sq}`, { token: G })).statusCode, 403);
+  await chiama('PATCH', `/api/eventi/${ev}`, { token: O, body: { mostra_punteggi: true } });
+  const visibili = json(await chiama('GET', `/api/schede/${scheda}`, { token: G }));
+  assert.ok(visibili.voci[0].punti && Object.keys(visibili.voci[0].punti).length >= 1); assert.equal(visibili.evento.mostra_punteggi, true);
+  const pdf = await chiama('GET', `/api/schede/${scheda}/esito.pdf?squadra=${sq}`, { token: G });
+  assert.equal(pdf.statusCode, 200); assert.equal(pdf.rawPayload.subarray(0, 4).toString(), '%PDF');
+  assert.equal((await chiama('GET', `/api/schede/${scheda}/esito.pdf?squadra=xx`, { token: G })).statusCode, 400);
+  await chiama('PATCH', `/api/eventi/${ev}`, { token: O, body: { mostra_punteggi: false } });
+});

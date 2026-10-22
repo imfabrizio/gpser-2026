@@ -192,11 +192,13 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   // ── evento / scena / scheda ──
   app.patch('/api/eventi/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
+    if (b.tipo && !['gara', 'olimpiadi', 'allenamento', 'corso', 'esame'].includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
+    if (b.soglia_pct != null && b.soglia_pct !== '' && !(Number(b.soglia_pct) >= 1 && Number(b.soglia_pct) <= 100)) throw httpErr(400, 'soglia: percentuale tra 1 e 100');
     if (b.mappa_url && !/^https:\/\/(www\.)?google\.com\/maps\//.test(b.mappa_url.trim())) throw httpErr(400, 'la mappa deve essere un indirizzo https://www.google.com/maps/… (Condividi → Incorpora mappa)');
     const { rows: [e] } = await pool.query(
       `update evento set mappa_url = case when $9 then nullif(trim($10),'') else mappa_url end, codice=coalesce($8,codice), nome=coalesce($2,nome), titolo_stampa=coalesce($3,titolo_stampa), luogo=coalesce($4,luogo),
-         data=coalesce($5::date,data), tipo=coalesce($6,tipo), archiviato=coalesce($7,archiviato), attivo = case when coalesce($7,archiviato) then false else attivo end, updated_at=now()
-       where id=$1 returning *`, [req.params.id, b.nome ?? null, b.titolo_stampa ?? null, b.luogo ?? null, b.data ?? null, b.tipo ?? null, b.archiviato ?? null, b.codice?.trim() || null, 'mappa_url' in b, b.mappa_url ?? '']);
+         data=coalesce($5::date,data), tipo=coalesce($6,tipo), soglia_pct = case when $11 then $12::numeric else soglia_pct end, mostra_punteggi = coalesce($13::boolean, mostra_punteggi), archiviato=coalesce($7,archiviato), attivo = case when coalesce($7,archiviato) then false else attivo end, updated_at=now()
+       where id=$1 returning *`, [req.params.id, b.nome ?? null, b.titolo_stampa ?? null, b.luogo ?? null, b.data ?? null, b.tipo ?? null, b.archiviato ?? null, b.codice?.trim() || null, 'mappa_url' in b, b.mappa_url ?? '', 'soglia_pct' in b, b.soglia_pct === '' ? null : (b.soglia_pct ?? null), b.mostra_punteggi ?? null]);
     if (!e) throw httpErr(404, 'evento inesistente');
     return e;
   });

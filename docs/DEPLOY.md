@@ -70,3 +70,6 @@ Al primo avvio dopo l'aggiornamento gli utenti con vecchio ruolo "admin" diventa
 
 ## Segreteria e badge
 **Gestione → Segreteria**: scegli la gara, importa le squadre (o aggiungi le persone una a una), segna "Arrivato" e stampa il badge (anteprima + stampa). Formati pronti: 10 × 7,5 cm e 6 × 9 cm; altri formati si aggiungono da "Formati badge". Il ruolo "Segreteria" (solo quest'area) si assegna da Ruoli e permessi. Nessuna variabile d'ambiente nuova; la migrazione 009 parte da sola al riavvio.
+
+## Esami, corsi e allenamenti
+In **Gestione → Gara** il tipo può essere gara, olimpiadi, allenamento, corso o esame. Per esame/corso/allenamento i giudici vedono i punti accanto a ogni livello e la percentuale in tempo reale; per l'esame la soglia di superamento è 75% (modificabile) sul totale della scheda. Dalla scheda, «PDF esito» produce il foglio con voci, punteggio, percentuale, esito e firme. La scala a tre livelli (0/1/2) si ottiene con una scala di punteggio che usa solo tre livelli. La migrazione 011 parte da sola al riavvio.

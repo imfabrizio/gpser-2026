@@ -13,9 +13,11 @@ import { registraRichieste } from './routes-richieste.js';
 import { registraSegreteria } from './routes-segreteria.js';
 import { registraRisorse } from './routes-risorse.js';
 import { generaClassificaPdf } from './pdf/classifica.js';
+import { generaEsitoPdf } from './pdf/esito.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
+const TIPI_EVENTO = ['gara', 'olimpiadi', 'allenamento', 'corso', 'esame'];
 
 export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   const app = Fastify({ logger, trustProxy: process.env.TRUST_PROXY === '1' });   // TRUST_PROXY=1 solo dietro a un proxy fidato (es. hosting con HTTPS)
@@ -120,16 +122,18 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
     const org = RUOLI_ORG.includes(req.utente.ruolo);
     return (await pool.query(
-      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato, mappa_url
+      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi
          from evento where ($1 or id = $2 or ($2::uuid is null and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id])).rows;
   });
   app.post('/api/eventi', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
     if (!b.codice || !b.nome) throw httpErr(400, 'codice e nome obbligatori');
+    if (b.tipo && !TIPI_EVENTO.includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
+    const tipo = b.tipo || 'gara', didattico = ['allenamento', 'corso', 'esame'].includes(tipo);
     return (await pool.query(
-      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data) values ($1,$2,coalesce($3,'gara'),$4,$5,$6) returning *`,
-      [b.codice, b.nome, b.tipo, b.titolo_stampa, b.luogo, b.data])).rows[0];
+      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, mostra_punteggi, soglia_pct) values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
+      [b.codice, b.nome, tipo, b.titolo_stampa, b.luogo, b.data, didattico, tipo === 'esame' ? 75 : null])).rows[0];
   });
   // un solo evento attivo alla volta (nel vecchio sistema se ne potevano attivare due)
   app.post('/api/eventi/:id/attiva', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
@@ -182,15 +186,41 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (!s) throw httpErr(404, 'scheda inesistente');
     await accessoScheda(req.utente, s.id);
     const voci = (await pool.query('select * from scena_scheda_voce where scheda_id=$1 order by ordine', [s.id])).rows;
+    const { rows: [ve] } = await pool.query('select e.tipo, e.soglia_pct, e.mostra_punteggi from scena sc join evento e on e.id = sc.evento_id where sc.id=$1', [s.scena_id]);
+    s.evento = ve;
     const LIVELLI = ['mb', 'be', 'su', 'in', 'ne'];
     s.voci = voci.map((v) => {
       const consentiti = LIVELLI.filter((l) => v[l] !== null).map((l) => l.toUpperCase());
-      if (!RUOLI_ORG.includes(req.utente.ruolo)) {      // chi inserisce i dati non deve conoscere il valore dei punti
-        return { id: v.id, scheda_id: v.scheda_id, ordine: v.ordine, sezione: v.sezione, testo: v.testo, consentiti };
+      if (!RUOLI_ORG.includes(req.utente.ruolo)) {      // chi inserisce i dati non deve conoscere il valore dei punti (salvo esami, corsi e allenamenti)
+        const base = { id: v.id, scheda_id: v.scheda_id, ordine: v.ordine, sezione: v.sezione, testo: v.testo, consentiti };
+        if (ve?.mostra_punteggi) base.punti = Object.fromEntries(LIVELLI.filter((l) => v[l] !== null).map((l) => [l.toUpperCase(), v[l]]));
+        return base;
       }
       return { ...v, consentiti };
     });
     return s;
+  });
+  // esito di una scheda per una squadra/candidato (esami, corsi, allenamenti): punti, percentuale, soglia, PDF
+  app.get('/api/schede/:id/esito.pdf', async (req, reply) => {
+    const { rows: [s] } = await pool.query('select * from scena_scheda where id=$1', [req.params.id]);
+    if (!s) throw httpErr(404, 'scheda inesistente');
+    await accessoScheda(req.utente, s.id);
+    const sq = req.query.squadra;
+    if (!/^[0-9a-f-]{36}$/i.test(sq || '')) throw httpErr(400, 'squadra non valida');
+    const { rows: [e] } = await pool.query(`select e.nome, e.luogo, e.tipo, e.soglia_pct, e.mostra_punteggi, to_char(e.data,'YYYY-MM-DD') as data, sc.codice as scena
+      from scena sc join evento e on e.id = sc.evento_id where sc.id=$1`, [s.scena_id]);
+    if (!RUOLI_ORG.includes(req.utente.ruolo) && !e.mostra_punteggi) throw httpErr(403, 'esito non disponibile per questo evento');
+    const { rows: [q] } = await pool.query('select nome, comitato from squadra where id=$1 and evento_id=(select evento_id from scena where id=$2)', [sq, s.scena_id]);
+    if (!q) throw httpErr(404, 'squadra inesistente');
+    const { rows: [c] } = await pool.query('select id, giudice, stato, completata_at from compilazione where scheda_id=$1 and squadra_id=$2', [s.id, sq]);
+    const { rows: voci } = await pool.query(
+      `select v.ordine, v.sezione, v.testo, r.livello,
+              case r.livello when 'MB' then v.mb when 'BE' then v.be when 'SU' then v.su when 'IN' then v."in" when 'NE' then v.ne end as punti,
+              coalesce(greatest(v.mb, v.be, v.su, v."in", v.ne), 0) as max
+         from scena_scheda_voce v left join risposta r on r.voce_id = v.id and r.compilazione_id = $2 where v.scheda_id=$1 order by v.ordine`, [s.id, c?.id ?? null]);
+    const punti = voci.reduce((a, v) => a + (v.livello ? Number(v.punti) : 0), 0), massimo = voci.reduce((a, v) => a + Number(v.max), 0);
+    const pdf = await generaEsitoPdf({ evento: e, scheda: s.titolo, candidato: q, giudice: c?.giudice, voci, punti, massimo, soglia: e.soglia_pct ? Number(e.soglia_pct) : null });
+    return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="esito.pdf"').send(pdf);
   });
   // override per scena: solo i campi presenti nel corpo vengono cambiati (null = livello non consentito)
   app.put('/api/schede/:id/voci/:ordine', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {

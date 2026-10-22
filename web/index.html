@@ -56,6 +56,7 @@
   .btn.grande { display:block; text-align:center; font-size:18px; padding:16px 12px; }
   .avv { border-top:1px solid var(--bordo); padding:8px 0; }
   @media (max-width:860px) { .liv { width:100%; } .liv button { flex:1 1 0; width:auto; min-width:0; font-size:12px; } }
+.esito { position:sticky; top:0; z-index:5; padding:10px 14px; margin:8px 0; border-radius:10px; background:#eee; font-size:18px; text-align:center; } .esito.si { background:#d7f0d9; color:#1b5e20; } .esito.no { background:#fde0e0; color:#9b1c1c; } .liv b { font-weight:700; }
 </style>
 </head>
 <body>
@@ -64,6 +65,7 @@
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const LIV = [['MB','Molto bene'],['BE','Bene'],['SU','Soddisfacente'],['IN','Insufficiente'],['NE','Non eseguito']];   // nessun punteggio: chi inserisce i dati non lo conosce
+const TIPO_EV = { gara: 'Gara', olimpiadi: 'Olimpiadi', allenamento: 'Allenamento', corso: 'Corso', esame: 'Esame' };
 const master = () => me && me.ruolo === 'giudice_master';
 let token = localStorage.getItem('token'), me = JSON.parse(localStorage.getItem('me') || 'null');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -112,7 +114,7 @@ async function vistaPubblica() {
   const oggiS = oggi();
   const prossime = d.eventi.filter((e) => e.attivo || (e.data && e.data >= oggiS)).sort((a, b) => String(a.data).localeCompare(String(b.data)));
   const passate = d.eventi.filter((e) => !prossime.includes(e));
-  const riga = (e) => `<div class="notizia"><b>${esc(e.nome)}</b>${e.attivo ? ' · <span class="ok">in corso</span>' : ''}<br><small>${e.tipo === 'olimpiadi' ? 'Olimpiadi' : 'Gara'} · ${esc(e.luogo || '')} ${esc(e.data || '')}</small></div>`;
+  const riga = (e) => `<div class="notizia"><b>${esc(e.nome)}</b>${e.attivo ? ' · <span class="ok">in corso</span>' : ''}<br><small>${TIPO_EV[e.tipo] || 'Gara'} · ${esc(e.luogo || '')} ${esc(e.data || '')}</small></div>`;
   const inCorso = d.eventi.find((e) => e.attivo) || prossime[0] || d.eventi.find((e) => e.mappa_url || e.scene.length);
   $('#app').innerHTML = `<div class="card pub" style="text-align:center"><img src="/logo-cri.jpg" alt="Croce Rossa Italiana" style="height:90px">
       <h2>Gare di primo soccorso</h2><p>Notizie, edizioni e percorso gara.</p><a class="btn" href="#login">Accedi</a></div>
@@ -252,7 +254,7 @@ async function vistaHome() {
   if (!ev) { $('#app').innerHTML = '<div class="card">Nessuna gara.' + (org() ? ' <a class="btn" href="/admin.html#menu">Vai a Gestione per crearne una</a>' : ' Chiedi all\'organizzazione di assegnartene una.') + '</div>'; return; }
   const avvisi = await api(`/avvisi?evento=${ev.id}`).catch(() => []);
   const scene = await api(`/eventi/${ev.id}/scene`).catch(() => []);
-  const tipoGara = ev.tipo === 'olimpiadi' ? 'Olimpiadi' : 'Gara';
+  const tipoGara = TIPO_EV[ev.tipo] || 'Gara';
   $('#app').innerHTML = `<div class="card"><small>${tipoGara} ${statoGara(ev)}</small><h2 style="margin:2px 0 4px">${esc(ev.nome)}</h2>
     <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
     ${org() ? `<label>Cambia gara</label>${menuGare(eventi, ev)}` : ''}
@@ -326,25 +328,37 @@ async function vistaValuta(schedaId, squadraId) {
   const meta = { id: cur.compilazione?.id || coda.idPer(chiave) || crypto.randomUUID(), scheda_id: schedaId, squadra_id: squadraId };
   const ris = new Map(cur.risposte.map(r => [r.voce_id, r.livello]));
   for (const [v, p] of Object.entries(coda.pendenti(chiave))) { if (p.livello === null) ris.delete(v); else ris.set(v, p.livello); }   // mostra anche ciò che non è ancora partito
+  const pv = !!scheda.evento?.mostra_punteggi, soglia = scheda.evento?.soglia_pct ? Number(scheda.evento.soglia_pct) : null;
+  const pts = (v, k) => v.punti ? v.punti[k] : v[k.toLowerCase()];
+  const maxTot = scheda.voci.reduce((a, v) => a + Math.max(0, ...LIV.map(([k]) => Number(pts(v, k) ?? 0))), 0);
   let sezione = null, html = '';
   for (const v of scheda.voci) {
     if (v.sezione !== sezione) { sezione = v.sezione; html += `<div class="sezione">${esc(sezione)}</div>`; }
     html += `<div class="voce" data-id="${v.id}"><p>${esc(v.testo)}</p><div class="liv">` +
       LIV.map(([k, et]) => !v.consentiti.includes(k) ? `<button disabled></button>` :
-        `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${et}</button>`).join('') + `</div></div>`;
+        `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${et}${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`).join('') + `</div></div>`;
   }
   $('#titolo').textContent = scheda.titolo;
   const chi = cur.compilazione?.giudice ? ` · compilata da ${esc(cur.compilazione.giudice)}` : '';
   const sq = nomeSq ? `${esc(nomeSq)} – ` : '';
   const banner = chiusa ? `<div class="avviso"><strong>${sq}Scheda chiusa.</strong>${chi} ${soloLettura ? 'Solo il giudice master o l\'organizzazione possono riaprirla.' : ''}</div>`
     : (master() && cur.compilazione ? `<div class="avviso"><strong>${sq}In compilazione</strong>${chi}.</div>` : (nomeSq ? `<div class="avviso"><strong>${esc(nomeSq)}</strong></div>` : ''));
-  $('#app').innerHTML = banner + html + `<div class="barra"><span class="stato" id="st"></span>
+  $('#app').innerHTML = banner + (pv ? '<div class="esito" id="esito"></div>' : '') + html + `<div class="barra"><span class="stato" id="st"></span>
     <button class="btn sec" id="indietro">Indietro</button>
+    ${pv && cur.compilazione ? '<button class="btn sec" id="pdfesito">PDF esito</button>' : ''}
     ${chiusa ? (puoChiudere && cur.compilazione ? '<button class="btn" id="riapri">Riapri scheda</button>' : '')
       : `<button class="btn" id="verif">Conferma e chiudi</button>`}</div>`;
   if (soloLettura) $('#app').classList.add('sola-lettura');
   else $('#app').classList.remove('sola-lettura');
   const tot = scheda.voci.length;
+  const aggEsito = () => {
+    if (!pv) return;
+    const p = scheda.voci.reduce((a, v) => a + (ris.has(v.id) ? Number(pts(v, ris.get(v.id)) ?? 0) : 0), 0), perc = maxTot ? p / maxTot * 100 : 0;
+    const ok = soglia ? perc >= soglia : null;
+    $('#esito').className = 'esito ' + (ok === null ? '' : ok ? 'si' : 'no');
+    $('#esito').innerHTML = `<b>${p} / ${maxTot}</b> · <b>${perc.toFixed(1)}%</b>${soglia ? ` · soglia ${soglia}% → <b>${ok ? 'SUPERATO' : 'NON SUPERATO'}</b>` : ''}`;
+  };
+  aggEsito();
   const agg = (msg = '', errore = false) => { $('#st').innerHTML = `${ris.size}/${tot} voci <span class="${errore ? 'err' : 'ok'}">${esc(msg)}</span>`; };
   agg();
   const invia = async () => {
@@ -360,6 +374,7 @@ async function vistaValuta(schedaId, squadraId) {
     const id = b.closest('.voce').dataset.id, l = b.dataset.l;
     const nuovo = ris.get(id) === l ? null : l;                       // toccare di nuovo la scelta la annulla
     if (nuovo === null) ris.delete(id); else ris.set(id, nuovo);
+    aggEsito();
     b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', nuovo !== null && x === b));
     b.closest('.voce').classList.remove('manca');
     if (!document.querySelector('.voce.manca')) agg('');
@@ -382,6 +397,10 @@ async function vistaValuta(schedaId, squadraId) {
     if (r.ok) location.hash = '#valutazione'; else alert('Non ancora salvato: ' + r.errori.join('; ') + '\nI dati restano sul dispositivo e verranno rimandati.');
   };
   if ($('#verif')) $('#verif').onclick = chiudiScheda('verificata');
+  if ($('#pdfesito')) $('#pdfesito').onclick = async () => {
+    try { const r = await fetch(`/api/schede/${schedaId}/esito.pdf?squadra=${squadraId}`, { headers: { Authorization: 'Bearer ' + token } }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).errore || 'errore'); window.open(URL.createObjectURL(await r.blob()), '_blank'); }
+    catch (e) { alert('PDF non disponibile: ' + e.message); }
+  };
   if ($('#riapri')) $('#riapri').onclick = async () => {
     try { await api(`/compilazioni/${cur.compilazione.id}/riapri`, { method: 'POST', body: {} }); vistaValuta(schedaId, squadraId); }
     catch (e) { alert(e.message); }

@@ -63,7 +63,9 @@ create table evento (
   id          uuid primary key default gen_random_uuid(),
   codice      text not null unique,              -- es. GPSER-2026
   nome        text not null,
-  tipo        text not null default 'gara' check (tipo in ('gara','olimpiadi')),
+  tipo        text not null default 'gara' check (tipo in ('gara','olimpiadi','allenamento','corso','esame')),
+  soglia_pct  numeric(5,2) check (soglia_pct between 1 and 100),   -- percentuale minima per superare (esami)
+  mostra_punteggi boolean not null default false,                   -- il giudice vede i punti e la percentuale mentre compila
   titolo_stampa text,                            -- "Gara Regionale di primo soccorso"
   luogo       text,
   data        date,
@@ -358,4 +360,4 @@ create table richiesta_accesso (
   unique (provider, sub)
 );
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql');   -- lo schema qui sopra le include già tutte
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql');   -- lo schema qui sopra le include già tutte
