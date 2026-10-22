@@ -1,13 +1,14 @@
 <!doctype html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Classifica · GareCRI</title>
+<link rel="stylesheet" href="stile.css">
 <style>
   :root { --rosso:#C8102E; --scuro:#1b0f12; --oro:#F2C94C; --argento:#C9CED6; --bronzo:#D9985F; }
   * { box-sizing:border-box; } html,body { margin:0; height:100%; }
-  body { font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; background:var(--scuro); color:#fff; display:flex; flex-direction:column; overflow:hidden; }
+  body { font-family:var(--corpo); background:var(--scuro); color:#fff; display:flex; flex-direction:column; overflow:hidden; }
   header { display:flex; align-items:center; gap:18px; padding:2vh 3vw; background:var(--rosso); }
   header img { height:8vh; border-radius:6px; background:#fff; padding:3px; }
-  header h1 { margin:0; font-size:max(26px,4vh); line-height:1.1; } header p { margin:2px 0 0; font-size:max(14px,2.2vh); opacity:.9; }
+  header h1 { font-family:var(--titoli); margin:0; font-size:max(26px,4vh); line-height:1.1; } header p { margin:2px 0 0; font-size:max(14px,2.2vh); opacity:.9; }
   #ctrl { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; transition:opacity .4s; }
   #ctrl button, #ctrl a { font:inherit; font-size:14px; padding:7px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.6); background:rgba(0,0,0,.25); color:#fff; cursor:pointer; text-decoration:none; }
   #ctrl .on { background:#fff; color:var(--rosso); font-weight:700; }
@@ -15,7 +16,7 @@
   main { flex:1; min-height:0; padding:2vh 3vw; display:flex; flex-direction:column; gap:1.4vh; }
   .podio { display:flex; flex-direction:column; gap:1.2vh; }
   .p { display:flex; align-items:center; gap:2vw; border-radius:14px; padding:1.4vh 2vw; color:#1b1b1b; font-weight:700; }
-  .p .pos { font-size:max(34px,6vh); width:1.4em; text-align:center; } .p .nm { flex:1; font-size:max(26px,5vh); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .p .pt { font-size:max(30px,5.6vh); } .p small { font-size:max(14px,2.4vh); font-weight:600; opacity:.75; margin-left:.4em; }
+  .p .pos, .p .nm, .p .pt { font-family:var(--titoli); } .p .pos { font-size:max(34px,6vh); width:1.4em; text-align:center; } .p .nm { flex:1; font-size:max(26px,5vh); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .p .pt { font-size:max(30px,5.6vh); } .p small { font-size:max(14px,2.4vh); font-weight:600; opacity:.75; margin-left:.4em; }
   .p1 { background:var(--oro); padding-block:2.2vh; } .p1 .nm { font-size:max(32px,6.4vh); } .p2 { background:var(--argento); } .p3 { background:var(--bronzo); }
   .resto { flex:1; min-height:0; overflow:hidden; columns:2; column-gap:3vw; font-size:max(16px,2.8vh); }
   .r { display:flex; gap:1.2vw; padding:.7vh 1vw; border-bottom:1px solid rgba(255,255,255,.12); break-inside:avoid; } .r .pos { width:2em; color:#ffb3bf; font-weight:700; } .r .nm { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .r .pt { font-weight:700; }

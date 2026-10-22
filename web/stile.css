@@ -1,0 +1,75 @@
+/* GareCRI – identità visiva: rosso Croce Rossa, carta fredda, tipografia da segnaletica.
+   Caricato dopo gli stili di pagina: ridefinisce i token e i componenti comuni. */
+@font-face { font-family:"Atkinson"; font-weight:400; font-display:swap; src:url(fonti/atkinson-hyperlegible-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family:"Atkinson"; font-weight:700; font-display:swap; src:url(fonti/atkinson-hyperlegible-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family:"Barlow SC"; font-weight:600; font-display:swap; src:url(fonti/barlow-semi-condensed-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family:"Barlow SC"; font-weight:700; font-display:swap; src:url(fonti/barlow-semi-condensed-latin-700-normal.woff2) format("woff2"); }
+
+:root {
+  --rosso:#C8102E; --rosso-notte:#7C0A1E; --rosso-velo:#FBE9EC;
+  --inchiostro:#1B1F27; --testo:#1B1F27; --tenue:#5B6270;
+  --carta:#EEF0F3; --bg:#EEF0F3; --card:#fff; --bordo:#D3D7DE; --grigio:#E4E7EC;
+  --ok:#1F7A3E; --avviso:#B26A00;
+  --titoli:"Barlow SC","Arial Narrow",system-ui,sans-serif; --corpo:"Atkinson",system-ui,sans-serif;
+}
+body { font-family:var(--corpo); font-size:16px; line-height:1.45; background:var(--carta); color:var(--inchiostro); }
+h1,h2,h3,.tile b,.hubb b,.contatore .grande,.tile-ris b { font-family:var(--titoli); letter-spacing:.005em; }
+h2 { font-size:30px; line-height:1.1; } h3 { font-size:21px; line-height:1.15; }
+
+/* intestazione: fascia rossa con filo scuro, come la segnaletica di soccorso */
+header { background:var(--rosso); box-shadow:inset 0 -4px 0 var(--rosso-notte); padding-bottom:12px; }
+header h1 { font-weight:700; font-size:22px; }
+header .logo { border-radius:6px; box-shadow:0 0 0 2px #fff; }
+header a, header button { background:#ffffff26; border:1px solid #ffffff55; font-weight:700; border-radius:8px; }
+header a:hover, header button:hover { background:#ffffff40; }
+nav { border-bottom:2px solid var(--bordo); }
+nav button { font-family:var(--corpo); font-weight:700; color:var(--tenue); }
+nav button.on { background:var(--rosso); color:#fff; }
+
+/* schede e riquadri */
+.card { border-radius:10px; border:1px solid var(--bordo); box-shadow:none; padding:16px; }
+.card > h3:first-child { padding-bottom:8px; border-bottom:2px solid var(--rosso-velo); margin-bottom:12px; }
+label { font-size:13px; font-weight:700; color:var(--tenue); }
+input, select, textarea { border:1.5px solid #B9BFC9; border-radius:8px; font-family:var(--corpo); min-height:44px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible { outline:3px solid #1B6FEB; outline-offset:2px; }
+
+/* pulsanti: grossi, per dita con i guanti */
+.btn, button.b, button.s, button.x { font-family:var(--corpo); font-weight:700; border-radius:8px; min-height:44px; }
+.btn, button.b { background:var(--rosso); box-shadow:0 2px 0 var(--rosso-notte); }
+.btn:active, button.b:active { transform:translateY(1px); box-shadow:none; }
+.btn.sec, button.s { background:#fff; color:var(--inchiostro); border:1.5px solid #8C94A3; box-shadow:none; }
+button.x { border-width:1.5px; }
+button.p { min-height:36px; }
+.tag { background:var(--grigio); font-weight:700; } .tag.ok { background:#D6EFDD; color:#145C2E; } .tag.no { background:var(--rosso-velo); color:#8F0D22; }
+table { font-variant-numeric:tabular-nums; } th { font-size:13px; color:var(--tenue); }
+dialog { border-radius:12px; }
+small, .nota { color:var(--tenue); }
+.avviso { background:#FFF1D1; border:1px solid #E2B34A; border-left:6px solid #E2A100; }
+
+/* riquadri della home e di Gestione: etichette da kit di primo soccorso */
+.tile, .hubb { position:relative; background:#fff; border:1.5px solid var(--bordo); border-left:8px solid var(--rosso); border-radius:10px;
+  align-items:flex-start; text-align:left; padding:20px 18px 18px; min-height:0; gap:4px; }
+.tile .ico, .hubb .ico { width:60px; height:60px; border-radius:10px; background:var(--rosso); color:#fff; margin-bottom:8px; }
+.hubb .ico { background:var(--rosso-velo); color:var(--rosso); }
+.tile .ico svg, .hubb .ico svg { width:36px; height:36px; }
+.tile b, .hubb b { font-size:26px; font-weight:700; line-height:1.05; color:var(--inchiostro); }
+.tile span, .hubb span { font-size:14px; color:var(--tenue); }
+.tile:hover, .hubb:hover, .tile:active, .hubb:active { border-color:var(--rosso); box-shadow:0 6px 16px #1b1f2722; }
+.tile:hover .ico { background:var(--rosso-notte); }
+.hubb { font-family:var(--corpo); }
+
+/* sezioni di scheda e controlli di valutazione */
+.sezione { background:var(--inchiostro); color:#fff; font-family:var(--titoli); font-size:18px; letter-spacing:.02em; border-radius:6px; }
+.voce { border:1px solid var(--bordo); border-radius:8px; }
+.liv button { border-width:2px; border-radius:8px; font-family:var(--corpo); }
+.liv button[disabled] { background:repeating-linear-gradient(135deg,#F0F1F4 0 6px,#E1E4EA 6px 12px); border:2px dashed #B9BFC9; }
+.barra { border-top:2px solid var(--rosso); }
+.esito { font-family:var(--titoli); font-size:22px; border-radius:8px; }
+
+/* punti elenco, indicatori, percorso */
+.dove a { color:var(--rosso); } .contatore .grande { font-size:46px; }
+.tile-ris, .chips-ris .tile-ris { background:#fff; border:1.5px solid var(--bordo); border-left:6px solid var(--rosso); }
+.tile-ris b { font-size:32px; }
+.barra i { background:var(--ok); }
+details.grp { border-radius:8px; }
+@media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
