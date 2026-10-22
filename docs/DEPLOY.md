@@ -67,3 +67,6 @@ Senza dominio verificato Resend permette di scrivere solo all'indirizzo con cui 
 Giudice, giudice master e partecipante sono ruoli di base senza accesso alla Gestione. "Admin" è una spunta in più sull'utente: dà accesso a tutto, compresi Utenti, Ruoli e Richieste.
 Ogni utente ha anche una scheda in **Anagrafiche** (creata alla registrazione, all'approvazione di una richiesta o alla creazione manuale). Il codice fiscale è cifrato e lo legge solo l'admin.
 Al primo avvio dopo l'aggiornamento gli utenti con vecchio ruolo "admin" diventano "organizzazione + admin".
+
+## Segreteria e badge
+**Gestione → Segreteria**: scegli la gara, importa le squadre (o aggiungi le persone una a una), segna "Arrivato" e stampa il badge (anteprima + stampa). Formati pronti: 10 × 7,5 cm e 6 × 9 cm; altri formati si aggiungono da "Formati badge". Il ruolo "Segreteria" (solo quest'area) si assegna da Ruoli e permessi. Nessuna variabile d'ambiente nuova; la migrazione 009 parte da sola al riavvio.

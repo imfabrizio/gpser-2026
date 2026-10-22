@@ -10,9 +10,9 @@ import { httpErr } from './services/compilazioni.js';
 
 export const RUOLI_GARA = {
   partecipante_leader: 'Partecipante – capo squadra', partecipante_membro: 'Partecipante – componente', giudice: 'Giudice', giudice_master: 'Giudice master',
-  allenatore: 'Allenatore', fotografo: 'Fotografo', supporter: 'Supporter', altro: 'Altro ruolo (lo assegna l\'organizzazione)',
+  allenatore: 'Allenatore', accompagnatore: 'Accompagnatore', simulatore: 'Simulatore', truccatore: 'Truccatore', fotografo: 'Fotografo', supporter: 'Supporter', altro: 'Altro ruolo (lo assegna l\'organizzazione)',
 };
-const CON_SQUADRA = ['partecipante_leader', 'partecipante_membro', 'allenatore', 'fotografo', 'supporter'];
+const CON_SQUADRA = ['partecipante_leader', 'partecipante_membro', 'allenatore', 'accompagnatore', 'fotografo', 'supporter'];
 const RUOLO_APP = { giudice: 'giudice', giudice_master: 'giudice_master' };       // gli altri partono come "partecipante" (nessun potere)
 const pulisci = (v, max = 80) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 

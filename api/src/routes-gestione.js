@@ -169,7 +169,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const { rows: [x] } = await pool.query('select utente_id from partecipante where id=$1', [req.params.id]);
     if (x?.utente_id) throw httpErr(409, 'la persona ha un accesso al sito: disattiva prima l\'utente');
     try { await pool.query('delete from partecipante where id=$1', [req.params.id]); }
-    catch (e) { if (e.code === '23503') throw httpErr(409, 'la persona fa parte di una squadra: toglila prima dalla squadra'); throw e; }
+    catch (e) { if (e.code === '23503') throw httpErr(409, 'la persona fa parte di una squadra o è iscritta a una gara: toglila prima'); throw e; }
     return { ok: true };
   });
   app.get('/api/squadre/:id/membri', { preHandler: soloOrg }, async (req) => (await pool.query(

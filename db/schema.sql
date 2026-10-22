@@ -25,7 +25,8 @@ insert into ruolo (codice, nome, sistema, aree) values
   ('giudice', 'Giudice', true, '{}'),
   ('giudice_master', 'Giudice master', true, '{}'),
   ('partecipante', 'Partecipante e altri ruoli', true, '{}'),
-  ('organizzazione', 'Organizzazione', true, '{gara,scene,schede,squadre,notizie,anagrafiche,classifiche,stampa,importa}');
+  ('organizzazione', 'Organizzazione', true, '{gara,scene,schede,squadre,notizie,anagrafiche,classifiche,stampa,importa,segreteria}'),
+  ('segreteria', 'Segreteria', false, '{segreteria}');
 
 create table utente (
   id            uuid primary key default gen_random_uuid(),
@@ -48,6 +49,16 @@ create table utente (
 );
 
 -- ───────── eventi (gare / olimpiadi) ─────────
+create table formato_badge (
+  id           uuid primary key default gen_random_uuid(),
+  nome         text not null unique,
+  larghezza_mm numeric(5,1) not null check (larghezza_mm between 30 and 300),
+  altezza_mm   numeric(5,1) not null check (altezza_mm between 30 and 300),
+  sistema      boolean not null default false,
+  created_at   timestamptz not null default now()
+);
+insert into formato_badge (nome, larghezza_mm, altezza_mm, sistema) values ('10 × 7,5 cm', 100, 75, true), ('6 × 9 cm', 60, 90, true) ;
+
 create table evento (
   id          uuid primary key default gen_random_uuid(),
   codice      text not null unique,              -- es. GPSER-2026
@@ -59,6 +70,7 @@ create table evento (
   attivo      boolean not null default false,
   archiviato  boolean not null default false,
   mappa_url   text,                              -- incorporamento di Google My Maps (facoltativo)
+  formato_badge_id uuid references formato_badge(id) on delete set null,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -118,6 +130,20 @@ create table squadra_membro (
   ruolo           text,                          -- capo squadra, soccorritore, riserva...
   primary key (squadra_id, partecipante_id)
 );
+
+-- ───────── segreteria: iscritti e arrivi ─────────
+create table iscrizione (
+  id              uuid primary key default gen_random_uuid(),
+  evento_id       uuid not null references evento(id) on delete cascade,
+  partecipante_id uuid not null references partecipante(id),
+  ruolo           text not null default 'partecipante_membro',   -- ruolo in gara (capo squadra, soccorritore, giudice, simulatore...)
+  squadra_id      uuid references squadra(id) on delete set null,
+  arrivato_at     timestamptz,
+  arrivato_da     uuid references utente(id) on delete set null,
+  created_at      timestamptz not null default now(),
+  unique (evento_id, partecipante_id)
+);
+create index iscrizione_evento_idx on iscrizione (evento_id);
 
 -- ───────── libreria ─────────
 -- scala di punteggio: un NULL significa "livello non consentito" (cella nera)
@@ -324,4 +350,4 @@ create table richiesta_accesso (
   unique (provider, sub)
 );
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql');   -- lo schema qui sopra le include già tutte
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql');   -- lo schema qui sopra le include già tutte

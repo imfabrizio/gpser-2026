@@ -51,6 +51,8 @@
   .hubb { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:6px; background:#fff; border:2px solid var(--bordo); border-radius:18px; padding:26px 14px; cursor:pointer; font-family:inherit; min-height:190px; }
   .hubb .ico { width:72px; height:72px; color:var(--rosso); background:#fdecee; border-radius:50%; display:flex; align-items:center; justify-content:center; }
   .aree { display:flex; flex-wrap:wrap; gap:6px 18px; margin:8px 0; } .ar { font-size:15px; color:inherit; display:flex; align-items:center; gap:6px; }
+  .contatore { display:flex; align-items:center; gap:18px; flex-wrap:wrap; } .contatore .grande { font-size:38px; color:var(--rosso); } .barra { flex:1; min-width:140px; height:12px; background:#eee; border-radius:6px; overflow:hidden; } .barra i { display:block; height:100%; background:#2E7D32; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; } table.sg tr.arr td { background:#f3faf3; } .ris { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
   .dove { font-size:15px; margin:2px 0 8px; color:#555; } .dove a { color:var(--rosso); text-decoration:none; font-weight:600; } .dove b { color:#222; }
   table.lib { table-layout:fixed; } table.lib td { vertical-align:top; } .evt { display:block; font-size:12px; color:#777; margin-top:2px; }
   .hubb { position:relative; } .hubb .badge { position:absolute; top:10px; right:12px; background:#C62828; color:#fff; font-style:normal; font-weight:700; border-radius:999px; min-width:26px; padding:2px 8px; font-size:14px; }
@@ -93,8 +95,8 @@ window.chiudi = chiudi;
 
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
-const TABS = [['menu', 'Gestione'], ['evento', 'Gara'], ['scene', 'Scene'], ['libreria', 'Schede'], ['squadre', 'Squadre'], ['persone', 'Anagrafiche'], ['news', 'Notizie'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['stampa', 'Stampa'], ['importa', 'Importa'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
-const AREA_TAB = { evento: 'gara', scene: 'scene', libreria: 'schede', punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', news: 'notizie', classifiche: 'classifiche', stampa: 'stampa', importa: 'importa' };
+const TABS = [['menu', 'Gestione'], ['evento', 'Gara'], ['segreteria', 'Segreteria'], ['scene', 'Scene'], ['libreria', 'Schede'], ['squadre', 'Squadre'], ['persone', 'Anagrafiche'], ['news', 'Notizie'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['stampa', 'Stampa'], ['importa', 'Importa'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
+const AREA_TAB = { segreteria: 'segreteria', evento: 'gara', scene: 'scene', libreria: 'schede', punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', news: 'notizie', classifiche: 'classifiche', stampa: 'stampa', importa: 'importa' };
 const PADRE = { punteggi: 'libreria' };
 const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli'];
 const admin = () => me.ruolo === 'admin';
@@ -155,9 +157,9 @@ async function tEvento() {
 
 
 // ───────── MENU GESTIONE ─────────
-const ICONE = {"punteggi": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/><path d="M3 20h18"/></svg>', "ruoli": '<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z\"/><path d=\"M9 12l2 2 4-4\"/></svg>', "richieste": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="4"/><path d="M3 21c0-4 3-6.5 7-6.5M17 14v6M14 17h6"/></svg>', "evento": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 21V4m0 0h11l-2 4 2 4H5\"/></svg>", "scene": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M3 9h18M8 4v5M13 4v5M18 4v5\"/></svg>", "libreria": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h9l4 4v14H6z\"/><path d=\"M14 3v5h5M9 13h7M9 17h7\"/></svg>", "squadre": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"9\" cy=\"8\" r=\"3\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M3 20c0-3.5 3-6 6-6s6 2.5 6 6M15 15c3 0 6 1.5 6 5\"/></svg>", "news": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5h13v14H6a2 2 0 0 1-2-2z\"/><path d=\"M17 9h3v8a2 2 0 0 1-2 2M7 9h7M7 13h7\"/></svg>", "persone": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 21c0-4.5 3.5-7 8-7s8 2.5 8 7\"/></svg>", "classifiche": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3\"/></svg>", "stampa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 9V3h10v6M7 17H4v-7h16v7h-3\"/><rect x=\"7\" y=\"14\" width=\"10\" height=\"7\"/></svg>", "importa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v12m0 0l-4-4m4 4l4-4M4 19h16\"/></svg>", "utenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>"};
+const ICONE = {"segreteria": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 13l2 2 4-4"/></svg>', "punteggi": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/><path d="M3 20h18"/></svg>', "ruoli": '<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z\"/><path d=\"M9 12l2 2 4-4\"/></svg>', "richieste": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="4"/><path d="M3 21c0-4 3-6.5 7-6.5M17 14v6M14 17h6"/></svg>', "evento": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 21V4m0 0h11l-2 4 2 4H5\"/></svg>", "scene": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M3 9h18M8 4v5M13 4v5M18 4v5\"/></svg>", "libreria": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h9l4 4v14H6z\"/><path d=\"M14 3v5h5M9 13h7M9 17h7\"/></svg>", "squadre": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"9\" cy=\"8\" r=\"3\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M3 20c0-3.5 3-6 6-6s6 2.5 6 6M15 15c3 0 6 1.5 6 5\"/></svg>", "news": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5h13v14H6a2 2 0 0 1-2-2z\"/><path d=\"M17 9h3v8a2 2 0 0 1-2 2M7 9h7M7 13h7\"/></svg>", "persone": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 21c0-4.5 3.5-7 8-7s8 2.5 8 7\"/></svg>", "classifiche": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3\"/></svg>", "stampa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 9V3h10v6M7 17H4v-7h16v7h-3\"/><rect x=\"7\" y=\"14\" width=\"10\" height=\"7\"/></svg>", "importa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v12m0 0l-4-4m4 4l4-4M4 19h16\"/></svg>", "utenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>"};
 function tMenu() {
-  const voci = [['evento', 'Gara', 'Crea la gara o le olimpiadi, date, avvisi'], ['scene', 'Scene', 'Una scena è un gruppo di schede'],
+  const voci = [['evento', 'Gara', 'Crea la gara o le olimpiadi, date, avvisi'], ['segreteria', 'Segreteria', 'Registra gli arrivi e stampa i badge'], ['scene', 'Scene', 'Una scena è un gruppo di schede'],
     ['libreria', 'Schede', 'Crea e modifica le schede, anche copiandone una'], ['punteggi', 'Punteggi', 'Valore di MB, BE, SU, IN, NE per ogni scala'], ['squadre', 'Squadre', 'Squadre, comitato e componenti'],
     ['news', 'Notizie', 'Avvisi per i partecipanti e notizie pubbliche'], ['persone', 'Anagrafiche', 'Persone e requisiti'], ['classifiche', 'Classifiche', 'Generale, SEP, BLSD, Master, DIU'],
     ['stampa', 'Stampa', 'Schede vuote o compilate, per scena o squadra'], ['importa', 'Importa', 'Carica le scene dai vecchi file Excel']].filter(([k]) => consentito(k));
@@ -270,7 +272,7 @@ async function apriComponenti(squadraId, nomeSquadra) {
 }
 
 // ───────── PERSONE (anagrafica) ─────────
-const RUOLI_GARA = { partecipante_leader: 'capo squadra', partecipante_membro: 'componente', giudice: 'giudice', giudice_master: 'giudice master', allenatore: 'allenatore', fotografo: 'fotografo', supporter: 'supporter', altro: 'altro' };
+const RUOLI_GARA = { accompagnatore: 'accompagnatore', simulatore: 'simulatore', truccatore: 'truccatore', partecipante_leader: 'capo squadra', partecipante_membro: 'componente', giudice: 'giudice', giudice_master: 'giudice master', allenatore: 'allenatore', fotografo: 'fotografo', supporter: 'supporter', altro: 'altro' };
 async function tPersone() {
   const q = (cache.qPersone || '').trim();
   const lista = await api('/persone' + (q ? '?q=' + encodeURIComponent(q) : ''));
@@ -532,6 +534,123 @@ async function tImporta() {
   $('#im_f').onchange = () => { files = [...$('#im_f').files].sort((a, b) => a.name.localeCompare(b.name)).map((file) => ({ file, tipo: tipoDi(file) })); disegna(); };
 }
 
+// ───────── SEGRETERIA: arrivi e badge ─────────
+const norm = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const oraIt = (d) => new Date(d).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+async function pdfUrl(path) {
+  const r = await fetch('/api' + path, { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.errore || r.statusText); }
+  return URL.createObjectURL(await r.blob());
+}
+// anteprima del badge in una finestra, con scelta del formato e stampa
+function anteprimaBadge(S, { iscritto, ambito = 'tutti', titolo }) {
+  let url = null;
+  const q = iscritto ? `iscritto=${iscritto}` : `ambito=${encodeURIComponent(ambito)}`;
+  dlg(`<div style="min-width:min(840px,88vw)"><h3>${esc(titolo)}</h3><div class="riga"><div><label>Formato del badge</label><select id="bd_f">${S.formati.map((f) => `<option value="${f.id}" ${f.id === S.formato ? 'selected' : ''}>${esc(f.nome)}${f.sistema ? '' : ' (' + f.larghezza_mm + '×' + f.altezza_mm + ' mm)'}</option>`).join('')}</select></div>
+    <div class="stretto"><button class="b" id="bd_p">Stampa</button> <button class="s" id="bd_o">Apri in una scheda</button> <button class="s" onclick="chiudi()">Chiudi</button></div></div>
+    <iframe id="bd_if" title="Anteprima badge" style="width:100%;height:62vh;border:1px solid #ccc;margin-top:8px;background:#eee"></iframe></div>`);
+  const carica = async () => {
+    try { const nuovo = await pdfUrl(`/eventi/${ev.id}/badge.pdf?${q}&formato=${$('#bd_f').value}`); if (url) URL.revokeObjectURL(url); url = nuovo; $('#bd_if').src = url; }
+    catch (e) { $('#bd_if').srcdoc = `<p style="font-family:sans-serif;color:#b00;padding:12px">${esc(e.message)}</p>`; }
+  };
+  $('#bd_f').onchange = () => { S.formato = $('#bd_f').value; api(`/eventi/${ev.id}/formato-badge`, { method: 'PUT', body: { formato_badge_id: S.formato } }).catch(() => {}); carica(); };
+  $('#bd_p').onclick = () => { const f = $('#bd_if').contentWindow; f.focus(); f.print(); };
+  $('#bd_o').onclick = () => { if (url) window.open(url, '_blank'); };
+  carica();
+}
+function dialogFormati(S) {
+  dlg(`<h3>Formati dei badge</h3><table>${S.formati.map((f) => `<tr><td>${esc(f.nome)}</td><td>${f.larghezza_mm} × ${f.altezza_mm} mm</td><td>${f.sistema ? '<span class="tag">già pronto</span>' : `<button class="x p fd" data-id="${f.id}">Elimina</button>`}</td></tr>`).join('')}</table>
+    <h3 style="margin-top:14px">Nuovo formato</h3><div class="riga"><div><label>Nome (facoltativo)</label><input id="fm_n" placeholder="es. A6"></div><div><label>Larghezza (mm)</label><input id="fm_w" type="number" min="30" max="300"></div><div><label>Altezza (mm)</label><input id="fm_h" type="number" min="30" max="300"></div></div>
+    <p><button class="b" id="fm_ok">Aggiungi</button> <button class="s" onclick="chiudi()">Chiudi</button></p>`);
+  $('#fm_ok').onclick = () => { chiudi(); fai(() => api('/badge/formati', { body: { nome: $('#fm_n').value, larghezza_mm: Number($('#fm_w').value), altezza_mm: Number($('#fm_h').value) } }), 'Formato aggiunto'); };
+  document.querySelectorAll('.fd').forEach((b) => { b.onclick = () => { chiudi(); fai(() => api(`/badge/formati/${b.dataset.id}`, { method: 'DELETE' }), 'Formato eliminato'); }; });
+}
+function dialogIscritto(S, x = null) {
+  const optR = Object.entries(S.ruoli).map(([k, v]) => `<option value="${k}" ${(x ? x.ruolo : 'partecipante_membro') === k ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  const optS = `<option value="">— nessuna —</option>` + S.squadre.map((q) => `<option value="${q.id}" ${x && x.squadra_id === q.id ? 'selected' : ''}>${esc(q.nome)}${q.comitato ? ' · ' + esc(q.comitato) : ''}</option>`).join('');
+  const f = (id, et, v = '', extra = '') => `<div><label>${et}</label><input id="${id}" value="${esc(v)}" ${extra}></div>`;
+  dlg(`<h3>${x ? 'Modifica iscrizione' : 'Aggiungi una persona alla gara'}</h3>
+    ${x ? `<p><b>${esc(x.cognome)} ${esc(x.nome)}</b></p>` : `<label>Cerca in anagrafica</label><input id="ag_q" placeholder="cognome, nome o comitato" autocomplete="off"><div id="ag_r" class="ris"></div>
+    <div class="riga">${f('ag_c', 'Cognome *')}${f('ag_n', 'Nome *')}${f('ag_co', 'Comitato')}${f('ag_p', 'Prov.', '', 'maxlength="2" style="width:4em"')}</div>
+    <p class="nota">Se non è in anagrafica, scrivi i dati: viene aggiunto automaticamente.</p>`}
+    <div class="riga"><div><label>Ruolo</label><select id="ag_r_">${optR}</select></div><div><label>Squadra (obbligatoria per chi gareggia, allena o accompagna)</label><select id="ag_s">${optS}</select></div></div>
+    ${x ? '' : '<p><label style="font-size:15px;color:inherit"><input type="checkbox" id="ag_arr" checked> segna subito come arrivato</label></p>'}
+    <p class="err" id="ag_e" hidden></p><p><button class="b" id="ag_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+  let pid = null, t = null;
+  if (!x) {
+    $('#ag_q').oninput = () => { clearTimeout(t); t = setTimeout(async () => {
+      const q = $('#ag_q').value.trim(); if (q.length < 2) { $('#ag_r').innerHTML = ''; return; }
+      const r = await api('/segreteria/persone?q=' + encodeURIComponent(q)).catch(() => []);
+      $('#ag_r').innerHTML = r.map((p) => `<button class="s p sc" data-i="${p.id}" data-c="${esc(p.cognome)}" data-n="${esc(p.nome)}" data-co="${esc(p.comitato || '')}" data-p="${esc(p.provincia || '')}">${esc(p.cognome)} ${esc(p.nome)} <small>${esc(p.comitato || '')}</small></button>`).join('') || '<small>Nessuna persona trovata: scrivi i dati qui sotto.</small>';
+      document.querySelectorAll('.sc').forEach((b) => { b.onclick = () => { pid = b.dataset.i; $('#ag_c').value = b.dataset.c; $('#ag_n').value = b.dataset.n; $('#ag_co').value = b.dataset.co; $('#ag_p').value = b.dataset.p; $('#ag_r').innerHTML = `<small>Selezionato dall'anagrafica: ${esc(b.dataset.c)} ${esc(b.dataset.n)}</small>`; }; });
+    }, 250); };
+    ['ag_c', 'ag_n', 'ag_co', 'ag_p'].forEach((id) => { $('#' + id).oninput = () => { pid = null; }; });
+  }
+  $('#ag_ok').onclick = async () => {
+    const e = $('#ag_e'); e.hidden = true; $('#ag_ok').disabled = true;
+    try {
+      if (x) await api(`/iscritti/${x.id}`, { method: 'PATCH', body: { ruolo: $('#ag_r_').value, squadra_id: $('#ag_s').value || null } });
+      else {
+        const r = await api(`/eventi/${ev.id}/iscritti`, { body: { partecipante_id: pid, cognome: $('#ag_c').value, nome: $('#ag_n').value, comitato: $('#ag_co').value, provincia: $('#ag_p').value,
+          ruolo: $('#ag_r_').value, squadra_id: $('#ag_s').value || null, arrivato: $('#ag_arr').checked } });
+        if ($('#ag_arr').checked && S.apri) { chiudi(); await render(); return anteprimaBadge(S, { iscritto: r.id, titolo: `Badge di ${r.cognome} ${r.nome}` }); }
+      }
+      chiudi(); await render(); flash('Salvato');
+    } catch (err) { e.textContent = err.message; e.hidden = false; $('#ag_ok').disabled = false; }
+  };
+}
+async function tSegreteria() {
+  if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima una gara.</div>'; legaSelettore(); return; }
+  const [d, formati, squadre] = await Promise.all([api(`/eventi/${ev.id}/iscritti`), api('/badge/formati'), api(`/eventi/${ev.id}/squadre`)]);
+  const S = { ...d, formati, squadre, formato: (formati.find((f) => f.id === d.formato_badge_id) || formati[0])?.id, apri: localStorage.getItem('seg_apri') !== '0' };
+  const F = cache.seg || (cache.seg = { q: '', stato: 'tutti', ruolo: '' });
+  const visibili = () => S.iscritti.filter((i) => (!F.q || norm([i.cognome, i.nome, i.comitato, i.squadra].join(' ')).includes(norm(F.q)))
+    && (F.stato === 'tutti' || (F.stato === 'arrivati') === !!i.arrivato_at) && (!F.ruolo || i.ruolo === F.ruolo));
+  const c = S.conteggi, perc = c.totale ? Math.round((c.arrivati / c.totale) * 100) : 0;
+  const righe = () => visibili().map((i) => `<tr class="${i.arrivato_at ? 'arr' : ''}"><td><b>${esc(i.cognome)}</b> ${esc(i.nome)}<br><small>${esc(i.comitato || '')}${i.provincia ? ' (' + esc(i.provincia) + ')' : ''}</small></td>
+    <td>${esc(S.ruoli[i.ruolo] || i.ruolo)}</td><td>${esc(i.squadra || '')}</td>
+    <td>${i.arrivato_at ? `<span class="tag ok">✓ ${oraIt(i.arrivato_at)}</span><br><small>${esc(i.arrivato_da || '')}</small>` : '<span class="tag">da arrivare</span>'}</td>
+    <td style="white-space:nowrap">${i.arrivato_at ? `<button class="s p an" data-id="${i.id}">Annulla</button>` : `<button class="b p ar" data-id="${i.id}">Arrivato</button>`}
+      <button class="s p bg" data-id="${i.id}">Badge</button> <button class="s p md" data-id="${i.id}">Modifica</button> <button class="x p el" data-id="${i.id}">✕</button></td></tr>`).join('')
+    || '<tr><td colspan="5"><em>Nessuna persona trovata.</em></td></tr>';
+  $('#app').innerHTML = selettoreEvento() + `<div class="card"><div class="contatore"><div><b class="grande">${c.arrivati}</b> <span>arrivati su ${c.totale}</span></div><div class="barra"><i style="width:${perc}%"></i></div></div>
+    <div class="chips">${Object.entries(c.per_ruolo).map(([k, v]) => `<span class="tag">${esc(S.ruoli[k] || k)} ${v.arr}/${v.tot}</span>`).join('') || '<small>Nessun iscritto: importa le squadre o aggiungi le persone.</small>'}</div></div>
+    <div class="card"><div class="riga"><div><label>Cerca (cognome, nome, comitato, squadra)</label><input id="sg_q" value="${esc(F.q)}" autocomplete="off" autofocus></div>
+      <div><label>Mostra</label><select id="sg_st"><option value="tutti">tutti</option><option value="da" ${F.stato === false ? 'selected' : ''}>da arrivare</option><option value="arrivati" ${F.stato === 'arrivati' ? 'selected' : ''}>arrivati</option></select></div>
+      <div><label>Ruolo</label><select id="sg_ru"><option value="">tutti</option>${Object.entries(S.ruoli).map(([k, v]) => `<option value="${k}" ${F.ruolo === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div></div>
+    <p><button class="b" id="sg_add">＋ Aggiungi / nuovo arrivato</button> <button class="s" id="sg_imp">Importa dalle squadre</button> <button class="s" id="sg_stp">Stampa badge…</button> <button class="s" id="sg_fmt">Formati badge</button>
+      <label style="font-size:14px;color:inherit;margin-left:8px"><input type="checkbox" id="sg_apri" ${S.apri ? 'checked' : ''}> apri il badge dopo l'arrivo</label></p>
+    <table id="sg_t" class="sg">${righe()}</table></div>`;
+  const ridisegna = () => { $('#sg_t').innerHTML = righe(); lega(); };
+  $('#sg_q').oninput = () => { F.q = $('#sg_q').value; ridisegna(); };
+  $('#sg_st').onchange = () => { F.stato = $('#sg_st').value === 'da' ? false : $('#sg_st').value; ridisegna(); };
+  $('#sg_ru').onchange = () => { F.ruolo = $('#sg_ru').value; ridisegna(); };
+  $('#sg_apri').onchange = () => { S.apri = $('#sg_apri').checked; localStorage.setItem('seg_apri', S.apri ? '1' : '0'); };
+  $('#sg_add').onclick = () => dialogIscritto(S);
+  $('#sg_fmt').onclick = () => dialogFormati(S);
+  $('#sg_imp').onclick = () => { if (confirm('Iscrivere alla gara tutti i componenti delle squadre? Chi è già iscritto non viene toccato.')) fai(async () => { const r = await api(`/eventi/${ev.id}/iscritti/da-squadre`, { body: {} }); flash(`Iscritti ${r.aggiunti} componenti`); }); };
+  $('#sg_stp').onclick = () => {
+    dlg(`<h3>Stampa badge</h3><label>Quali badge</label><select id="st_a"><option value="tutti">Tutti gli iscritti</option><option value="arrivati">Solo chi è arrivato</option>
+      <optgroup label="Una squadra">${S.squadre.map((q) => `<option value="squadra:${q.id}">${esc(q.nome)}</option>`).join('')}</optgroup>
+      <optgroup label="Un ruolo">${Object.entries(S.ruoli).map(([k, v]) => `<option value="ruolo:${k}">${esc(v)}</option>`).join('')}</optgroup></select>
+      <p><button class="b" id="st_ok">Anteprima</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+    $('#st_ok').onclick = () => { const a = $('#st_a').value; anteprimaBadge(S, { ambito: a, titolo: 'Badge: ' + $('#st_a').selectedOptions[0].textContent }); };
+  };
+  function lega() {
+    const per = (id) => S.iscritti.find((i) => i.id === id);
+    document.querySelectorAll('.ar').forEach((b) => { b.onclick = async () => { b.disabled = true; try {
+      const r = await api(`/iscritti/${b.dataset.id}/arrivo`, { method: 'POST', body: {} });
+      Object.assign(per(r.id), r); c.arrivati = S.iscritti.filter((i) => i.arrivato_at).length; await render();
+      if (S.apri) anteprimaBadge(S, { iscritto: r.id, titolo: `Badge di ${r.cognome} ${r.nome}` });
+    } catch (e) { flash(e.message, false); b.disabled = false; } }; });
+    document.querySelectorAll('.an').forEach((b) => { b.onclick = () => fai(() => api(`/iscritti/${b.dataset.id}/annulla-arrivo`, { method: 'POST', body: {} }), 'Arrivo annullato'); });
+    document.querySelectorAll('.bg').forEach((b) => { b.onclick = () => { const i = per(b.dataset.id); anteprimaBadge(S, { iscritto: i.id, titolo: `Badge di ${i.cognome} ${i.nome}` }); }; });
+    document.querySelectorAll('.md').forEach((b) => { b.onclick = () => dialogIscritto(S, per(b.dataset.id)); });
+    document.querySelectorAll('.el').forEach((b) => { b.onclick = () => { const i = per(b.dataset.id); if (confirm(`Togliere ${i.cognome} ${i.nome} dalla gara?`)) fai(() => api(`/iscritti/${i.id}`, { method: 'DELETE' }), 'Tolto dalla gara'); }; });
+  }
+  legaSelettore(); lega();
+}
+
 // ───────── RICHIESTE DI ACCESSO ─────────
 async function tRichieste() {
   const [r, { ruoli }] = await Promise.all([api('/richieste'), api('/ruoli')]);
@@ -593,7 +712,7 @@ async function render() {
   if (!consentito(tab)) tab = 'menu';
   try {
     if (tab === 'menu') tMenu(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
-    else if (tab === 'persone') await tPersone(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi();
+    else if (tab === 'persone') await tPersone(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   $('#app').insertAdjacentHTML('afterbegin', `<div class="dove"><a href="#" id="dv_g">Gestione</a>${PADRE[tab] ? ` › <a href="#" id="dv_p">${esc(TABS.find(([k]) => k === PADRE[tab])[1])}</a>` : ''}${tab !== 'menu' ? ` › <b>${esc(TABS.find(([k]) => k === tab)?.[1] || '')}</b>` : ''}</div><div class="navbar">${PADRE[tab] ? `<button id="nv_p">← Torna a ${esc(TABS.find(([k]) => k === PADRE[tab])[1])}</button>` : ''}${tab !== 'menu' ? '<button id="nv_g">← Torna a Gestione</button>' : ''}<a href="/#">Torna alla Home</a><a class="val" href="/#valutazione">Vai alla Valutazione</a></div>`);
   if ($('#nv_g')) $('#nv_g').onclick = () => vai('menu');

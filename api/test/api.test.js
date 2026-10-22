@@ -768,3 +768,56 @@ test('R-2 ruoli con aree, admin come spunta, anagrafica collegata agli utenti', 
   assert.equal((await pool.query(`select count(*)::int n from squadra_membro where squadra_id=$1 and ruolo='capo squadra'`, [sq.id])).rows[0].n, 1);
   assert.equal((await chiama('DELETE', `/api/persone/${(await pool.query('select id from partecipante where utente_id=$1', [ap.id])).rows[0].id}`, { token: A })).statusCode, 409);   // ha un accesso
 });
+
+test('S-1 segreteria: iscritti, arrivi con ora e operatore, formati e PDF dei badge, area dedicata', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  const base = `/api/eventi/${ev}`;
+  const sq = json(await chiama('POST', `${base}/squadre`, { token: O, body: { nome: 'Squadra Badge', comitato: 'Modena' } }));
+  const pc = json(await chiama('POST', '/api/persone', { token: O, body: { cognome: 'Capi', nome: 'Carlo', comitato: 'Modena' } })), pm = json(await chiama('POST', '/api/persone', { token: O, body: { cognome: 'Mem', nome: 'Mara', comitato: 'Modena' } }));
+  assert.equal((await chiama('PUT', `/api/squadre/${sq.id}/membri`, { token: O, body: { membri: [{ partecipante_id: pc.id, ruolo: 'capo squadra' }, { partecipante_id: pm.id, ruolo: 'soccorritore' }] } })).statusCode, 200);
+  const vuoto = json(await chiama('GET', `${base}/iscritti`, { token: O })); assert.equal(vuoto.conteggi.totale, 0);
+  // dalle squadre: i componenti (capo squadra → leader) diventano iscritti
+  const da = json(await chiama('POST', `${base}/iscritti/da-squadre`, { token: O, body: {} })); assert.equal(da.aggiunti, 2);
+  const dopo = json(await chiama('GET', `${base}/iscritti`, { token: O }));
+  assert.ok(dopo.iscritti.some((x) => x.ruolo === 'partecipante_leader') && dopo.iscritti.some((x) => x.ruolo === 'partecipante_membro'));
+  assert.equal(json(await chiama('POST', `${base}/iscritti/da-squadre`, { token: O, body: {} })).aggiunti, 0);           // ripetere non duplica
+  // nuovo arrivato al banco: serve la squadra per chi gareggia, non per giudici e simulatori
+  assert.equal((await chiama('POST', `${base}/iscritti`, { token: O, body: { cognome: 'Gialli', nome: 'Ugo', comitato: 'Parma', ruolo: 'partecipante_membro' } })).statusCode, 400);
+  const g = json(await chiama('POST', `${base}/iscritti`, { token: O, body: { cognome: 'Gialli', nome: 'Ugo', comitato: 'Parma', provincia: 'pr', ruolo: 'simulatore', arrivato: true } }));
+  assert.equal(g.ruolo, 'simulatore'); assert.ok(g.arrivato_at); assert.equal(g.arrivato_da, 'org@t');
+  assert.equal((await chiama('POST', `${base}/iscritti`, { token: O, body: { partecipante_id: g.persona_id, ruolo: 'truccatore' } })).statusCode, 409);   // già iscritto
+  assert.equal((await chiama('POST', `${base}/iscritti`, { token: O, body: { cognome: 'Blu', nome: 'Eva', ruolo: 'astronauta' } })).statusCode, 400);
+  // ricerca anagrafica per l'iscrizione: nessun codice fiscale nei risultati
+  const rc = json(await chiama('GET', '/api/segreteria/persone?q=gialli', { token: O })); assert.equal(rc.length, 1); assert.equal(rc[0].cf_cifrato, undefined);
+  // arrivo: l'ora non cambia se si ripete; annullabile
+  const m = dopo.iscritti.find((x) => x.ruolo === 'partecipante_membro');
+  const a1 = json(await chiama('POST', `/api/iscritti/${m.id}/arrivo`, { token: O })); assert.ok(a1.arrivato_at);
+  const a2 = json(await chiama('POST', `/api/iscritti/${m.id}/arrivo`, { token: A })); assert.equal(a2.arrivato_at, a1.arrivato_at); assert.equal(a2.arrivato_da, 'org@t');
+  assert.equal(json(await chiama('GET', `${base}/iscritti`, { token: O })).conteggi.arrivati, 2);
+  assert.equal(json(await chiama('POST', `/api/iscritti/${m.id}/annulla-arrivo`, { token: O })).arrivato_at, null);
+  // formati: due pronti, uno nuovo, validazione, i pronti non si eliminano
+  const fm = json(await chiama('GET', '/api/badge/formati', { token: O })); assert.deepEqual(fm.filter((f) => f.sistema).map((f) => [f.larghezza_mm, f.altezza_mm]).sort(), [[100, 75], [60, 90]]);
+  assert.equal((await chiama('POST', '/api/badge/formati', { token: O, body: { larghezza_mm: 5, altezza_mm: 90 } })).statusCode, 400);
+  const nf = json(await chiama('POST', '/api/badge/formati', { token: O, body: { nome: 'A6', larghezza_mm: 105, altezza_mm: 148 } }));
+  assert.equal((await chiama('DELETE', `/api/badge/formati/${fm.find((f) => f.sistema).id}`, { token: O })).statusCode, 400);
+  // PDF: una pagina per badge, nel formato scelto
+  const pagine = (r) => (r.rawPayload.toString('latin1').match(/\/Type \/Page\b(?!s)/g) || []).length;
+  const tutti = await chiama('GET', `${base}/badge.pdf?ambito=tutti`, { token: O }); assert.equal(tutti.statusCode, 200); assert.match(tutti.headers['content-type'], /pdf/);
+  assert.equal(pagine(tutti), dopo.conteggi.totale + 1);
+  const arr = await chiama('GET', `${base}/badge.pdf?ambito=arrivati&formato=${nf.id}`, { token: O }); assert.equal(pagine(arr), 1);
+  assert.match(arr.rawPayload.toString('latin1'), /\/MediaBox \[0 0 297\.6\d* 419\.5\d*\]/);                                    // A6 = 105 × 148 mm
+  assert.equal(pagine(await chiama('GET', `${base}/badge.pdf?iscritto=${g.id}`, { token: O })), 1);
+  assert.equal((await chiama('GET', `${base}/badge.pdf?ambito=squadra:${sq.id}`, { token: O })).statusCode, 200);
+  assert.equal((await chiama('GET', `${base}/badge.pdf?ambito=ruolo:truccatore`, { token: O })).statusCode, 404);       // nessun badge da stampare
+  assert.equal((await chiama('GET', `${base}/badge.pdf?ambito=boh`, { token: O })).statusCode, 400);
+  assert.equal((await chiama('GET', `${base}/badge.pdf?ambito=tutti`, { token: tok['giu@t'] })).statusCode, 403);
+  assert.equal((await chiama('PUT', `${base}/formato-badge`, { token: O, body: { formato_badge_id: nf.id } })).statusCode, 200);
+  assert.equal(json(await chiama('GET', `${base}/iscritti`, { token: O })).formato_badge_id, nf.id);
+  // il ruolo "Segreteria" apre solo quest'area
+  await pool.query(`insert into utente (email, nome, ruolo, password_hash) values ('seg@t','Seg','segreteria',$1)`, [hashPassword('pw')]);
+  const S = json(await chiama('POST', '/api/login', { body: { email: 'seg@t', password: 'pw' } })).token;
+  assert.equal((await chiama('GET', `${base}/iscritti`, { token: S })).statusCode, 200);
+  assert.equal((await chiama('POST', `/api/iscritti/${m.id}/arrivo`, { token: S })).statusCode, 200);
+  for (const [mt, u] of [['GET', '/api/persone'], ['GET', `${base}/classifica?tipo=generale`], ['POST', `${base}/squadre`], ['GET', '/api/utenti']]) assert.equal((await chiama(mt, u, { token: S, body: {} })).statusCode, 403, u);
+  assert.equal((await chiama('DELETE', `/api/persone/${g.persona_id}`, { token: A })).statusCode, 409);                  // ha un'iscrizione
+});

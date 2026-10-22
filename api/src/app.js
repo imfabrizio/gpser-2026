@@ -10,6 +10,7 @@ import { aggiungiSchedaDaPatologia, creaScena, duplicaScena } from './services/s
 import { importaExcel } from './services/import-excel.js';
 import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
+import { registraSegreteria } from './routes-segreteria.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
@@ -20,7 +21,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
 
   // ── sicurezza: intestazioni ──
   app.addHook('onSend', async (req, reply) => {
-    reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+    reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; object-src 'none'; frame-src blob:; base-uri 'none'; frame-ancestors 'self'");
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'no-referrer');
   });
@@ -314,6 +315,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   registraGestione(app, pool, { soloOrg, soloAdmin });
   registraAuth(app, pool, { fetchImpl, soloAdmin });
   registraRichieste(app, pool, { soloAdmin, fetchImpl });
+  registraSegreteria(app, pool, { soloOrg });
 
   app.setErrorHandler((err, req, reply) => {
     let status = err.statusCode || 500, msg = err.message;
