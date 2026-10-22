@@ -295,6 +295,10 @@ async function vistaSelezione() {
   aggSchede();
   if ([...$('#sk').options].some(o => o.value === ultima.scheda)) $('#sk').value = ultima.scheda;
   if ([...$('#sq').options].some(o => o.value === ultima.squadra)) $('#sq').value = ultima.squadra;
+  if (!org() && !master() && scAvail.length === 1 && scAvail[0].schede.length === 1) {   // una sola postazione assegnata: niente scelte inutili
+    const sc = scAvail[0]; $('#sc').closest('.card').insertAdjacentHTML('afterbegin', `<div class="avviso"><strong>La tua postazione</strong><br>Scena ${esc(sc.codice)} – ${esc(sc.titolo)}<br>${esc(sc.schede[0].titolo)}</div>`);
+    for (const id of ['sc', 'sk']) { const e = $('#' + id); e.hidden = true; if (e.previousElementSibling && e.previousElementSibling.tagName === 'LABEL') e.previousElementSibling.hidden = true; }
+  }
   $('#sc').onchange = () => { aggSchede(); salvaSel(); }; $('#sk').onchange = salvaSel; $('#sq').onchange = salvaSel;
   $('#avvia').onclick = () => { salvaSel(); location.hash = `#valuta/${$('#sk').value}/${$('#sq').value}/${ev.id}`; };
 }

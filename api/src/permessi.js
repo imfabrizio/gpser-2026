@@ -21,6 +21,7 @@ const REGOLE = [
   R('GET', '/api/libreria/(scale|voci|patologie(/:id)?)', ['schede', 'scene']), R('POST', '/api/libreria/(scale|patologie)', ['schede']),
   R('PUT|DELETE', '/api/libreria/patologie/:id', ['schede']),
   R('GET', '/api/eventi/:id/(classifica|monitor)', ['classifiche']), R('GET', '/api/eventi/:id/stampa.pdf', ['stampa']),
+  R('GET', '/api/eventi/:id/risorse', ['scene']), R('PUT', '/api/scene/:id/risorse', ['scene']),
   R('GET|POST|PATCH|DELETE', '/api/eventi/:id/iscritti(/da-squadre)?', ['segreteria']), R('PATCH|DELETE', '/api/iscritti/:id', ['segreteria']), R('POST', '/api/iscritti/:id/(arrivo|annulla-arrivo)', ['segreteria']),
   R('GET', '/api/eventi/:id/badge.pdf', ['segreteria']), R('PUT', '/api/eventi/:id/formato-badge', ['segreteria']), R('GET', '/api/segreteria/persone', ['segreteria']),
   R('GET|POST|DELETE', '/api/badge/formati(/:id)?', ['segreteria']),

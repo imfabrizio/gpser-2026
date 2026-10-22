@@ -327,6 +327,14 @@ create table scena_master (
   primary key (scena_id, utente_id)
 );
 
+-- ───────── risorse della gara: simulatori e truccatori per scena ─────────
+create table if not exists scena_risorsa (
+  scena_id     uuid not null references scena(id) on delete cascade,
+  iscrizione_id uuid not null references iscrizione(id) on delete cascade,
+  primary key (scena_id, iscrizione_id)
+);
+create index if not exists scena_risorsa_iscr_idx on scena_risorsa (iscrizione_id);
+
 -- ───────── versione dello schema ─────────
 create table schema_migrazioni (nome text primary key, applicata_at timestamptz not null default now());
 -- ───────── richieste di accesso (registrazione con approvazione) ─────────
@@ -350,4 +358,4 @@ create table richiesta_accesso (
   unique (provider, sub)
 );
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql');   -- lo schema qui sopra le include già tutte
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql');   -- lo schema qui sopra le include già tutte

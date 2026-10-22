@@ -822,3 +822,24 @@ test('S-1 segreteria: iscritti, arrivi con ora e operatore, formati e PDF dei ba
   for (const [mt, u] of [['GET', '/api/persone'], ['GET', `${base}/classifica?tipo=generale`], ['POST', `${base}/squadre`], ['GET', '/api/utenti']]) assert.equal((await chiama(mt, u, { token: S, body: {} })).statusCode, 403, u);
   assert.equal((await chiama('DELETE', `/api/persone/${g.persona_id}`, { token: A })).statusCode, 409);                  // ha un'iscrizione
 });
+
+test('RG-1 risorse gara: conteggi, assegnazione di simulatori e truccatori alle scene, controlli', async () => {
+  const O = tok['org@t'], base = `/api/eventi/${ev}`;
+  const sim = json(await chiama('POST', `${base}/iscritti`, { token: O, body: { cognome: 'Sim', nome: 'Sara', comitato: 'Parma', ruolo: 'simulatore' } }));
+  const tru = json(await chiama('POST', `${base}/iscritti`, { token: O, body: { cognome: 'Tru', nome: 'Tina', comitato: 'Parma', ruolo: 'truccatore' } }));
+  const gi = json(await chiama('POST', `${base}/iscritti`, { token: O, body: { cognome: 'Gi', nome: 'Gino', comitato: 'Parma', ruolo: 'giudice' } }));
+  const r0 = json(await chiama('GET', `${base}/risorse`, { token: O }));
+  assert.ok(r0.conteggi.simulatore.totale >= 1 && r0.conteggi.truccatore.totale >= 1 && r0.conteggi.giudice.totale >= 1);
+  assert.equal(r0.conteggi.simulatore.assegnati, 0);
+  const sc = r0.scene[0];
+  assert.equal((await chiama('PUT', `/api/scene/${sc.id}/risorse`, { token: O, body: { iscrizioni: [sim.id, tru.id] } })).statusCode, 200);
+  const r1 = json(await chiama('GET', `${base}/risorse`, { token: O }));
+  assert.equal(r1.conteggi.simulatore.assegnati, 1); assert.equal(r1.scene[0].risorse.length, 2);
+  assert.deepEqual(r1.persone.find((p) => p.id === sim.id).scene, [sc.id]);
+  // un giudice non è una risorsa assegnabile da qui; id non validi respinti
+  assert.equal((await chiama('PUT', `/api/scene/${sc.id}/risorse`, { token: O, body: { iscrizioni: [gi.id] } })).statusCode, 400);
+  assert.equal((await chiama('PUT', `/api/scene/${sc.id}/risorse`, { token: O, body: { iscrizioni: ['x'] } })).statusCode, 400);
+  assert.equal((await chiama('GET', `${base}/risorse`, { token: tok['giu@t'] })).statusCode, 403);
+  assert.equal((await chiama('PUT', `/api/scene/${sc.id}/risorse`, { token: O, body: { iscrizioni: [] } })).statusCode, 200);
+  assert.equal(json(await chiama('GET', `${base}/risorse`, { token: O })).conteggi.simulatore.assegnati, 0);
+});

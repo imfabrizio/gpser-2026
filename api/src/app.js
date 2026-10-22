@@ -11,6 +11,7 @@ import { importaExcel } from './services/import-excel.js';
 import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
 import { registraSegreteria } from './routes-segreteria.js';
+import { registraRisorse } from './routes-risorse.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
@@ -316,6 +317,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   registraAuth(app, pool, { fetchImpl, soloAdmin });
   registraRichieste(app, pool, { soloAdmin, fetchImpl });
   registraSegreteria(app, pool, { soloOrg });
+  registraRisorse(app, pool, { inTransazione, soloOrg });
 
   app.setErrorHandler((err, req, reply) => {
     let status = err.statusCode || 500, msg = err.message;
