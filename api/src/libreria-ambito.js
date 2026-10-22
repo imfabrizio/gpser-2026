@@ -2,7 +2,7 @@
 import { httpErr } from './services/compilazioni.js';
 
 export const haSchede = (u) => !!u.admin || (u.aree || []).includes('schede');
-export const haSchedeComitato = (u) => (u.aree || []).includes('schede_comitato');
+export const haSchedeComitato = (u) => (u.aree || []).includes('formazione_esame');
 
 export async function comitatoDi(pool, utente) {
   const { rows } = await pool.query('select comitato from partecipante where utente_id=$1 and comitato is not null limit 1', [utente.id]).catch(() => ({ rows: [] }));

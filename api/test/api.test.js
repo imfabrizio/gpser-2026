@@ -904,3 +904,31 @@ test('CM-1 schede dei comitati: private al comitato, la direzione le vede solo s
   assert.equal((await chiama('GET', '/api/persone', { token: T1 })).statusCode, 403);                                               // niente altre aree
   assert.equal((await chiama('DELETE', `/api/libreria/patologie/${creata.id}`, { token: T1 })).statusCode, 200);
 });
+
+test('VAL-1 area Valutazione: la segreteria non valuta; giudici e direzione sì. DOC-1 documentazione visibile a tutti i registrati', async () => {
+  const A = tok['adm@t'], O = tok['org@t'], G = tok['giu@t'];
+  const mk = async (email, ruolo) => {
+    json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome: 'U', cognome: email, ruolo, password: 'password-lunga' } }));
+    return json(await chiama('POST', '/api/login', { body: { email, password: 'password-lunga' } })).token;
+  };
+  const S = await mk('seg-v@t', 'segreteria'), P = await mk('par-v@t', 'partecipante');
+  const corpo = { id: randomUUID(), scheda_id: scheda, squadra_id: squadra, risposte: [] };
+  assert.equal((await chiama('POST', '/api/sync', { token: S, body: corpo })).statusCode, 403);     // segreteria senza area Valutazione
+  assert.equal((await chiama('GET', `/api/compilazioni?scheda=${scheda}&squadra=${squadra}`, { token: S })).statusCode, 403);
+  assert.notEqual((await chiama('POST', '/api/sync', { token: O, body: corpo })).statusCode, 403);   // direzione sì
+  assert.notEqual((await chiama('POST', '/api/sync', { token: G, body: corpo })).statusCode, 403);   // giudice sì
+  // se la segreteria riceve l'area Valutazione può valutare (assegnabile ai ruoli)
+  await chiama('PUT', '/api/ruoli/segreteria', { token: A, body: { aree: ['segreteria', 'valutazione'] } });
+  assert.notEqual((await chiama('POST', '/api/sync', { token: S, body: corpo })).statusCode, 403);
+  await chiama('PUT', '/api/ruoli/segreteria', { token: A, body: { aree: ['segreteria'] } });
+  // documentazione
+  const d = await chiama('POST', '/api/documenti', { token: O, body: { categoria: 'regolamento', titolo: 'Regolamento 2026', url: 'https://example.org/reg.pdf' } });
+  assert.equal(d.statusCode, 200); const doc = json(d);
+  for (const t of [G, P, S, O]) assert.ok(json(await chiama('GET', '/api/documenti', { token: t })).documenti.some((x) => x.id === doc.id));
+  assert.equal((await chiama('GET', '/api/documenti', {})).statusCode, 401);                       // serve il login
+  for (const t of [G, P, S]) assert.equal((await chiama('POST', '/api/documenti', { token: t, body: { categoria: 'altro', titolo: 'x', url: 'https://a.b/c' } })).statusCode, 403);
+  assert.equal((await chiama('POST', '/api/documenti', { token: O, body: { categoria: 'altro', titolo: 'x', url: 'http://non-sicuro.it' } })).statusCode, 400);
+  assert.equal((await chiama('POST', '/api/documenti', { token: O, body: { categoria: 'boh', titolo: 'x', url: 'https://a.b/c' } })).statusCode, 400);
+  assert.equal(json(await chiama('PATCH', `/api/documenti/${doc.id}`, { token: O, body: { titolo: 'Regolamento 2027' } })).titolo, 'Regolamento 2027');
+  assert.equal((await chiama('DELETE', `/api/documenti/${doc.id}`, { token: O })).statusCode, 200);
+});

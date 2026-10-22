@@ -1,13 +1,14 @@
 // Ruoli e aree della Gestione. Un utente ha un ruolo (con le sue aree) e, se serve, la spunta "admin" che dà accesso a tutto.
 export const AREE = {
   gara: 'Gara', scene: 'Scene', schede: 'Schede', squadre: 'Squadre', notizie: 'Notizie', anagrafiche: 'Anagrafiche',
-  classifiche: 'Classifiche', stampa: 'Stampa', importa: 'Importa', segreteria: 'Segreteria', schede_comitato: 'Schede del proprio comitato',
+  classifiche: 'Classifiche', stampa: 'Stampa', importa: 'Importa', segreteria: 'Segreteria', valutazione: 'Valutazione', documentazione: 'Documentazione', formazione_esame: 'Formazione d\'esame',
 };   // Utenti, Ruoli e Richieste restano riservati agli admin
 
 // ruolo "efficace" usato dai controlli: admin > staff (ruolo con almeno un'area) > giudice / giudice master > partecipante (nessun potere)
-export const eStaff = (u) => !!u.admin || (u.aree || []).length > 0;
-export const ruoloEffettivo = (u) => u.admin ? 'admin' : (u.aree || []).length ? 'organizzazione'
-  : (['giudice', 'giudice_master'].includes(u.ruolo) ? u.ruolo : 'partecipante');
+const gestione = (u) => (u.aree || []).filter((a) => a !== 'valutazione');   // «valutazione» da sola non dà accesso alla Gestione
+export const eStaff = (u) => !!u.admin || gestione(u).length > 0;
+export const ruoloEffettivo = (u) => u.admin ? 'admin' : gestione(u).length ? 'organizzazione'
+  : (u.aree || []).includes('valutazione') ? (u.ruolo === 'giudice_master' ? 'giudice_master' : 'giudice') : 'partecipante';
 
 // quali aree aprono quali rotte (metodo, pattern della rotta Fastify) — basta averne una
 const R = (m, rotta, aree) => [new RegExp(`^(${m})$`), new RegExp(`^${rotta}$`), aree];
@@ -18,9 +19,11 @@ const REGOLE = [
   R('POST', '/api/eventi/:id/scene', ['scene']), R('POST', '/api/scene/:id/(duplica|schede)', ['scene']), R('PATCH|DELETE', '/api/scene/:id', ['scene']),
   R('PUT', '/api/schede/:id/voci/:ordine', ['scene']), R('PATCH|DELETE', '/api/schede/:id', ['scene']), R('PUT', '/api/schede/:id/assegnazioni', ['scene']),
   R('GET', '/api/eventi/:id/(assegnazioni|master)', ['scene']), R('PUT', '/api/scene/:id/master', ['scene']), R('GET', '/api/giudici', ['scene']),
-  R('GET', '/api/libreria/(scale|voci|patologie(/:id)?)', ['schede', 'scene', 'schede_comitato']), R('POST', '/api/libreria/scale', ['schede']), R('POST', '/api/libreria/patologie', ['schede', 'schede_comitato']),
-  R('PUT|DELETE', '/api/libreria/patologie/:id', ['schede', 'schede_comitato']),
+  R('GET', '/api/libreria/(scale|voci|patologie(/:id)?)', ['schede', 'scene', 'formazione_esame']), R('POST', '/api/libreria/scale', ['schede']), R('POST', '/api/libreria/patologie', ['schede', 'formazione_esame']),
+  R('PUT|DELETE', '/api/libreria/patologie/:id', ['schede', 'formazione_esame']),
   R('GET', '/api/eventi/:id/(classifica|classifica.pdf|monitor)', ['classifiche']), R('GET', '/api/eventi/:id/stampa.pdf', ['stampa']),
+  R('POST', '/api/sync', ['valutazione']), R('GET', '/api/compilazioni', ['valutazione']), R('GET', '/api/schede/:id/esito.pdf', ['valutazione']), R('GET', '/api/schede/:id', ['valutazione', 'scene']),
+  R('POST|PATCH|DELETE', '/api/documenti(/:id)?', ['documentazione']),
   R('GET', '/api/eventi/:id/risorse', ['scene']), R('PUT', '/api/scene/:id/risorse', ['scene']),
   R('GET|POST|PATCH|DELETE', '/api/eventi/:id/iscritti(/da-squadre)?', ['segreteria']), R('PATCH|DELETE', '/api/iscritti/:id', ['segreteria']), R('POST', '/api/iscritti/:id/(arrivo|annulla-arrivo)', ['segreteria']),
   R('GET', '/api/eventi/:id/badge.pdf', ['segreteria']), R('PUT', '/api/eventi/:id/formato-badge', ['segreteria']), R('GET', '/api/segreteria/persone', ['segreteria']),

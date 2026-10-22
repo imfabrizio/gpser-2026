@@ -242,7 +242,7 @@ async function garaCorrente() {
   window.__ev = ev;
   return { ev, eventi };
 }
-const ICONE = {"valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>"};
+const ICONE = {"documenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5\"/><path d=\"M9 8h7M9 12h7\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>"};
 const oggi = () => new Date().toISOString().slice(0, 10);
 const statoGara = (e) => (e.attivo ? 'in corso' : (e.data && e.data > oggi() ? 'prossima' : 'passata'));
 function menuGare(eventi, corrente) {
@@ -260,7 +260,8 @@ async function vistaHome() {
     <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
     ${org() ? `<label>Cambia gara</label>${menuGare(eventi, ev)}` : ''}
     <div class="tiles">
-      <a class="tile" href="#valutazione"><i class="ico">${ICONE.valutazione}</i><b>Valutazione</b><span>${esc(ev.nome)}</span></a>
+      ${(me.aree || []).includes('valutazione') ? `<a class="tile" href="#valutazione"><i class="ico">${ICONE.valutazione}</i><b>Valutazione</b><span>${esc(ev.nome)}</span></a>` : ''}
+      <a class="tile" href="#documenti"><i class="ico">${ICONE.documenti}</i><b>Documentazione</b><span>Regolamento, comunicazioni, manuali</span></a>
       ${org() ? `<a class="tile" href="/admin.html#menu"><i class="ico">${ICONE.gestione}</i><b>Gestione</b><span>Scene, schede, squadre, classifiche</span></a>
       ${(me.aree || []).includes('classifiche') ? `<a class="tile" href="#monitor"><i class="ico">${ICONE.monitor}</i><b>Monitor</b><span>Avanzamento delle schede</span></a>` : ''}` : ''}</div></div>
     ${mappaHtml(ev, scene)}
@@ -409,6 +410,13 @@ async function vistaValuta(schedaId, squadraId) {
   invia().catch(() => {});                                             // eventuali dati rimasti da una sessione precedente
 }
 
+async function vistaDocumenti() {
+  $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'Documentazione';
+  const d = await api('/documenti');
+  const blocchi = Object.entries(d.categorie).map(([k, n]) => [n, d.documenti.filter((x) => x.categoria === k)]).filter(([, l]) => l.length);
+  $('#app').innerHTML = blocchi.length ? blocchi.map(([n, l]) => `<div class="card"><h3>${esc(n)}</h3>${l.map((x) => `<div class="avv"><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(x.titolo)}</b></a>${x.descrizione ? `<br><small>${esc(x.descrizione)}</small>` : ''}</div>`).join('')}</div>`).join('')
+    : '<div class="card">Non ci sono ancora documenti. Li pubblica l\'organizzazione.</div>';
+}
 async function vistaMonitor() {
   const ev = window.__ev || (await api('/eventi')).find(e => e.attivo);
   $('#titolo').textContent = 'Monitor';
@@ -441,6 +449,7 @@ async function route() {
     if (v === 'valutazione') return await vistaSelezione();
     if (v === 'classifica') { location.href = '/admin.html#classifiche'; return; }
     if (v === 'monitor') return await vistaMonitor();
+    if (v === 'documenti') return await vistaDocumenti();
     return await vistaHome();
   } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }

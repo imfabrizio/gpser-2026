@@ -76,3 +76,6 @@ In **Gestione → Gara** il tipo può essere gara, olimpiadi, allenamento, corso
 
 ## Schede private dei comitati
 I ruoli **Istruttore**, **Manovre salvavita** e **Monitore** (area «Schede del proprio comitato») creano e modificano solo schede private del proprio comitato, che si ricava dall'anagrafica (la persona collegata all'utente deve avere il comitato). Le schede generali le possono solo leggere e copiare. La direzione (area Schede) le vede solo con la spunta «Vedi anche schede dei comitati» e non le modifica; chi crea i ruoli e li assegna è l'admin (Ruoli e permessi). La migrazione 012 parte da sola al riavvio.
+
+## Menu raggruppato, area Valutazione, Documentazione
+Gestione ha cinque contenitori (Gara, Segreteria, Schede, Risultati, Amministrazione) con le sottosezioni come linguette; chi ha un solo permesso (es. Notizie) vede direttamente quella sezione. La Valutazione non compare più in Gestione: è un'area assegnabile ai ruoli (di default giudice, giudice master, direzione). L'area dei comitati si chiama «Formazione d'esame». In **Documentazione** (area omonima) si inseriscono collegamenti https a regolamento, comunicazioni, manuali e formazione: li vedono tutti gli utenti registrati dalla Home. La migrazione 013 parte da sola al riavvio.

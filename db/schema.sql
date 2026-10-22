@@ -22,14 +22,14 @@ create table ruolo (
   created_at timestamptz not null default now()
 );
 insert into ruolo (codice, nome, sistema, aree) values
-  ('giudice', 'Giudice', true, '{}'),
-  ('giudice_master', 'Giudice master', true, '{}'),
+  ('giudice', 'Giudice', true, '{valutazione}'),
+  ('giudice_master', 'Giudice master', true, '{valutazione}'),
   ('partecipante', 'Partecipante e altri ruoli', true, '{}'),
-  ('organizzazione', 'Organizzazione', true, '{gara,scene,schede,squadre,notizie,anagrafiche,classifiche,stampa,importa,segreteria}'),
+  ('organizzazione', 'Organizzazione', true, '{gara,scene,schede,squadre,notizie,anagrafiche,classifiche,stampa,importa,segreteria,valutazione,documentazione}'),
   ('segreteria', 'Segreteria', false, '{segreteria}'),
-  ('istruttore', 'Istruttore', false, '{schede_comitato}'),
-  ('manovre_salvavita', 'Manovre salvavita', false, '{schede_comitato}'),
-  ('monitore', 'Monitore', false, '{schede_comitato}');
+  ('istruttore', 'Istruttore', false, '{formazione_esame}'),
+  ('manovre_salvavita', 'Manovre salvavita', false, '{formazione_esame}'),
+  ('monitore', 'Monitore', false, '{formazione_esame}');
 
 create table utente (
   id            uuid primary key default gen_random_uuid(),
@@ -343,6 +343,18 @@ create table if not exists scena_risorsa (
 );
 create index if not exists scena_risorsa_iscr_idx on scena_risorsa (iscrizione_id);
 
+-- ───────── documentazione per gli utenti registrati (link) ─────────
+create table documento (
+  id          uuid primary key default gen_random_uuid(),
+  categoria   text not null check (categoria in ('regolamento', 'comunicazioni', 'manuali', 'formazione', 'altro')),
+  titolo      text not null check (length(titolo) between 1 and 150),
+  descrizione text,
+  url         text not null check (url ~ '^https://'),
+  ordine      int  not null default 0,
+  creato_da   uuid references utente(id) on delete set null,
+  created_at  timestamptz not null default now()
+);
+
 -- ───────── versione dello schema ─────────
 create table schema_migrazioni (nome text primary key, applicata_at timestamptz not null default now());
 -- ───────── richieste di accesso (registrazione con approvazione) ─────────
@@ -366,4 +378,4 @@ create table richiesta_accesso (
   unique (provider, sub)
 );
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql');   -- lo schema qui sopra le include già tutte
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql');   -- lo schema qui sopra le include già tutte

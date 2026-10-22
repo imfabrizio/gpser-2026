@@ -12,6 +12,7 @@ import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
 import { registraSegreteria } from './routes-segreteria.js';
 import { registraRisorse } from './routes-risorse.js';
+import { registraDocumenti } from './routes-documenti.js';
 import { generaClassificaPdf } from './pdf/classifica.js';
 import { generaEsitoPdf } from './pdf/esito.js';
 import { haSchede, comitatoDi, controllaScheda } from './libreria-ambito.js';
@@ -60,7 +61,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       const serve = areeRichieste(req.method, rotta);
       if (serve && !serve.some((a) => u.aree.includes(a))) throw httpErr(403, 'area non consentita al tuo ruolo');
     }
-    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi'].includes(rotta))))
+    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta))))
       throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
     if (!RUOLI_ORG.includes(req.utente.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
       const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);
@@ -377,6 +378,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   registraRichieste(app, pool, { soloAdmin, fetchImpl });
   registraSegreteria(app, pool, { soloOrg });
   registraRisorse(app, pool, { inTransazione, soloOrg });
+  registraDocumenti(app, pool, { soloOrg });
 
   app.setErrorHandler((err, req, reply) => {
     let status = err.statusCode || 500, msg = err.message;
