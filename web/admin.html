@@ -680,6 +680,24 @@ async function dialogRisorseScena(R, sc, ruolo, etichetta) {
     chiudi(); fai(() => api(`/scene/${sc.id}/risorse`, { method: 'PUT', body: { iscrizioni: [...altri, ...scelti] } }), 'Risorse salvate');
   };
 }
+// giudici di una scheda scelti tra gli iscritti alla gara (Segreteria): chi è arrivato è in evidenza
+async function dialogGiudiciRisorse(R, schedaId, ass) {
+  const utenti = (await api('/giudici')).filter((u) => u.ruolo === 'giudice');
+  const sel = new Set(ass.filter((a) => a.scheda_id === schedaId).map((a) => a.utente_id));
+  const iscr = new Map(R.persone.filter((p) => p.utente_id).map((p) => [p.utente_id, p]));
+  const dove = (uid) => R.scene.flatMap((sc) => sc.schede.filter((k) => k.id !== schedaId && k.giudici.some((g) => g.utente_id === uid)).map((k) => `${sc.codice} · ${k.titolo}`));
+  const riga = (u) => { const p = iscr.get(u.id), altre = dove(u.id);
+    return `<label style="font-size:15px;color:inherit"><input type="checkbox" value="${u.id}" ${sel.has(u.id) ? 'checked' : ''}> ${esc(u.nome)} <small>${p ? (p.arrivato_at ? 'arrivato' : 'iscritto, non ancora arrivato') : esc(u.email)}${altre.length ? ' · già su ' + esc(altre.join('; ')) : ''}</small></label>`; };
+  const iscritti = utenti.filter((u) => iscr.has(u.id)), altri = utenti.filter((u) => !iscr.has(u.id));
+  const senza = R.persone.filter((p) => ['giudice', 'giudice_master'].includes(p.ruolo) && !p.utente_id);
+  dlg(`<h3>Giudici della scheda</h3>
+    <p><b>Iscritti alla gara</b></p>${iscritti.length ? iscritti.map(riga).join('') : '<p class="nota">Nessun giudice iscritto con un account. Iscrivi i giudici dalla Segreteria e collegali a un utente.</p>'}
+    ${senza.length ? `<p class="nota">Iscritti come giudici ma senza account (non possono accedere): ${senza.map((p) => esc(p.cognome + ' ' + p.nome)).join(', ')}.</p>` : ''}
+    ${altri.length ? `<details style="margin-top:8px"><summary>Altri giudici non iscritti a questa gara (${altri.length})</summary>${altri.map(riga).join('')}</details>` : ''}
+    <p><button class="b" id="gs_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+  $('#gs_ok').onclick = () => { const ids = [...document.querySelectorAll('#dlg input:checked')].map((i) => i.value); chiudi();
+    fai(() => api(`/schede/${schedaId}/assegnazioni`, { method: 'PUT', body: { utenti: ids } }), 'Giudici assegnati'); };
+}
 async function tRisorse() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima una gara.</div>'; legaSelettore(); return; }
   const R = await api(`/eventi/${ev.id}/risorse`);
@@ -690,7 +708,7 @@ async function tRisorse() {
     const sim = nomi(sc.risorse).filter((p) => p.ruolo === 'simulatore'), tru = nomi(sc.risorse).filter((p) => p.ruolo === 'truccatore');
     const lista = (l) => l.length ? l.map((p) => `${esc(p.cognome)} ${esc(p.nome)}`).join(', ') : '<em>nessuno</em>';
     return `<div class="card"><h3 style="margin:0">Scena ${esc(sc.codice)} · ${esc(sc.titolo)}</h3>
-      <p><b>Giudice master:</b> ${sc.master.length ? sc.master.map((m) => esc(m.nome)).join(', ') : '<em>da assegnare</em>'}</p>
+      <p><b>Giudice master:</b> ${sc.master.length ? sc.master.map((m) => esc(m.nome)).join(', ') : '<em>da assegnare</em>'} <button class="s p rmas" data-id="${sc.id}">Modifica</button></p>
       <table>${sc.schede.map((k) => `<tr><td>${esc(k.titolo)}</td><td>${k.giudici.length ? k.giudici.map((g) => esc(g.nome)).join(', ') : '<em>nessun giudice</em>'}</td><td><button class="s p rg" data-id="${k.id}">Giudici</button></td></tr>`).join('') || '<tr><td><em>Nessuna scheda</em></td></tr>'}</table>
       <p><b>Simulatori:</b> ${lista(sim)} <button class="s p rs" data-id="${sc.id}" data-r="simulatore">Modifica</button></p>
       <p><b>Truccatori:</b> ${lista(tru)} <button class="s p rs" data-id="${sc.id}" data-r="truccatore">Modifica</button></p></div>`;
@@ -701,7 +719,9 @@ async function tRisorse() {
     ${liberi.length ? `<p><b>Da assegnare a una scena:</b> ${liberi.map((p) => `${esc(p.cognome)} ${esc(p.nome)} <small>(${p.ruolo})</small>`).join(', ')}</p>` : ''}</div>${scene || '<div class="card">Nessuna scena in questa gara.</div>'}`;
   legaSelettore();
   const ass = R.scene.flatMap((sc) => sc.schede.flatMap((k) => k.giudici.map((g) => ({ scheda_id: k.id, utente_id: g.utente_id }))));
-  document.querySelectorAll('.rg').forEach((b) => { b.onclick = () => apriAssegnazioni(b.dataset.id, ass); });
+  document.querySelectorAll('.rg').forEach((b) => { b.onclick = () => dialogGiudiciRisorse(R, b.dataset.id, ass); });
+  const mas = R.scene.flatMap((sc) => sc.master.map((m) => ({ scena_id: sc.id, utente_id: m.utente_id })));
+  document.querySelectorAll('.rmas').forEach((b) => { b.onclick = () => apriMaster(b.dataset.id, mas); });
   document.querySelectorAll('.rs').forEach((b) => { b.onclick = () => dialogRisorseScena(R, R.scene.find((q) => q.id === b.dataset.id), b.dataset.r, b.dataset.r === 'simulatore' ? 'Simulatori' : 'Truccatori'); });
 }
 
