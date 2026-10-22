@@ -197,6 +197,7 @@ async function tClassifiche() {
   const max = q === 'generale' ? r.massimi?.max_totale : q === 'sep' ? r.massimi?.max_sep : null;
   const valore = (c) => Number(q === 'generale' ? c.totale : c[campo]);
   $('#app').innerHTML = selettoreEvento() + `<div class="card"><div class="riga" style="gap:6px">${CLASSIFICHE.map(([k, n]) => `<button class="${k === q ? 'b' : 's'} cl" data-k="${k}" style="flex:0 0 auto">${n}</button>`).join('')}</div>
+    <p style="margin:10px 0 0"><a class="b" style="display:inline-block;text-decoration:none;padding:9px 14px;border-radius:8px" target="_blank" href="/classifica.html?ev=${ev.id}&tipo=${q}">Proietta a schermo intero</a> <button class="s" id="cl_pdf">PDF</button></p>
     <h3 style="margin-top:12px">Classifica ${esc(nome)}</h3>
     <table><tr><th>#</th><th>Squadra</th><th style="text-align:right">Punti</th>${max ? '<th style="text-align:right">%</th>' : ''}</tr>
     ${r.classifica.map((c) => `<tr><td>${c.posizione}</td><td>${esc(c.nome)}</td><td style="text-align:right"><b>${valore(c)}</b></td>${max ? `<td style="text-align:right">${(valore(c) / max * 100).toFixed(1)}%</td>` : ''}</tr>`).join('')}</table>
@@ -204,6 +205,7 @@ async function tClassifiche() {
     <p class="nota">${{ generale: 'Tutte le voci di tutte le schede.', sep: 'Solo le voci contrassegnate SEP.', bls: 'Solo le schede contrassegnate BLS/BLSD.', master: 'Solo le schede Master.', diu: 'Solo le schede contrassegnate DIU.' }[q]}</p></div>`;
   legaSelettore();
   document.querySelectorAll('.cl').forEach((b) => { b.onclick = () => { localStorage.setItem('clsTipo', b.dataset.k); render(); }; });
+  $('#cl_pdf').onclick = async () => { try { window.open(await pdfUrl(`/eventi/${ev.id}/classifica.pdf?tipo=${q}`), '_blank'); } catch (e) { flash(e.message, false); } };
 }
 
 // ───────── STAMPA ─────────

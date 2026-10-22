@@ -843,3 +843,11 @@ test('RG-1 risorse gara: conteggi, assegnazione di simulatori e truccatori alle 
   assert.equal((await chiama('PUT', `/api/scene/${sc.id}/risorse`, { token: O, body: { iscrizioni: [] } })).statusCode, 200);
   assert.equal(json(await chiama('GET', `${base}/risorse`, { token: O })).conteggi.simulatore.assegnati, 0);
 });
+
+test('CL-1 classifica in PDF: solo area classifiche, tipo validato', async () => {
+  const base = `/api/eventi/${ev}`;
+  const r = await chiama('GET', `${base}/classifica.pdf?tipo=generale`, { token: tok['org@t'] });
+  assert.equal(r.statusCode, 200); assert.match(r.headers['content-type'], /pdf/); assert.ok(r.rawPayload.subarray(0, 4).toString() === '%PDF');
+  assert.equal((await chiama('GET', `${base}/classifica.pdf?tipo=boh`, { token: tok['org@t'] })).statusCode, 400);
+  assert.equal((await chiama('GET', `${base}/classifica.pdf`, { token: tok['giu@t'] })).statusCode, 403);
+});

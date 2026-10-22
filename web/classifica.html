@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Classifica · GareCRI</title>
+<style>
+  :root { --rosso:#C8102E; --scuro:#1b0f12; --oro:#F2C94C; --argento:#C9CED6; --bronzo:#D9985F; }
+  * { box-sizing:border-box; } html,body { margin:0; height:100%; }
+  body { font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; background:var(--scuro); color:#fff; display:flex; flex-direction:column; overflow:hidden; }
+  header { display:flex; align-items:center; gap:18px; padding:2vh 3vw; background:var(--rosso); }
+  header img { height:8vh; border-radius:6px; background:#fff; padding:3px; }
+  header h1 { margin:0; font-size:max(26px,4vh); line-height:1.1; } header p { margin:2px 0 0; font-size:max(14px,2.2vh); opacity:.9; }
+  #ctrl { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; transition:opacity .4s; }
+  #ctrl button, #ctrl a { font:inherit; font-size:14px; padding:7px 12px; border-radius:8px; border:1px solid rgba(255,255,255,.6); background:rgba(0,0,0,.25); color:#fff; cursor:pointer; text-decoration:none; }
+  #ctrl .on { background:#fff; color:var(--rosso); font-weight:700; }
+  body.quiet #ctrl { opacity:0; pointer-events:none; } body.quiet { cursor:none; }
+  main { flex:1; min-height:0; padding:2vh 3vw; display:flex; flex-direction:column; gap:1.4vh; }
+  .podio { display:flex; flex-direction:column; gap:1.2vh; }
+  .p { display:flex; align-items:center; gap:2vw; border-radius:14px; padding:1.4vh 2vw; color:#1b1b1b; font-weight:700; }
+  .p .pos { font-size:max(34px,6vh); width:1.4em; text-align:center; } .p .nm { flex:1; font-size:max(26px,5vh); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .p .pt { font-size:max(30px,5.6vh); } .p small { font-size:max(14px,2.4vh); font-weight:600; opacity:.75; margin-left:.4em; }
+  .p1 { background:var(--oro); padding-block:2.2vh; } .p1 .nm { font-size:max(32px,6.4vh); } .p2 { background:var(--argento); } .p3 { background:var(--bronzo); }
+  .resto { flex:1; min-height:0; overflow:hidden; columns:2; column-gap:3vw; font-size:max(16px,2.8vh); }
+  .r { display:flex; gap:1.2vw; padding:.7vh 1vw; border-bottom:1px solid rgba(255,255,255,.12); break-inside:avoid; } .r .pos { width:2em; color:#ffb3bf; font-weight:700; } .r .nm { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .r .pt { font-weight:700; }
+  .msg { margin:auto; font-size:max(20px,3vh); text-align:center; opacity:.85; } .msg a { color:#fff; }
+  footer { padding:0 3vw 1.4vh; font-size:max(12px,1.8vh); opacity:.6; display:flex; justify-content:space-between; }
+</style></head><body>
+<header><img src="/logo-cri.jpg" alt="CRI"><div><h1 id="t">Classifica</h1><p id="s"></p></div>
+  <div id="ctrl"><span id="tipi"></span><button id="pt">Punti: sì</button><button id="fs">Schermo intero</button><a id="pdf" href="#">PDF</a><a href="/admin.html#classifiche">Chiudi</a></div></header>
+<main id="m"><div class="msg">Caricamento…</div></main>
+<footer><span id="ag"></span><span>Si aggiorna da solo ogni 20 secondi</span></footer>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const par = new URLSearchParams(location.search);
+const token = localStorage.getItem('token');
+const evId = par.get('ev') || localStorage.getItem('ev');
+const TIPI = [['generale', 'Generale'], ['sep', 'SEP'], ['bls', 'BLSD'], ['master', 'Master'], ['diu', 'DIU']];
+let tipo = TIPI.some(([k]) => k === par.get('tipo')) ? par.get('tipo') : 'generale';
+let punti = par.get('punti') !== '0';
+async function api(p) {
+  const r = await fetch('/api' + p, { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).errore || r.statusText), { status: r.status });
+  return r.json();
+}
+function disegnaTipi() {
+  $('#tipi').innerHTML = TIPI.map(([k, n]) => `<button data-k="${k}" class="${k === tipo ? 'on' : ''}">${n}</button>`).join(' ');
+  document.querySelectorAll('#tipi button').forEach((b) => { b.onclick = () => { tipo = b.dataset.k; disegnaTipi(); carica(); }; });
+  $('#pt').textContent = 'Punti: ' + (punti ? 'sì' : 'no');
+}
+async function carica() {
+  if (!token || !evId) { $('#m').innerHTML = '<div class="msg">Per proiettare la classifica entra da <a href="/admin.html#classifiche">Gestione → Classifiche</a>.</div>'; return; }
+  try {
+    const [r, eventi] = await Promise.all([api(`/eventi/${evId}/classifica?tipo=${tipo}`), api('/eventi')]);
+    const e = eventi.find((x) => x.id === evId) || {};
+    const nome = (TIPI.find(([k]) => k === tipo) || [])[1];
+    $('#t').textContent = `Classifica ${nome}`; document.title = `Classifica ${nome} · ${e.nome || ''}`;
+    $('#s').textContent = [e.nome, e.luogo, e.data ? String(e.data).slice(0, 10).split('-').reverse().join('/') : ''].filter(Boolean).join(' · ');
+    $('#pdf').href = '#'; 
+    const val = (c) => Number(c.valore ?? (tipo === 'generale' ? c.totale : c[tipo]));
+    const pt = (c) => punti ? `<span class="pt">${val(c)}</span>` : '';
+    const top = r.classifica.filter((c) => c.posizione <= 3), resto = r.classifica.filter((c) => c.posizione > 3);
+    $('#m').innerHTML = r.classifica.length ? `<div class="podio">${top.map((c) => `<div class="p p${c.posizione}"><span class="pos">${c.posizione}</span><span class="nm">${esc(c.nome)}</span>${pt(c)}</div>`).join('')}</div>
+      <div class="resto">${resto.map((c) => `<div class="r"><span class="pos">${c.posizione}</span><span class="nm">${esc(c.nome)}</span>${pt(c)}</div>`).join('')}</div>` : '<div class="msg">Nessun punteggio ancora.</div>';
+    $('#ag').textContent = 'Aggiornata alle ' + new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch (err) {
+    $('#m').innerHTML = err.status === 401 || err.status === 403 ? '<div class="msg">Accesso non consentito. <a href="/">Entra</a> con un account abilitato alle classifiche.</div>' : `<div class="msg">Aggiornamento non riuscito: ${esc(err.message)}. Riprovo tra poco.</div>`;
+  }
+}
+$('#pt').onclick = () => { punti = !punti; disegnaTipi(); carica(); };
+$('#fs').onclick = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); };
+$('#pdf').onclick = async (ev) => {
+  ev.preventDefault();
+  try { const r = await fetch(`/api/eventi/${evId}/classifica.pdf?tipo=${tipo}`, { headers: { Authorization: 'Bearer ' + token } }); if (!r.ok) throw new Error(); window.open(URL.createObjectURL(await r.blob()), '_blank'); }
+  catch { alert('PDF non disponibile'); }
+};
+// i comandi spariscono quando non servono (proiezione pulita)
+let quieto; const sveglia = () => { document.body.classList.remove('quiet'); clearTimeout(quieto); quieto = setTimeout(() => document.body.classList.add('quiet'), 5000); };
+['mousemove', 'keydown', 'touchstart'].forEach((e) => addEventListener(e, sveglia)); sveglia();
+disegnaTipi(); carica(); setInterval(carica, 20000);
+</script></body></html>

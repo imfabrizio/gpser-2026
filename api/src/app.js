@@ -12,6 +12,7 @@ import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
 import { registraSegreteria } from './routes-segreteria.js';
 import { registraRisorse } from './routes-risorse.js';
+import { generaClassificaPdf } from './pdf/classifica.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
@@ -277,16 +278,29 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   }));
 
   // ── classifiche, monitor, stampa ──
-  app.get('/api/eventi/:id/classifica', { preHandler: soloOrg }, async (req) => {   // i giudici non vedono punteggi né classifica
-    const tipo = { generale: 'totale', sep: 'sep', bls: 'bls', master: 'master', diu: 'diu' }[req.query.tipo || 'generale'];
-    if (!tipo) throw httpErr(400, 'tipo: generale|sep|bls|master|diu');
+  const CLASS = { generale: ['totale', 'Generale'], sep: ['sep', 'SEP'], bls: ['bls', 'BLSD'], master: ['master', 'Master'], diu: ['diu', 'DIU'] };
+  const leggiClassifica = async (eventoId, tipoReq) => {
+    const def = CLASS[tipoReq || 'generale'];
+    if (!def) throw httpErr(400, 'tipo: generale|sep|bls|master|diu');
+    const tipo = def[0];
     const { rows } = await pool.query(
-      `select numero, nome, totale, sep, bls, master, diu, (rank() over (order by ${tipo} desc))::int as posizione
+      `select numero, nome, totale, sep, bls, master, diu, ${tipo} as valore, (rank() over (order by ${tipo} desc))::int as posizione
          from v_classifica where evento_id=$1
           and exists (select 1 from squadra s where s.id = squadra_id and s.attiva)
-        order by ${tipo} desc, numero`, [req.params.id]);
-    const { rows: [m] } = await pool.query('select max_totale, max_sep from v_massimi_evento where evento_id=$1', [req.params.id]);
-    return { massimi: m ?? null, classifica: rows };
+        order by ${tipo} desc, numero`, [eventoId]);
+    const { rows: [m] } = await pool.query('select max_totale, max_sep from v_massimi_evento where evento_id=$1', [eventoId]);
+    return { massimi: m ?? null, classifica: rows, nome: def[1], max: tipoReq === 'sep' ? m?.max_sep : (!tipoReq || tipoReq === 'generale') ? m?.max_totale : null };
+  };
+  app.get('/api/eventi/:id/classifica', { preHandler: soloOrg }, async (req) => {   // i giudici non vedono punteggi né classifica
+    const { massimi, classifica } = await leggiClassifica(req.params.id, req.query.tipo);
+    return { massimi, classifica };
+  });
+  app.get('/api/eventi/:id/classifica.pdf', { preHandler: soloOrg }, async (req, reply) => {
+    const c = await leggiClassifica(req.params.id, req.query.tipo);
+    const { rows: [evento] } = await pool.query(`select nome, luogo, to_char(data,'YYYY-MM-DD') as data from evento where id=$1`, [req.params.id]);
+    if (!evento) throw httpErr(404, 'gara inesistente');
+    const pdf = await generaClassificaPdf({ evento, nomeClassifica: c.nome, righe: c.classifica, max: c.max ? Number(c.max) : null });
+    return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="classifica.pdf"').send(pdf);
   });
   app.get('/api/eventi/:id/monitor', { preHandler: soloOrg }, async (req) =>
     (await pool.query('select * from v_monitor where evento_id=$1 order by scena, squadra, slot', [req.params.id])).rows);
