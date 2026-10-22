@@ -59,9 +59,10 @@
 .esito { position:sticky; top:0; z-index:5; padding:10px 14px; margin:8px 0; border-radius:10px; background:#eee; font-size:18px; text-align:center; } .esito.si { background:#d7f0d9; color:#1b5e20; } .esito.no { background:#fde0e0; color:#9b1c1c; } .liv b { font-weight:700; }
 </style>
 <link rel="stylesheet" href="stile.css">
+<script src="tema.js"></script>
 </head>
 <body>
-<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GareCRI</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#sicurezza" hidden>Sicurezza</a><button id="esci" hidden>Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GareCRI</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#sicurezza" hidden>Sicurezza</a><button id="aspetto" class="aspetto-b" onclick="GareTema.scegli()">Aspetto</button><button id="esci" hidden>Esci</button></header>
 <main id="app"></main>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
@@ -164,7 +165,7 @@ async function vistaRegistrazione() {
 
 const ERR_SSO = { non_autorizzato: 'Questo account non è abilitato: chiedi all\'organizzazione di registrare la tua email.', email_non_verificata: 'Email del provider non verificata.', sessione: 'Sessione di accesso scaduta: riprova.', provider: 'Il provider non ha risposto: riprova.', token: 'Risposta del provider non valida.', tenant: 'Account di un\'altra organizzazione.', non_configurato: 'Accesso non configurato.' };
 async function avviaSessione(r) {
-  token = r.token; me = r.utente; localStorage.setItem('token', token); localStorage.setItem('me', JSON.stringify(me));
+  token = r.token; me = r.utente; localStorage.setItem('token', token); localStorage.setItem('me', JSON.stringify(me)); GareTema.sync(me);
   if (me.in_attesa) { window.__meOk = false; location.hash = ''; return route(); }
   await preparaCoda(); location.hash = me.mfa_da_configurare ? '#sicurezza' : ''; route();
 }
@@ -256,7 +257,7 @@ async function vistaHome() {
   const avvisi = await api(`/avvisi?evento=${ev.id}`).catch(() => []);
   const scene = await api(`/eventi/${ev.id}/scene`).catch(() => []);
   const tipoGara = TIPO_EV[ev.tipo] || 'Gara';
-  $('#app').innerHTML = `<div class="card"><small>${tipoGara} ${statoGara(ev)}</small><h2 style="margin:2px 0 4px">${esc(ev.nome)}</h2>
+  $('#app').innerHTML = `<div class="card hero"><small>${tipoGara} ${statoGara(ev)}</small><h2 style="margin:2px 0 4px">${esc(ev.nome)}</h2>
     <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
     ${org() ? `<label>Cambia gara</label>${menuGare(eventi, ev)}` : ''}
     <div class="tiles">
@@ -437,7 +438,7 @@ async function route() {
   if (location.hash.startsWith('#sso-errore=')) { const c = location.hash.slice(12); history.replaceState(null, '', location.pathname + '#login'); return vistaLogin(ERR_SSO[c] || 'Accesso non riuscito.'); }
   $('#hsic').hidden = !token || !!(me && me.in_attesa);
   if (!token) { return location.hash === '#login' ? vistaLogin() : vistaPubblica(); }
-  if (!window.__meOk) { window.__meOk = true; try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch { /* offline: resta il profilo salvato */ } }
+  if (!window.__meOk) { window.__meOk = true; try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); GareTema.sync(me); } catch { /* offline: resta il profilo salvato */ } }
   if (me.in_attesa) { try { return await vistaRegistrazione(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
   if (me.mfa_da_configurare) return vistaSicurezza();
   if (!coda) { try { await preparaCoda(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }

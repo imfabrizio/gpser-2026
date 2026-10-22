@@ -79,3 +79,9 @@ I ruoli **Istruttore**, **Manovre salvavita** e **Monitore** (area «Schede del 
 
 ## Menu raggruppato, area Valutazione, Documentazione
 Gestione ha cinque contenitori (Gara, Segreteria, Schede, Risultati, Amministrazione) con le sottosezioni come linguette; chi ha un solo permesso (es. Notizie) vede direttamente quella sezione. La Valutazione non compare più in Gestione: è un'area assegnabile ai ruoli (di default giudice, giudice master, direzione). L'area dei comitati si chiama «Formazione d'esame». In **Documentazione** (area omonima) si inseriscono collegamenti https a regolamento, comunicazioni, manuali e formazione: li vedono tutti gli utenti registrati dalla Home. La migrazione 013 parte da sola al riavvio.
+
+## Aspetto (tre layout selezionabili)
+
+Pulsante **Aspetto** in alto a destra: A «Rosso pieno», B «Colonna rossa», C «Bianco con croci».
+La scelta è salvata sul profilo (migrazione 014, `utente.tema`) e segue l'utente su ogni dispositivo.
+Default: A. API: `PATCH /api/me/tema` con `{ "tema": "a|b|c" }`.

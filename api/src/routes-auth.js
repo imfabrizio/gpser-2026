@@ -7,7 +7,7 @@ import { nuovoSegreto, verificaTotp, cifra, decifra, otpauth, nuoviCodiciRecuper
 
 export const SQL_UTENTE = `select u.*, coalesce(r.aree, '{}') as aree from utente u left join ruolo r on r.codice = u.ruolo`;
 export const mfaObbligatoria = (u, via) => process.env.MFA_ORG !== '0' && eStaff(u) && !u.mfa_attiva && via === 'pwd';
-export const profilo = (u, via) => ({ id: u.id, nome: u.nome, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
+export const profilo = (u, via) => ({ id: u.id, nome: u.nome, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, tema: u.tema ?? null, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
 export const creaSessione = (u, via) => ({ token: firmaToken({ id: u.id, via }), utente: profilo(u, via) });
 
 // ── provider esterni (OpenID Connect, flusso "authorization code" + PKCE) ──

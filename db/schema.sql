@@ -33,6 +33,7 @@ insert into ruolo (codice, nome, sistema, aree) values
 
 create table utente (
   id            uuid primary key default gen_random_uuid(),
+  tema          text check (tema in ('a', 'b', 'c')),          -- aspetto scelto dall'utente
   email         text not null unique,
   nome          text not null,
   password_hash text not null,
@@ -378,4 +379,4 @@ create table richiesta_accesso (
   unique (provider, sub)
 );
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql');   -- lo schema qui sopra le include già tutte
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql');   -- lo schema qui sopra le include già tutte

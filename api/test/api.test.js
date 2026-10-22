@@ -932,3 +932,13 @@ test('VAL-1 area Valutazione: la segreteria non valuta; giudici e direzione sì.
   assert.equal(json(await chiama('PATCH', `/api/documenti/${doc.id}`, { token: O, body: { titolo: 'Regolamento 2027' } })).titolo, 'Regolamento 2027');
   assert.equal((await chiama('DELETE', `/api/documenti/${doc.id}`, { token: O })).statusCode, 200);
 });
+
+test('TEMA-1 ognuno sceglie il proprio aspetto, anche un partecipante', async () => {
+  const U = json(await chiama('POST', '/api/utenti', { token: tok['adm@t'], body: { email: 'tema@t', nome: 'T', cognome: 'Tema', ruolo: 'partecipante', password: 'password-lunga' } }));
+  const T = json(await chiama('POST', '/api/login', { body: { email: 'tema@t', password: 'password-lunga' } })).token;
+  assert.equal((await chiama('PATCH', '/api/me/tema', { token: T, body: { tema: 'b' } })).statusCode, 200);
+  assert.equal(json(await chiama('GET', '/api/me', { token: T })).tema, 'b');
+  assert.equal((await chiama('PATCH', '/api/me/tema', { token: T, body: { tema: 'z' } })).statusCode, 400);
+  assert.equal((await chiama('PATCH', '/api/me/tema', { body: { tema: 'a' } })).statusCode, 401);
+  void U;
+});

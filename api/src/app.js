@@ -61,7 +61,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       const serve = areeRichieste(req.method, rotta);
       if (serve && !serve.some((a) => u.aree.includes(a))) throw httpErr(403, 'area non consentita al tuo ruolo');
     }
-    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta))))
+    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta === '/api/me/tema' || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta))))
       throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
     if (!RUOLI_ORG.includes(req.utente.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
       const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);
@@ -93,6 +93,13 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     return creaSessione(u, 'pwd');
   });
   app.get('/api/me', async (req) => req.richiesta ? { in_attesa: true, nome: [req.richiesta.nome, req.richiesta.cognome].filter(Boolean).join(' ') || req.richiesta.email, compilata: req.richiesta.compilata } : profilo((await pool.query(SQL_UTENTE + ' where u.id=$1', [req.utente.id])).rows[0], req.utente.via));
+
+  app.patch('/api/me/tema', async (req) => {          // l'aspetto lo sceglie ognuno per sé, qualunque ruolo
+    const t = req.body?.tema;
+    if (!['a', 'b', 'c'].includes(t)) throw httpErr(400, 'tema: a, b o c');
+    await pool.query('update utente set tema=$2 where id=$1', [req.utente.id, t]);
+    return { ok: true, tema: t };
+  });
 
   // ── pagina pubblica (senza login): notizie, gare, percorso ──
   app.get('/api/pubblico', async () => {
