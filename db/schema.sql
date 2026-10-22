@@ -26,7 +26,10 @@ insert into ruolo (codice, nome, sistema, aree) values
   ('giudice_master', 'Giudice master', true, '{}'),
   ('partecipante', 'Partecipante e altri ruoli', true, '{}'),
   ('organizzazione', 'Organizzazione', true, '{gara,scene,schede,squadre,notizie,anagrafiche,classifiche,stampa,importa,segreteria}'),
-  ('segreteria', 'Segreteria', false, '{segreteria}');
+  ('segreteria', 'Segreteria', false, '{segreteria}'),
+  ('istruttore', 'Istruttore', false, '{schede_comitato}'),
+  ('manovre_salvavita', 'Manovre salvavita', false, '{schede_comitato}'),
+  ('monitore', 'Monitore', false, '{schede_comitato}');
 
 create table utente (
   id            uuid primary key default gen_random_uuid(),
@@ -174,8 +177,11 @@ create table patologia (                         -- Master, PBLS, Overdose, TC, 
   is_diu       boolean not null default false,   -- conta nella classifica DIU
   categoria    text,                             -- raggruppamento (es. Ictus)
   categoria2   text,                             -- seconda patologia (es. Frattura polso)
-  descrizione  text
+  descrizione  text,
+  comitato     text,                             -- null = libreria generale; altrimenti scheda privata del comitato
+  creata_da    uuid references utente(id) on delete set null
 );
+create index patologia_comitato_idx on patologia (lower(comitato));
 create table patologia_voce (
   patologia_id uuid not null references patologia(id) on delete cascade,
   ordine       int  not null,
@@ -360,4 +366,4 @@ create table richiesta_accesso (
   unique (provider, sub)
 );
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql');   -- lo schema qui sopra le include già tutte
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql');   -- lo schema qui sopra le include già tutte

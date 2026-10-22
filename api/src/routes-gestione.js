@@ -4,6 +4,7 @@ import { hashPassword } from './auth.js';
 import { inTransazione } from './db.js';
 import { httpErr } from './services/compilazioni.js';
 import { AREE } from './permessi.js';
+import { controllaScheda } from './libreria-ambito.js';
 import { decifra } from './mfa.js';
 import { verificaCodiceFiscale } from './codice-fiscale.js';
 import { datiCf, hashCf } from './anagrafica.js';
@@ -249,6 +250,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   });
   app.put('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const b = req.body || {};
+    await controllaScheda(pool, req.utente, req.params.id, { modifica: true });
     const { rows: [p] } = await db.query(
       `update patologia set nome=coalesce($2,nome), sigla=coalesce($3,sigla), is_bls=coalesce($4,is_bls), is_master=coalesce($5,is_master), is_diu=coalesce($6,is_diu),
          categoria = case when $7 then nullif(trim($8),'') else categoria end, categoria2 = case when $9 then nullif(trim($10),'') else categoria2 end
@@ -270,6 +272,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     return p;
   }));
   app.delete('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => {
+    await controllaScheda(pool, req.utente, req.params.id, { modifica: true });
     try { await pool.query('delete from patologia where id=$1', [req.params.id]); }
     catch (e) { if (e.code === '23503') throw httpErr(409, 'patologia usata in una scena: non eliminabile'); throw e; }
     return { ok: true };

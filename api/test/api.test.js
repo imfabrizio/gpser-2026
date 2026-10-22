@@ -876,3 +876,31 @@ test('ES-1 esami e corsi: tipo, soglia 75%, punti visibili al giudice solo se l\
   assert.equal((await chiama('GET', `/api/schede/${scheda}/esito.pdf?squadra=xx`, { token: G })).statusCode, 400);
   await chiama('PATCH', `/api/eventi/${ev}`, { token: O, body: { mostra_punteggi: false } });
 });
+
+test('CM-1 schede dei comitati: private al comitato, la direzione le vede solo su richiesta e non le modifica', async () => {
+  const A = tok['adm@t'], O = tok['org@t'];
+  const mk = async (email, comitato) => {
+    const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome: 'Is', cognome: email, ruolo: 'istruttore', password: 'password-lunga' } }));
+    if (comitato) await pool.query('update partecipante set comitato=$2 where utente_id=$1', [u.id, comitato]);
+    return json(await chiama('POST', '/api/login', { body: { email, password: 'password-lunga' } })).token;
+  };
+  const T1 = await mk('is1@t', 'Piacenza'), T2 = await mk('is2@t', 'Parma'), T0 = await mk('is0@t', null);
+  const corpo = { nome: 'Scheda esercitazione', sigla: 'ESE', voci: [{ sezione: 'A', testo: 'voce di prova comitato', scala: 'Standard' }] };
+  const creata = json(await chiama('POST', '/api/libreria/patologie', { token: T1, body: corpo }));
+  assert.equal(creata.comitato, 'Piacenza'); assert.match(creata.codice, /^PIACENZA-/);
+  assert.equal((await chiama('POST', '/api/libreria/patologie', { token: T0, body: corpo })).statusCode, 400);   // comitato non in anagrafica
+  const vede = async (t, q = '') => json(await chiama('GET', `/api/libreria/patologie${q}`, { token: t })).some((p) => p.id === creata.id);
+  assert.equal(await vede(T1), true); assert.equal(await vede(T2), false);
+  assert.equal(await vede(O), false); assert.equal(await vede(O, '?comitati=1'), true);       // direzione: solo con la richiesta esplicita
+  assert.equal((await chiama('GET', `/api/libreria/patologie/${creata.id}`, { token: T2 })).statusCode, 403);
+  assert.equal((await chiama('GET', `/api/libreria/patologie/${creata.id}`, { token: O })).statusCode, 200);
+  assert.equal((await chiama('PUT', `/api/libreria/patologie/${creata.id}`, { token: O, body: { nome: 'x' } })).statusCode, 403);
+  assert.equal((await chiama('PUT', `/api/libreria/patologie/${creata.id}`, { token: T2, body: { nome: 'x' } })).statusCode, 403);
+  assert.equal((await chiama('PUT', `/api/libreria/patologie/${creata.id}`, { token: T1, body: { nome: 'Scheda esercitazione 2' } })).statusCode, 200);
+  const generale = json(await chiama('GET', '/api/libreria/patologie', { token: T1 })).find((p) => !p.comitato);
+  assert.equal((await chiama('PUT', `/api/libreria/patologie/${generale.id}`, { token: T1, body: { nome: 'x' } })).statusCode, 403);   // le generali no
+  assert.equal((await chiama('DELETE', `/api/libreria/patologie/${generale.id}`, { token: T1 })).statusCode, 403);
+  assert.equal((await chiama('POST', '/api/libreria/scale', { token: T1, body: { codice: 'ZZ', mb: 1 } })).statusCode, 403);
+  assert.equal((await chiama('GET', '/api/persone', { token: T1 })).statusCode, 403);                                               // niente altre aree
+  assert.equal((await chiama('DELETE', `/api/libreria/patologie/${creata.id}`, { token: T1 })).statusCode, 200);
+});

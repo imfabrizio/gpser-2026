@@ -73,3 +73,6 @@ Al primo avvio dopo l'aggiornamento gli utenti con vecchio ruolo "admin" diventa
 
 ## Esami, corsi e allenamenti
 In **Gestione → Gara** il tipo può essere gara, olimpiadi, allenamento, corso o esame. Per esame/corso/allenamento i giudici vedono i punti accanto a ogni livello e la percentuale in tempo reale; per l'esame la soglia di superamento è 75% (modificabile) sul totale della scheda. Dalla scheda, «PDF esito» produce il foglio con voci, punteggio, percentuale, esito e firme. La scala a tre livelli (0/1/2) si ottiene con una scala di punteggio che usa solo tre livelli. La migrazione 011 parte da sola al riavvio.
+
+## Schede private dei comitati
+I ruoli **Istruttore**, **Manovre salvavita** e **Monitore** (area «Schede del proprio comitato») creano e modificano solo schede private del proprio comitato, che si ricava dall'anagrafica (la persona collegata all'utente deve avere il comitato). Le schede generali le possono solo leggere e copiare. La direzione (area Schede) le vede solo con la spunta «Vedi anche schede dei comitati» e non le modifica; chi crea i ruoli e li assegna è l'admin (Ruoli e permessi). La migrazione 012 parte da sola al riavvio.

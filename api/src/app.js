@@ -14,6 +14,7 @@ import { registraSegreteria } from './routes-segreteria.js';
 import { registraRisorse } from './routes-risorse.js';
 import { generaClassificaPdf } from './pdf/classifica.js';
 import { generaEsitoPdf } from './pdf/esito.js';
+import { haSchede, comitatoDi, controllaScheda } from './libreria-ambito.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
@@ -252,20 +253,34 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/libreria/scale', { preHandler: soloOrg }, async () => (await pool.query('select * from scala_punteggio order by codice')).rows);
   app.get('/api/libreria/voci', { preHandler: soloOrg }, async (req) => (await pool.query(
     `select * from voce where $1::text is null or testo ilike '%'||$1||'%' order by testo limit 200`, [req.query.q ?? null])).rows);
-  app.get('/api/libreria/patologie', { preHandler: soloOrg }, async () => (await pool.query(
+  app.get('/api/libreria/patologie', { preHandler: soloOrg }, async (req) => {
+    // generale per tutti; le schede dei comitati solo se la direzione le chiede (?comitati=1) o per il proprio comitato
+    const tutte = haSchede(req.utente) && req.query.comitati === '1';
+    const mio = haSchede(req.utente) ? null : await comitatoDi(pool, req.utente);
+    return (await pool.query(
     `select p.*, (select count(*) from patologia_voce where patologia_id=p.id) as voci,
        (select coalesce(jsonb_agg(jsonb_build_object('evento', x.nome, 'codice', x.codice, 'luogo', x.luogo, 'data', to_char(x.data, 'YYYY-MM-DD')) order by x.data desc nulls last), '[]'::jsonb)
           from (select distinct e.id, e.nome, e.codice, e.luogo, e.data from scena_scheda ss join scena s on s.id = ss.scena_id join evento e on e.id = s.evento_id where ss.patologia_id = p.id) x) as usi
-       from patologia p order by nome`)).rows);
-  app.get('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => (await pool.query(
+       from patologia p where p.comitato is null or $1::boolean or lower(trim(p.comitato)) = lower(trim($2::text)) order by nome`, [tutte, mio])).rows;
+  });
+  app.get('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => { await controllaScheda(pool, req.utente, req.params.id, { modifica: false }); return (await pool.query(
     `select pv.ordine, pv.sezione, v.testo, sp.codice as scala, pv.is_sep from patologia_voce pv
        join voce v on v.id=pv.voce_id join scala_punteggio sp on sp.id=pv.scala_id
-      where pv.patologia_id=$1 order by pv.ordine`, [req.params.id])).rows);
+      where pv.patologia_id=$1 order by pv.ordine`, [req.params.id])).rows; });
   app.post('/api/libreria/patologie', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const b = req.body;   // { codice, nome, sigla, is_bls, is_master, voci:[{sezione, testo, scala, is_sep}] }
+    // chi ha solo l'area «schede del proprio comitato» crea schede private del suo comitato; la direzione crea quelle generali
+    let comitato = null, codice = b.codice;
+    if (!haSchede(req.utente)) {
+      comitato = await comitatoDi(pool, req.utente);
+      if (!comitato) throw httpErr(400, 'il tuo comitato non risulta in anagrafica: chiedi all\'organizzazione di completarlo');
+      const slug = (t) => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '');
+      codice = `${slug(comitato)}-${slug(b.nome || 'SCHEDA')}`.slice(0, 60);
+      for (let n = 2; (await db.query('select 1 from patologia where codice=$1', [codice])).rowCount; n++) codice = `${codice.replace(/-\d+$/, '')}-${n}`;
+    }
     const { rows: [p] } = await db.query(
-      `insert into patologia (codice, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2) values ($1,$2,$3,coalesce($4,false),coalesce($5,false),coalesce($6,false),$7,$8) returning *`,
-      [b.codice, b.nome, b.sigla, b.is_bls, b.is_master, b.is_diu, (b.categoria || '').trim() || b.nome, (b.categoria2 || '').trim() || null]);
+      `insert into patologia (codice, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2, comitato, creata_da) values ($1,$2,$3,coalesce($4,false),coalesce($5,false),coalesce($6,false),$7,$8,$9,$10) returning *`,
+      [codice, b.nome, b.sigla, b.is_bls, b.is_master, b.is_diu, (b.categoria || '').trim() || b.nome, (b.categoria2 || '').trim() || null, comitato, req.utente.id]);
     let o = 0;
     for (const v of b.voci || []) {
       const { rows: [voce] } = await db.query(
