@@ -84,3 +84,7 @@ Gestione ha cinque contenitori (Gara, Segreteria, Schede, Risultati, Amministraz
 
 Un solo layout su tutte le pagine (intestazione bianca con filo rosso, banner, card illustrate), in stile sito CRI.
 Per la foto del banner della home: copiare un'immagine in `web/img/hero.jpg` (senza file resta il fondo rosso con croce).
+
+## Schede d'esame TSSA
+
+Migrazione 015: in libreria (categoria «Esame TSSA») le schede Skill 01 PTC, 03 Seggetta, 04 Valutazione, 15 Barella Scoop, con scala 0/1/2 e fasce di giudizio (Insufficiente…Ottimo). L'esito «superato» scatta dalla fascia Sufficiente. Per usarle: creare un evento di tipo Esame, aggiungere le schede alla scena, assegnare i valutatori.

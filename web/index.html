@@ -32,6 +32,7 @@
   .liv button { width:118px; padding:8px 2px; font-size:13px; font-weight:700; border:2px solid #111; color:#111; background:#fff; border-radius:8px; min-height:44px; white-space:nowrap; }
   .sola-lettura .liv button { pointer-events:none; opacity:.85; }
   .avviso { background:#fff4d6; border:1px solid #e6c34a; border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+  .liv.tre button { width:128px; white-space:normal; line-height:1.15; font-size:12.5px; padding:6px 6px; }
   .liv button[disabled] { background:#000; border-color:#000; }
   .liv button.on { color:#fff !important; border-color:#111; }
   .liv button.on[data-l=BE], .liv button.on[data-l=SU], .liv button.on[data-l=IN] { color:#111 !important; }
@@ -66,6 +67,7 @@
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const LIV = [['MB','Molto bene'],['BE','Bene'],['SU','Soddisfacente'],['IN','Insufficiente'],['NE','Non eseguito']];   // nessun punteggio: chi inserisce i dati non lo conosce
+const ET3 = { NE: 'Non eseguito', SU: 'Eseguito sufficientemente bene', MB: 'Eseguito correttamente' };   // schede a 3 livelli (0-1-2) degli esami
 const TIPO_EV = { gara: 'Gara', olimpiadi: 'Olimpiadi', allenamento: 'Allenamento', corso: 'Corso', esame: 'Esame' };
 const master = () => me && me.ruolo === 'giudice_master';
 let token = localStorage.getItem('token'), me = JSON.parse(localStorage.getItem('me') || 'null');
@@ -336,9 +338,12 @@ async function vistaValuta(schedaId, squadraId) {
   let sezione = null, html = '';
   for (const v of scheda.voci) {
     if (v.sezione !== sezione) { sezione = v.sezione; html += `<div class="sezione">${esc(sezione)}</div>`; }
-    html += `<div class="voce" data-id="${v.id}"><p>${esc(v.testo)}</p><div class="liv">` +
-      LIV.map(([k, et]) => !v.consentiti.includes(k) ? `<button disabled></button>` :
-        `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${et}${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`).join('') + `</div></div>`;
+    const tre = v.consentiti.length === 3 && !v.consentiti.includes('BE') && !v.consentiti.includes('IN');
+    html += `<div class="voce" data-id="${v.id}"><p>${esc(v.testo)}</p><div class="liv${tre ? ' tre' : ''}">` +
+      (tre
+        ? ['NE', 'SU', 'MB'].map((k) => `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${ET3[k]}${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`)
+        : LIV.map(([k, et]) => !v.consentiti.includes(k) ? `<button disabled></button>` :
+        `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${et}${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`)).join('') + `</div></div>`;
   }
   $('#titolo').textContent = scheda.titolo;
   const chi = cur.compilazione?.giudice ? ` · compilata da ${esc(cur.compilazione.giudice)}` : '';
@@ -356,9 +361,12 @@ async function vistaValuta(schedaId, squadraId) {
   const aggEsito = () => {
     if (!pv) return;
     const p = scheda.voci.reduce((a, v) => a + (ris.has(v.id) ? Number(pts(v, ris.get(v.id)) ?? 0) : 0), 0), perc = maxTot ? p / maxTot * 100 : 0;
-    const ok = soglia ? perc >= soglia : null;
+    const fasce = Array.isArray(scheda.fasce) && scheda.fasce.length ? [...scheda.fasce].sort((a, b) => a.da - b.da) : null;
+    const suff = fasce ? (fasce.find((x) => /^sufficiente/i.test(x.nome)) || fasce[1] || fasce[0]) : null;
+    const giud = fasce ? [...fasce].reverse().find((x) => p >= x.da)?.nome : null;
+    const ok = fasce ? p >= suff.da : (soglia ? perc >= soglia : null);
     $('#esito').className = 'esito ' + (ok === null ? '' : ok ? 'si' : 'no');
-    $('#esito').innerHTML = `<b>${p} / ${maxTot}</b> · <b>${perc.toFixed(1)}%</b>${soglia ? ` · soglia ${soglia}% → <b>${ok ? 'SUPERATO' : 'NON SUPERATO'}</b>` : ''}`;
+    $('#esito').innerHTML = `<b>${p} / ${maxTot}</b> · <b>${perc.toFixed(1)}%</b>${giud ? ` · <b>${esc(giud)}</b>` : ''}${fasce ? ` · sufficienza da ${suff.da} punti` : soglia ? ` · soglia ${soglia}%` : ''}${ok === null ? '' : ` → <b>${ok ? 'SUPERATO' : 'NON SUPERATO'}</b>`}`;
   };
   aggEsito();
   const agg = (msg = '', errore = false) => { $('#st').innerHTML = `${ris.size}/${tot} voci <span class="${errore ? 'err' : 'ok'}">${esc(msg)}</span>`; };

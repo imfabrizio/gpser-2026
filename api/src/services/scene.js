@@ -25,10 +25,10 @@ export async function aggiungiSchedaDaPatologia(db, {
   const { rows: [pat] } = await db.query(`select * from patologia where id = $1`, [patologiaId]);
   if (!pat) throw httpErr(404, 'patologia inesistente');
   const { rows: [scheda] } = await db.query(
-    `insert into scena_scheda (scena_id, slot, patologia_id, titolo, sigla, simulatore, is_bls, is_master, is_diu, parametri)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,
+    `insert into scena_scheda (scena_id, slot, patologia_id, titolo, sigla, simulatore, is_bls, is_master, is_diu, parametri, fasce)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
     [scenaId, slot, pat.id, titolo || pat.nome, pat.sigla, simulatore, pat.is_bls, pat.is_master, pat.is_diu,
-     JSON.stringify(parametri)]);
+     JSON.stringify(parametri), pat.fasce ? JSON.stringify(pat.fasce) : null]);
   await db.query(
     `insert into scena_scheda_voce (scheda_id, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep)
      select $1, pv.ordine, pv.sezione, v.id, v.testo, sp.codice, sp.mb, sp.be, sp.su, sp."in", sp.ne, pv.is_sep
@@ -60,9 +60,9 @@ export async function duplicaScena(db, { scenaId, eventoDestId, nuovoCodice }) {
   const { rows: schede } = await db.query(`select * from scena_scheda where scena_id=$1`, [scenaId]);
   for (const sc of schede) {
     const { rows: [n] } = await db.query(
-      `insert into scena_scheda (scena_id, slot, patologia_id, titolo, sigla, simulatore, is_bls, is_master, is_diu, parametri)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`,
-      [nuova.id, sc.slot, sc.patologia_id, sc.titolo, sc.sigla, sc.simulatore, sc.is_bls, sc.is_master, sc.is_diu, sc.parametri]);
+      `insert into scena_scheda (scena_id, slot, patologia_id, titolo, sigla, simulatore, is_bls, is_master, is_diu, parametri, fasce)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`,
+      [nuova.id, sc.slot, sc.patologia_id, sc.titolo, sc.sigla, sc.simulatore, sc.is_bls, sc.is_master, sc.is_diu, sc.parametri, sc.fasce ? JSON.stringify(sc.fasce) : null]);
     await db.query(
       `insert into scena_scheda_voce (scheda_id, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep)
        select $1, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep

@@ -877,6 +877,24 @@ test('ES-1 esami e corsi: tipo, soglia 75%, punti visibili al giudice solo se l\
   await chiama('PATCH', `/api/eventi/${ev}`, { token: O, body: { mostra_punteggi: false } });
 });
 
+test('ES-2 schede d\'esame TSSA: 4 schede in libreria, scala 0-1-2, fasce di giudizio ed esito', async () => {
+  const O = tok['org@t'], G = tok['giu@t'];
+  const { rows: pats } = await pool.query(`select p.codice, p.fasce, (select count(*)::int from patologia_voce where patologia_id=p.id) n from patologia p where codice like 'esame-%' order by codice`);
+  assert.deepEqual(pats.map((p) => [p.codice, p.n]), [['esame-ptc', 22], ['esame-scoop', 14], ['esame-seggetta', 14], ['esame-valutazione', 12]]);
+  const ev2 = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'ESAME-TSSA', nome: 'Esame TSSA', tipo: 'esame' } }));
+  const sc = json(await chiama('POST', `/api/eventi/${ev2.id}/scene`, { token: O, body: { codice: 'E1', titolo: 'Esame' } }));
+  const { rows: [pat] } = await pool.query(`select id from patologia where codice='esame-ptc'`);
+  const sk = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { slot: 0, patologiaId: pat.id, simulatore: 'M' } }));
+  const { rows: [gu] } = await pool.query(`select id from utente where email='giu@t'`);
+  await pool.query('insert into assegnazione values ($1,$2) on conflict do nothing', [sk.id, gu.id]);
+  const sq = json(await chiama('POST', `/api/eventi/${ev2.id}/squadre`, { token: O, body: { nome: 'Candidato prova' } }));
+  const g = json(await chiama('GET', `/api/schede/${sk.id}`, { token: G }));
+  assert.equal(g.voci.length, 22); assert.deepEqual(g.voci[0].consentiti.sort(), ['MB', 'NE', 'SU']); assert.deepEqual(g.voci[0].punti, { MB: 2, SU: 1, NE: 0 });
+  assert.equal(g.fasce.find((f) => f.nome === 'Sufficiente').da, 32);
+  const pdf = await chiama('GET', `/api/schede/${sk.id}/esito.pdf?squadra=${sq.id}`, { token: G });
+  assert.equal(pdf.statusCode, 200);
+});
+
 test('CM-1 schede dei comitati: private al comitato, la direzione le vede solo su richiesta e non le modifica', async () => {
   const A = tok['adm@t'], O = tok['org@t'];
   const mk = async (email, comitato) => {
