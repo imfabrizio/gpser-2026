@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Esami · GareCRI</title>
+<link rel="stylesheet" href="stile.css">
+<style>
+  * { box-sizing:border-box; } body { margin:0; }
+  header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; } header h1 { flex:1; margin:0; }
+  main { max-width:960px; margin:0 auto; padding:14px 12px 90px; }
+  .card { background:#fff; border:1px solid var(--bordo); border-radius:12px; padding:14px; margin-bottom:12px; }
+  .riga { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; } .riga > div { flex:1 1 180px; } .riga .stretto { flex:0 0 auto; }
+  input, select { width:100%; padding:8px 10px; } label { display:block; margin-bottom:3px; }
+  button.b, .btn { background:var(--rosso); color:#fff; border:0; padding:10px 16px; border-radius:8px; cursor:pointer; font-weight:700; text-decoration:none; display:inline-block; }
+  button.s { background:#fff; color:var(--inchiostro); border:1.5px solid #8C94A3; padding:9px 14px; border-radius:8px; cursor:pointer; font-weight:700; }
+  .msg { padding:10px 12px; border-radius:8px; position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:50; max-width:min(560px,92vw); box-shadow:0 6px 20px #0004; font-weight:700; }
+  .msg.err { background:#fde0e0; color:#a00; } .msg.ok { background:#d9f0dc; color:#1b5e20; }
+  .elenco a.voce-s { display:flex; justify-content:space-between; gap:10px; padding:12px; border:1px solid var(--bordo); border-radius:10px; margin-bottom:8px; text-decoration:none; color:inherit; background:#fff; }
+  .elenco a.voce-s:hover { border-color:var(--rosso); }
+  .cand { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-top:1px solid var(--grigio); flex-wrap:wrap; }
+  .esito-b { font-family:var(--titoli); font-weight:700; padding:4px 12px; border-radius:6px; white-space:nowrap; }
+  .esito-b.si { background:#D6EFDD; color:#145C2E; } .esito-b.no { background:var(--rosso-velo); color:#8F0D22; } .esito-b.in { background:var(--grigio); color:var(--tenue); }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 10px; }
+  .chip { border:2px solid #8C94A3; background:#fff; border-radius:999px; padding:8px 14px; font-weight:700; cursor:pointer; }
+  .chip.on { background:var(--inchiostro); border-color:var(--inchiostro); color:#fff; }
+  .stato-bar { position:sticky; top:0; z-index:5; background:#fff; border:1px solid var(--bordo); border-radius:10px; padding:8px 12px; margin-bottom:10px; display:flex; flex-wrap:wrap; gap:10px; }
+  .stato-bar > div { display:flex; align-items:center; gap:8px; }
+  .voce { border:1px solid var(--bordo); border-radius:8px; padding:8px 10px; margin-bottom:6px; background:#fff; display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  .voce.diversa { border-color:var(--avviso); background:#FFF8E6; } .voce p { margin:0; flex:1 1 260px; }
+  .liv { display:flex; gap:6px; } .liv button { width:128px; min-height:44px; padding:6px; font-size:12.5px; font-weight:700; line-height:1.15; border:2px solid #111; color:#111; background:#fff; border-radius:8px; cursor:pointer; }
+  .liv button.on[data-l=NE] { background:#B71C1C; color:#fff; } .liv button.on[data-l=SU] { background:#FACC15; } .liv button.on[data-l=MB] { background:#1B8A3A; color:#fff; }
+  .liv button.ered { border-style:dashed; opacity:.6; }
+  .sezione { background:var(--inchiostro); color:#fff; font-family:var(--titoli); font-size:18px; border-radius:6px; padding:6px 10px; margin:10px 0 6px; }
+  .grave { display:flex; gap:8px; align-items:center; font-weight:700; } .grave input { width:22px; height:22px; }
+  .sola-lettura .liv button { pointer-events:none; }
+  @media (max-width:700px) { .liv { width:100%; } .liv button { flex:1 1 0; width:auto; min-width:0; } }
+</style></head><body>
+<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">Esami</h1><a href="/">Home</a><button id="esci">Esci</button></header>
+<main id="app"><p>Caricamento…</p></main>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const token = localStorage.getItem('token');
+if (!token) location.href = '/';
+async function api(path, opt = {}) {
+  const r = await fetch('/api' + path, { method: opt.method || (opt.body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: opt.body ? JSON.stringify(opt.body) : undefined });
+  if (r.status === 401) { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; throw new Error('sessione scaduta'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.errore || r.statusText);
+  return j;
+}
+const flash = (t, ok = true) => { const d = document.createElement('div'); d.className = 'msg ' + (ok ? 'ok' : 'err'); d.textContent = t; document.body.append(d); setTimeout(() => d.remove(), ok ? 2500 : 8000); };
+const fai = async (fn, ok) => { try { await fn(); if (ok) flash(ok); } catch (e) { flash(e.message, false); } };
+const pdf = async (path) => { const w = window.open('', '_blank'); try { const r = await fetch('/api' + path, { headers: { Authorization: 'Bearer ' + token } }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).errore || 'PDF non disponibile'); w.location = URL.createObjectURL(await r.blob()); } catch (e) { w.close(); flash(e.message, false); } };
+$('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
+const dataIt = (d) => (d ? d.split('-').reverse().join('/') : '');
+const badge = (e) => e.completa || e.superato ? `<span class="esito-b ${e.superato ? 'si' : 'no'}">${e.superato ? 'SUPERATO' : 'NON SUPERATO'}</span>` : `<span class="esito-b in">in corso</span>`;
+const ET = { NE: 'Non eseguito', SU: 'Eseguito sufficientemente bene', MB: 'Eseguito correttamente' };
+
+async function elenco() {
+  $('#titolo').textContent = 'Esami';
+  const ss = await api('/esami/sessioni');
+  $('#app').innerHTML = `<div class="card"><h3>Nuova sessione d'esame</h3><div class="riga"><div style="flex:3"><label>Nome</label><input id="n_nome" placeholder="Esame TSSA ottobre"></div>
+    <div><label>Data</label><input id="n_data" type="date"></div><div><label>Luogo</label><input id="n_luogo"></div><div class="stretto"><button class="b" id="n_ok">Crea</button></div></div></div>
+    <div class="elenco">${ss.length ? ss.map((s) => `<a class="voce-s" href="#s/${s.id}"><span><b>${esc(s.nome)}</b><br><small>${esc(s.luogo || '')} ${dataIt(s.data)}</small></span><span>${s.prove} prove</span></a>`).join('') : '<p class="nota">Nessuna sessione: creane una qui sopra.</p>'}</div>`;
+  $('#n_ok').onclick = () => { const nome = $('#n_nome').value.trim(); if (!nome) return flash('Scrivi il nome della sessione', false);
+    fai(async () => { const s = await api('/esami/sessioni', { body: { nome, data: $('#n_data').value || null, luogo: $('#n_luogo').value } }); location.hash = '#s/' + s.id; }); };
+}
+
+async function sessione(sid) {
+  const [d, schede] = await Promise.all([api('/esami/sessioni/' + sid), api('/esami/schede')]);
+  $('#titolo').textContent = d.sessione.nome;
+  const cr = (i) => `<div class="riga" style="margin-bottom:6px"><div style="flex:2"><label>${i === 0 ? 'Candidato principale' : 'Candidato secondario (facoltativo)'}</label><input class="c_n" list="pers" autocomplete="off"></div><div><label>Comitato</label><input class="c_c"></div></div>`;
+  $('#app').innerHTML = `<p><a href="#">← Tutte le sessioni</a> · ${esc(d.sessione.luogo || '')} ${dataIt(d.sessione.data)}</p>
+    ${d.prove.map((p) => `<div class="card"><div class="riga"><div><a href="#p/${p.id}"><b style="font-size:18px">${esc(p.titolo)}</b></a><br><small>Valutatore: ${esc(p.valutatore || '—')} · ${p.stato === 'chiusa' ? 'chiusa' : 'in compilazione'}</small></div>
+      <div class="stretto"><a class="btn" href="#p/${p.id}">${p.stato === 'chiusa' ? 'Apri' : 'Compila'}</a> <button class="s delp" data-id="${p.id}">Elimina</button></div></div>
+      ${p.candidati.map((c) => `<div class="cand"><span>${esc(c.nome)}${c.comitato ? ' <small>(' + esc(c.comitato) + ')</small>' : ''} <small>${c.ruolo}</small></span><span>${c.esito.punti}/${c.esito.massimo}${c.esito.giudizio && c.esito.completa ? ' · ' + esc(c.esito.giudizio) : ''} ${badge(c.esito)}</span></div>`).join('')}</div>`).join('') || '<p class="nota">Nessuna prova: aggiungine una qui sotto.</p>'}
+    ${d.prove.length ? '<p><button class="s" id="riep">Riepilogo sessione (PDF)</button></p>' : ''}
+    <div class="card"><h3>Nuova prova</h3><label>Scheda</label><select id="p_sk">${schede.map((s) => `<option value="${s.id}">${esc(s.nome)}</option>`).join('')}</select>
+      <div style="margin-top:10px">${cr(0)}${cr(1)}${cr(2)}</div><p class="nota">La scheda si compila una volta sola e vale per tutti i candidati; potrai dare un valore diverso a un singolo candidato.</p>
+      <button class="b" id="p_ok">Crea prova</button></div><datalist id="pers"></datalist>`;
+  if ($('#riep')) $('#riep').onclick = () => pdf(`/esami/sessioni/${sid}/riepilogo.pdf`);
+  document.querySelectorAll('.delp').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la prova con tutte le valutazioni?')) fai(async () => { await api('/esami/prove/' + b.dataset.id, { method: 'DELETE' }); sessione(sid); }, 'Prova eliminata'); }; });
+  // suggerimenti dall'anagrafica
+  let mappa = {}, t; const dl = $('#pers');
+  document.querySelectorAll('.c_n').forEach((i) => { i.oninput = () => { clearTimeout(t); t = setTimeout(async () => {
+    const r = await api('/esami/persone?q=' + encodeURIComponent(i.value)).catch(() => []);
+    mappa = Object.fromEntries(r.map((p) => [`${p.cognome} ${p.nome}`, p])); dl.innerHTML = Object.keys(mappa).map((n) => `<option value="${esc(n)}">`).join(''); }, 250);
+    const m = mappa[i.value]; if (m) { const c = i.closest('.riga').querySelector('.c_c'); if (!c.value) c.value = m.comitato || ''; i.dataset.pid = m.id; } }; });
+  $('#p_ok').onclick = () => { const candidati = [...document.querySelectorAll('.riga .c_n')].map((i) => ({ nome: i.value.trim(), comitato: i.closest('.riga').querySelector('.c_c').value.trim(), partecipanteId: i.dataset.pid || null })).filter((c) => c.nome);
+    if (!candidati.length) return flash('Scrivi almeno il candidato principale', false);
+    if (!$('#p_sk').value) return flash('Nessuna scheda disponibile', false);
+    fai(async () => { const r = await api(`/esami/sessioni/${sid}/prove`, { body: { patologiaId: $('#p_sk').value, candidati } }); location.hash = '#p/' + r.id; }); };
+}
+
+let modo = null;   // null = tutti i candidati; altrimenti id del candidato che sto valutando a parte
+async function prova(pid, p) {
+  p = p || await api('/esami/prove/' + pid);
+  const chiusa = p.stato === 'chiusa', sel = modo ? p.candidati.find((c) => c.id === modo) : null;
+  if (modo && !sel) modo = null;
+  $('#titolo').textContent = p.titolo;
+  const comuni = new Map(), propri = new Map();
+  for (const r of p.risposte) (r.candidato_id === null ? comuni : r.candidato_id === modo ? propri : new Map()).set(r.ordine, r.livello);
+  const eff = (o) => (sel ? propri.get(o) ?? comuni.get(o) : comuni.get(o)) ?? null;
+  let sez = null, html = '';
+  for (const v of p.voci) {
+    if (v.sezione !== sez) { sez = v.sezione; html += `<div class="sezione">${esc(sez)}</div>`; }
+    const div = sel && propri.has(v.ordine), cur = eff(v.ordine);
+    html += `<div class="voce${div ? ' diversa' : ''}" data-o="${v.ordine}"><p>${esc(v.testo)}${div ? ` <small>· valore diverso per ${esc(sel.nome)} <a href="#" class="ripr">ripristina</a></small>` : ''}</p><div class="liv">` +
+      ['NE', 'SU', 'MB'].map((k) => `<button data-l="${k}" class="${cur === k ? 'on' : ''}${sel && cur === k && !div ? ' ered' : ''}">${ET[k]} (${v[k.toLowerCase()]})</button>`).join('') + '</div></div>';
+  }
+  const graveVal = sel ? (sel.errore_grave ?? p.errore_grave) : p.errore_grave;
+  $('#app').innerHTML = `<p><a href="#s/${p.sessione_id}">← Sessione</a></p>
+    <div class="stato-bar">${p.candidati.map((c) => `<div><b>${esc(c.nome)}</b> ${c.esito.punti}/${c.esito.massimo}${c.esito.giudizio ? ' · ' + esc(c.esito.giudizio) : ''} ${badge(c.esito)}</div>`).join('')}</div>
+    ${p.candidati.length > 1 ? `<div><small>Sto valutando</small><div class="chips"><button class="chip${modo ? '' : ' on'}" data-m="">Tutti i candidati</button>${p.candidati.map((c) => `<button class="chip${modo === c.id ? ' on' : ''}" data-m="${c.id}">Solo ${esc(c.nome)}</button>`).join('')}</div>
+    <p class="nota">${sel ? `Ogni voce che cambi vale solo per ${esc(sel.nome)}; le altre restano uguali a quelle di tutti.` : 'Ogni voce che segni vale per tutti i candidati.'}</p></div>` : ''}
+    <label class="grave"><input type="checkbox" id="grave" ${graveVal ? 'checked' : ''} ${chiusa ? 'disabled' : ''}> Errore grave${sel ? ` (solo ${esc(sel.nome)})` : ''}: non superato a prescindere dai punti</label>
+    <div class="${chiusa ? 'sola-lettura' : ''}" id="voci">${html}</div>
+    <div class="card" style="position:sticky;bottom:0;margin:12px 0 0"><div class="riga"><div class="stretto">${p.candidati.map((c) => `<button class="s pdfc" data-id="${c.id}">PDF ${esc(c.nome.split(' ')[0])}</button>`).join(' ')}</div>
+      <div class="stretto">${chiusa ? '<button class="b" id="riapri">Riapri prova</button>' : '<button class="b" id="chiudi">Chiudi prova</button>'}</div></div></div>`;
+  document.querySelectorAll('.chip').forEach((b) => { b.onclick = () => { modo = b.dataset.m || null; prova(pid, p); }; });
+  $('#voci').onclick = (e) => {
+    const rip = e.target.closest('.ripr');
+    if (rip) { e.preventDefault(); const o = Number(rip.closest('.voce').dataset.o); return fai(async () => prova(pid, await api(`/esami/prove/${pid}/risposte`, { method: 'PUT', body: { ordine: o, livello: null, candidato_id: modo } }))); }
+    const b = e.target.closest('.liv button'); if (!b || chiusa) return;
+    const o = Number(b.closest('.voce').dataset.o), l = b.dataset.l, gia = eff(o) === l && (!sel || propri.has(o));
+    fai(async () => prova(pid, await api(`/esami/prove/${pid}/risposte`, { method: 'PUT', body: { ordine: o, livello: gia ? null : l, candidato_id: modo } })));
+  };
+  $('#grave').onchange = () => fai(async () => prova(pid, sel ? await api('/esami/candidati/' + sel.id, { method: 'PATCH', body: { errore_grave: $('#grave').checked } }) : await api('/esami/prove/' + pid, { method: 'PATCH', body: { errore_grave: $('#grave').checked } })));
+  document.querySelectorAll('.pdfc').forEach((b) => { b.onclick = () => pdf(`/esami/prove/${pid}/esito.pdf?candidato=${b.dataset.id}`); });
+  if ($('#chiudi')) $('#chiudi').onclick = () => fai(async () => prova(pid, await api('/esami/prove/' + pid, { method: 'PATCH', body: { stato: 'chiusa' } })), 'Prova chiusa');
+  if ($('#riapri')) $('#riapri').onclick = () => fai(async () => prova(pid, await api('/esami/prove/' + pid, { method: 'PATCH', body: { stato: 'bozza' } })), 'Prova riaperta');
+}
+
+async function route() {
+  const [t, id] = location.hash.slice(1).split('/');
+  try { if (t === 's' && id) await sessione(id); else if (t === 'p' && id) { modo = null; await prova(id); } else await elenco(); }
+  catch (e) { $('#app').innerHTML = `<div class="card"><b>${esc(e.message)}</b><p><a href="/">Torna alla Home</a></p></div>`; }
+}
+window.onhashchange = route; route();
+</script></body></html>

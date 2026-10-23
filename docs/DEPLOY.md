@@ -88,3 +88,8 @@ Per la foto del banner della home: copiare un'immagine in `web/img/hero.jpg` (se
 ## Schede d'esame TSSA
 
 Migrazione 015: in libreria (categoria «Esame TSSA») le schede Skill 01 PTC, 03 Seggetta, 04 Valutazione, 15 Barella Scoop, con scala 0/1/2 e fasce di giudizio (Insufficiente…Ottimo). L'esito «superato» scatta dalla fascia Sufficiente. Per usarle: creare un evento di tipo Esame, aggiungere le schede alla scena, assegnare i valutatori.
+
+## Area Esami e Mega Code
+
+- **Esami** (area «Esami», migrazione 016, pagina `/esami.html`, tessera in Home): sessione con data e luogo, senza squadre né scene. Ogni prova ha una scheda della libreria a tre livelli (le Skill TSSA), un candidato principale e fino a due secondari. La scheda si compila una volta e vale per tutti; con «Solo <nome>» si cambia una voce per un singolo candidato. Esito Superato / Non superato per candidato (le fasce della scheda, errore grave = non superato). PDF per candidato e riepilogo della sessione. Assegnata ai ruoli Organizzazione, Istruttore, Manovre salvavita, Monitore.
+- **Mega Code** (migrazione 017): tipo di evento formativo, struttura come le gare (squadra, scene, schede). Le schede per ruolo (leader, autista, soccorritore) vanno ancora definite.

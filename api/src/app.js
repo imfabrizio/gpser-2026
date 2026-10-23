@@ -13,13 +13,14 @@ import { registraRichieste } from './routes-richieste.js';
 import { registraSegreteria } from './routes-segreteria.js';
 import { registraRisorse } from './routes-risorse.js';
 import { registraDocumenti } from './routes-documenti.js';
+import { registraEsami } from './routes-esami.js';
 import { generaClassificaPdf } from './pdf/classifica.js';
 import { generaEsitoPdf } from './pdf/esito.js';
 import { haSchede, comitatoDi, controllaScheda } from './libreria-ambito.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
-const TIPI_EVENTO = ['gara', 'olimpiadi', 'allenamento', 'corso', 'esame'];
+const TIPI_EVENTO = ['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode'];
 
 export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   const app = Fastify({ logger, trustProxy: process.env.TRUST_PROXY === '1' });   // TRUST_PROXY=1 solo dietro a un proxy fidato (es. hosting con HTTPS)
@@ -139,7 +140,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const b = req.body || {};
     if (!b.codice || !b.nome) throw httpErr(400, 'codice e nome obbligatori');
     if (b.tipo && !TIPI_EVENTO.includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
-    const tipo = b.tipo || 'gara', didattico = ['allenamento', 'corso', 'esame'].includes(tipo);
+    const tipo = b.tipo || 'gara', didattico = ['allenamento', 'corso', 'esame', 'megacode'].includes(tipo);
     return (await pool.query(
       `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, mostra_punteggi, soglia_pct) values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
       [b.codice, b.nome, tipo, b.titolo_stampa, b.luogo, b.data, didattico, tipo === 'esame' ? 75 : null])).rows[0];
@@ -386,6 +387,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   registraSegreteria(app, pool, { soloOrg });
   registraRisorse(app, pool, { inTransazione, soloOrg });
   registraDocumenti(app, pool, { soloOrg });
+  registraEsami(app, pool, { soloOrg });
 
   app.setErrorHandler((err, req, reply) => {
     let status = err.statusCode || 500, msg = err.message;

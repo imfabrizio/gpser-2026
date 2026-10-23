@@ -193,7 +193,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   // ── evento / scena / scheda ──
   app.patch('/api/eventi/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
-    if (b.tipo && !['gara', 'olimpiadi', 'allenamento', 'corso', 'esame'].includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
+    if (b.tipo && !['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode'].includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
     if (b.soglia_pct != null && b.soglia_pct !== '' && !(Number(b.soglia_pct) >= 1 && Number(b.soglia_pct) <= 100)) throw httpErr(400, 'soglia: percentuale tra 1 e 100');
     if (b.mappa_url && !/^https:\/\/(www\.)?google\.com\/maps\//.test(b.mappa_url.trim())) throw httpErr(400, 'la mappa deve essere un indirizzo https://www.google.com/maps/… (Condividi → Incorpora mappa)');
     const { rows: [e] } = await pool.query(

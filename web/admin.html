@@ -144,7 +144,7 @@ async function tEvento() {
       <div><label>Titolo in stampa</label><input id="e_tit" value="${esc(ev.titolo_stampa || '')}"></div></div>
     <div class="riga"><div><label>Luogo</label><input id="e_luogo" value="${esc(ev.luogo || '')}"></div>
       <div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
-      <div><label>Tipo</label><select id="e_tipo">${['gara', 'olimpiadi', 'allenamento', 'corso', 'esame'].map((t) => `<option ${ev.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
+      <div><label>Tipo</label><select id="e_tipo">${['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode'].map((t) => `<option ${ev.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
     <div class="riga"><div><label>Soglia di superamento (%) — vuota se non serve</label><input id="e_soglia" type="number" min="1" max="100" value="${esc(ev.soglia_pct ?? '')}"></div>
       <div><label style="display:block">Punteggi ai giudici</label><label style="font-size:15px;color:inherit"><input type="checkbox" id="e_mp" ${ev.mostra_punteggi ? 'checked' : ''}> mostra punti e percentuale mentre compilano (esami, corsi, allenamenti)</label></div></div>
     <p><button class="b" id="e_salva">Salva</button> <button class="s" id="e_attiva" ${ev.attivo ? 'disabled' : ''}>Rendi attivo</button>
@@ -155,7 +155,7 @@ async function tEvento() {
     <p><button class="b" id="e_map_ok">Salva mappa</button></p></div>` : '') + `
   <div class="card"><h3>Nuova gara</h3><div class="riga">
     <div><label>Nome</label><input id="n_nome" placeholder="GPSER 2027"></div><div><label>Codice (se vuoto, ricavato dal nome)</label><input id="n_cod" placeholder="GPSER-2027"></div>
-    <div><label>Tipo</label><select id="n_tipo"><option value="gara">gara</option><option value="olimpiadi">olimpiadi</option><option value="allenamento">allenamento</option><option value="corso">corso</option><option value="esame">esame (soglia 75%)</option></select></div>
+    <div><label>Tipo</label><select id="n_tipo"><option value="gara">gara</option><option value="olimpiadi">olimpiadi</option><option value="allenamento">allenamento</option><option value="corso">corso</option><option value="megacode">mega code (formativo)</option><option value="esame">esame (soglia 75%)</option></select></div>
     <div><label>Luogo</label><input id="n_luogo"></div><div><label>Data</label><input id="n_data" type="date"></div></div>
     <p><button class="b" id="n_crea">Crea evento</button></p></div>`;
   if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});

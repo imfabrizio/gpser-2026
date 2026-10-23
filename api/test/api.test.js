@@ -895,6 +895,40 @@ test('ES-2 schede d\'esame TSSA: 4 schede in libreria, scala 0-1-2, fasce di giu
   assert.equal(pdf.statusCode, 200);
 });
 
+test('ESA-1 area Esami: sessione, principale + secondari, valore diverso per un candidato, errore grave, chiusura, PDF', async () => {
+  const O = tok['org@t'], G = tok['giu@t'];
+  assert.equal((await chiama('GET', '/api/esami/sessioni', { token: G })).statusCode, 403);          // il giudice non entra
+  const sess = json(await chiama('POST', '/api/esami/sessioni', { token: O, body: { nome: 'Esame ottobre', data: '2026-10-30', luogo: 'Modena' } }));
+  const schede = json(await chiama('GET', '/api/esami/schede', { token: O }));
+  const ptc = schede.find((x) => /PTC/.test(x.nome)); assert.ok(ptc); assert.ok(schede.every((x) => !/PAT_/.test(x.nome)));
+  const cr = await chiama('POST', `/api/esami/sessioni/${sess.id}/prove`, { token: O, body: { patologiaId: ptc.id, candidati: [{ nome: 'Anna Rossi' }, { nome: 'Luca Bianchi', comitato: 'Parma' }, { nome: 'Sara Verdi' }] } });
+  const pid = json(cr).id;
+  assert.equal((await chiama('POST', `/api/esami/sessioni/${sess.id}/prove`, { token: O, body: { patologiaId: ptc.id, candidati: [] } })).statusCode, 400);
+  let p = json(await chiama('GET', `/api/esami/prove/${pid}`, { token: O }));
+  assert.equal(p.candidati.length, 3); assert.equal(p.candidati[0].ruolo, 'principale'); assert.equal(p.voci.length, 22);
+  // tutte le voci "corretto" (comune) -> tutti superano con 44/44
+  for (const v of p.voci) p = json(await chiama('PUT', `/api/esami/prove/${pid}/risposte`, { token: O, body: { ordine: v.ordine, livello: 'MB' } }));
+  assert.ok(p.candidati.every((c) => c.esito.superato && c.esito.punti === 44 && c.esito.giudizio === 'Ottimo'));
+  // valore diverso per il secondario: 13 voci "non eseguito" -> 18/44, non supera, gli altri restano invariati
+  const sec = p.candidati[1];
+  for (const v of p.voci.slice(0, 13)) p = json(await chiama('PUT', `/api/esami/prove/${pid}/risposte`, { token: O, body: { ordine: v.ordine, livello: 'NE', candidato_id: sec.id } }));
+  const per = (n) => p.candidati.find((c) => c.nome === n).esito;
+  assert.equal(per('Luca Bianchi').superato, false); assert.equal(per('Luca Bianchi').punti, 18); assert.equal(per('Anna Rossi').superato, true); assert.equal(per('Sara Verdi').punti, 44);
+  // errore grave solo su un candidato
+  p = json(await chiama('PATCH', `/api/esami/candidati/${p.candidati[2].id}`, { token: O, body: { errore_grave: true } }));
+  assert.equal(per('Sara Verdi').superato, false); assert.equal(per('Anna Rossi').superato, true);
+  // chiusura: blocca le modifiche, riapertura le riconsente
+  p = json(await chiama('PATCH', `/api/esami/prove/${pid}`, { token: O, body: { stato: 'chiusa' } })); assert.equal(p.stato, 'chiusa');
+  assert.equal((await chiama('PUT', `/api/esami/prove/${pid}/risposte`, { token: O, body: { ordine: 1, livello: 'SU' } })).statusCode, 409);
+  const pdf = await chiama('GET', `/api/esami/prove/${pid}/esito.pdf?candidato=${sec.id}`, { token: O });
+  assert.equal(pdf.statusCode, 200); assert.equal(pdf.rawPayload.subarray(0, 4).toString(), '%PDF');
+  const rie = await chiama('GET', `/api/esami/sessioni/${sess.id}/riepilogo.pdf`, { token: O });
+  assert.equal(rie.statusCode, 200); assert.equal(rie.rawPayload.subarray(0, 4).toString(), '%PDF');
+  const lista = json(await chiama('GET', `/api/esami/sessioni/${sess.id}`, { token: O }));
+  assert.equal(lista.prove[0].candidati.length, 3);
+  p = json(await chiama('PATCH', `/api/esami/prove/${pid}`, { token: O, body: { stato: 'bozza' } })); assert.equal(p.stato, 'bozza');
+});
+
 test('CM-1 schede dei comitati: private al comitato, la direzione le vede solo su richiesta e non le modifica', async () => {
   const A = tok['adm@t'], O = tok['org@t'];
   const mk = async (email, comitato) => {

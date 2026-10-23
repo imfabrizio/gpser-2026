@@ -25,11 +25,11 @@ insert into ruolo (codice, nome, sistema, aree) values
   ('giudice', 'Giudice', true, '{valutazione}'),
   ('giudice_master', 'Giudice master', true, '{valutazione}'),
   ('partecipante', 'Partecipante e altri ruoli', true, '{}'),
-  ('organizzazione', 'Organizzazione', true, '{gara,scene,schede,squadre,notizie,anagrafiche,classifiche,stampa,importa,segreteria,valutazione,documentazione}'),
+  ('organizzazione', 'Organizzazione', true, '{gara,scene,schede,squadre,notizie,anagrafiche,classifiche,stampa,importa,segreteria,valutazione,documentazione,esami}'),
   ('segreteria', 'Segreteria', false, '{segreteria}'),
-  ('istruttore', 'Istruttore', false, '{formazione_esame}'),
-  ('manovre_salvavita', 'Manovre salvavita', false, '{formazione_esame}'),
-  ('monitore', 'Monitore', false, '{formazione_esame}');
+  ('istruttore', 'Istruttore', false, '{formazione_esame,esami}'),
+  ('manovre_salvavita', 'Manovre salvavita', false, '{formazione_esame,esami}'),
+  ('monitore', 'Monitore', false, '{formazione_esame,esami}');
 
 create table utente (
   id            uuid primary key default gen_random_uuid(),
@@ -67,7 +67,7 @@ create table evento (
   id          uuid primary key default gen_random_uuid(),
   codice      text not null unique,              -- es. GPSER-2026
   nome        text not null,
-  tipo        text not null default 'gara' check (tipo in ('gara','olimpiadi','allenamento','corso','esame')),
+  tipo        text not null default 'gara' check (tipo in ('gara','olimpiadi','allenamento','corso','esame','megacode')),
   soglia_pct  numeric(5,2) check (soglia_pct between 1 and 100),   -- percentuale minima per superare (esami)
   mostra_punteggi boolean not null default false,                   -- il giudice vede i punti e la percentuale mentre compila
   titolo_stampa text,                            -- "Gara Regionale di primo soccorso"
@@ -381,7 +381,47 @@ create table richiesta_accesso (
   unique (provider, sub)
 );
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql');   -- lo schema qui sopra le include già tutte
+create table if not exists sessione_esame (
+  id         uuid primary key default gen_random_uuid(),
+  nome       text not null check (length(nome) between 1 and 150),
+  data       date,
+  luogo      text,
+  creato_da  uuid references utente(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create table if not exists prova_esame (
+  id           uuid primary key default gen_random_uuid(),
+  sessione_id  uuid not null references sessione_esame(id) on delete cascade,
+  patologia_id uuid references patologia(id) on delete set null,
+  titolo       text not null,
+  fasce        jsonb,
+  voci         jsonb not null,                  -- copia della scheda: [{ordine, sezione, testo, ne, su, mb}]
+  valutatore   text,
+  stato        text not null default 'bozza' check (stato in ('bozza', 'chiusa')),
+  errore_grave boolean not null default false,  -- vale per tutti i candidati, salvo diversa indicazione sul candidato
+  chiusa_at    timestamptz,
+  ordine       int not null default 0,
+  created_at   timestamptz not null default now()
+);
+create table if not exists candidato_esame (
+  id              uuid primary key default gen_random_uuid(),
+  prova_id        uuid not null references prova_esame(id) on delete cascade,
+  ruolo           text not null check (ruolo in ('principale', 'secondario')),
+  nome            text not null,
+  comitato        text,
+  partecipante_id uuid references partecipante(id) on delete set null,
+  errore_grave    boolean,                      -- null = segue la prova
+  ordine          int not null default 0
+);
+create table if not exists risposta_esame (      -- candidato_id null = valutazione comune a tutti; con candidato = valore diverso solo per lui
+  prova_id     uuid not null references prova_esame(id) on delete cascade,
+  candidato_id uuid references candidato_esame(id) on delete cascade,
+  ordine       int not null,
+  livello      text not null check (livello in ('NE', 'SU', 'MB'))
+);
+create unique index if not exists risposta_esame_uq on risposta_esame (prova_id, coalesce(candidato_id, '00000000-0000-0000-0000-000000000000'::uuid), ordine);
+
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql');   -- lo schema qui sopra le include già tutte
 
 -- schede d'esame TSSA (stesso contenuto della migrazione 015)
 insert into scala_punteggio (codice, mb, su, ne) values ('Esame 0-1-2', 2, 1, 0) on conflict (codice) do nothing;

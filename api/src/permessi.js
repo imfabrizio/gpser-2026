@@ -1,7 +1,7 @@
 // Ruoli e aree della Gestione. Un utente ha un ruolo (con le sue aree) e, se serve, la spunta "admin" che dà accesso a tutto.
 export const AREE = {
   gara: 'Gara', scene: 'Scene', schede: 'Schede', squadre: 'Squadre', notizie: 'Notizie', anagrafiche: 'Anagrafiche',
-  classifiche: 'Classifiche', stampa: 'Stampa', importa: 'Importa', segreteria: 'Segreteria', valutazione: 'Valutazione', documentazione: 'Documentazione', formazione_esame: 'Formazione d\'esame',
+  classifiche: 'Classifiche', stampa: 'Stampa', importa: 'Importa', segreteria: 'Segreteria', valutazione: 'Valutazione', documentazione: 'Documentazione', formazione_esame: 'Formazione d\'esame', esami: 'Esami',
 };   // Utenti, Ruoli e Richieste restano riservati agli admin
 
 // ruolo "efficace" usato dai controlli: admin > staff (ruolo con almeno un'area) > giudice / giudice master > partecipante (nessun potere)
@@ -24,6 +24,7 @@ const REGOLE = [
   R('GET', '/api/eventi/:id/(classifica|classifica.pdf|monitor)', ['classifiche']), R('GET', '/api/eventi/:id/stampa.pdf', ['stampa']),
   R('POST', '/api/sync', ['valutazione']), R('GET', '/api/compilazioni', ['valutazione']), R('GET', '/api/schede/:id/esito.pdf', ['valutazione']), R('GET', '/api/schede/:id', ['valutazione', 'scene']),
   R('POST|PATCH|DELETE', '/api/documenti(/:id)?', ['documentazione']),
+  R('GET|POST|PATCH|PUT|DELETE', '/api/esami/.*', ['esami']), R('GET|POST|PATCH|PUT|DELETE', '/api/esami', ['esami']),
   R('GET', '/api/eventi/:id/risorse', ['scene']), R('PUT', '/api/scene/:id/risorse', ['scene']),
   R('GET|POST|PATCH|DELETE', '/api/eventi/:id/iscritti(/da-squadre)?', ['segreteria']), R('PATCH|DELETE', '/api/iscritti/:id', ['segreteria']), R('POST', '/api/iscritti/:id/(arrivo|annulla-arrivo)', ['segreteria']),
   R('GET', '/api/eventi/:id/badge.pdf', ['segreteria']), R('PUT', '/api/eventi/:id/formato-badge', ['segreteria']), R('GET', '/api/segreteria/persone', ['segreteria']),
