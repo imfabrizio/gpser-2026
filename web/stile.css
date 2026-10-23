@@ -88,7 +88,7 @@ details.grp { border-radius:8px; }
 .banner h2 { font-family:var(--titoli); font-size:clamp(34px,6vw,60px); line-height:1; color:#fff; margin:6px auto 8px; border:0; padding:0; }
 .banner div { font-size:17px; }
 .banner label { color:#fff; margin-top:14px; display:block; } .banner select { max-width:420px; }
-.sezione-home { max-width:960px; margin:0 auto; }
+.sezione-home { max-width:960px; margin:0 auto 22px; }
 .sezione-home > h3 { font-size:26px; border-left:6px solid var(--rosso); padding-left:12px; margin:8px 0 12px; }
 
 /* riquadri: scheda bianca con fascia illustrata, come le card del sito nazionale */

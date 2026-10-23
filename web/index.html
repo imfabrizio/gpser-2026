@@ -32,7 +32,7 @@
   .liv button { width:118px; padding:8px 2px; font-size:13px; font-weight:700; border:2px solid #111; color:#111; background:#fff; border-radius:8px; min-height:44px; white-space:nowrap; }
   .sola-lettura .liv button { pointer-events:none; opacity:.85; }
   .avviso { background:#fff4d6; border:1px solid #e6c34a; border-radius:10px; padding:10px 12px; margin-bottom:10px; }
-  .liv.tre button { width:128px; white-space:normal; line-height:1.15; font-size:12.5px; padding:6px 6px; }
+  .liv.tre button { width:104px; white-space:normal; line-height:1.15; font-size:12.5px; padding:6px 6px; }
   .liv button[disabled] { background:#000; border-color:#000; }
   .liv button.on { color:#fff !important; border-color:#111; }
   .liv button.on[data-l=BE], .liv button.on[data-l=SU], .liv button.on[data-l=IN] { color:#111 !important; }
@@ -67,7 +67,7 @@
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const LIV = [['MB','Molto bene'],['BE','Bene'],['SU','Soddisfacente'],['IN','Insufficiente'],['NE','Non eseguito']];   // nessun punteggio: chi inserisce i dati non lo conosce
-const ET3 = { NE: 'Non eseguito', SU: 'Eseguito sufficientemente bene', MB: 'Eseguito correttamente' };   // schede a 3 livelli (0-1-2) degli esami
+const ET3 = { NE: 'Non eseguito', SU: 'Sufficiente', MB: 'Bene' };   // schede a 3 livelli (0-1-2) degli esami
 const TIPO_EV = { gara: 'Gara', olimpiadi: 'Olimpiadi', allenamento: 'Allenamento', corso: 'Corso', esame: 'Esame', megacode: 'Mega Code' };
 const master = () => me && me.ruolo === 'giudice_master';
 let token = localStorage.getItem('token'), me = JSON.parse(localStorage.getItem('me') || 'null');
@@ -244,7 +244,7 @@ async function garaCorrente() {
   window.__ev = ev;
   return { ev, eventi };
 }
-const ICONE = {"esami": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 9l10-5 10 5-10 5z\"/><path d=\"M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5\"/><path d=\"M22 9v6\"/></svg>", "documenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5\"/><path d=\"M9 8h7M9 12h7\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>"};
+const ICONE = {"libreria": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h9l4 4v14H6z\"/><path d=\"M14 3v5h5M9 13h7M9 17h7\"/></svg>", "esami": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 9l10-5 10 5-10 5z\"/><path d=\"M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5\"/><path d=\"M22 9v6\"/></svg>", "documenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5\"/><path d=\"M9 8h7M9 12h7\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>"};
 const oggi = () => new Date().toISOString().slice(0, 10);
 const statoGara = (e) => (e.attivo ? 'in corso' : (e.data && e.data > oggi() ? 'prossima' : 'passata'));
 function menuGare(eventi, corrente) {
@@ -253,20 +253,28 @@ function menuGare(eventi, corrente) {
 }
 async function vistaHome() {
   $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'GareCRI';
+  const aree = me.aree || [];
+  const soloFormazione = org() && !me.admin && aree.every((a) => ['esami', 'formazione_esame', 'valutazione'].includes(a)) && !aree.includes('valutazione');   // es. istruttore con solo Esami
+  const tileF = (href, ico, titolo, desc) => `<a class="tile" href="${href}"><i class="ico">${ICONE[ico]}</i><b>${titolo}</b><span>${desc}</span></a>`;
+  const formazione = `<div class="sezione-home"><h3>Formazione</h3><div class="tiles">
+      ${aree.includes('esami') ? tileF('/esami.html', 'esami', 'Esami', 'Sessioni d\'esame e valutazioni') : ''}
+      ${aree.includes('formazione_esame') ? tileF('/admin.html#libreria', 'libreria', 'Schede d\'esame', 'Libreria delle schede e schede del comitato') : ''}
+      ${tileF('#documenti', 'documenti', 'Documentazione', 'Regolamento, comunicazioni, manuali')}</div></div>`;
+  if (soloFormazione) { $('#app').innerHTML = formazione; return; }
   const { ev, eventi } = await garaCorrente();
-  if (!ev) { $('#app').innerHTML = '<div class="card">Nessuna gara.' + (org() ? ' <a class="btn" href="/admin.html#menu">Vai a Gestione per crearne una</a>' : ' Chiedi all\'organizzazione di assegnartene una.') + '</div>'; return; }
+  if (!ev) { $('#app').innerHTML = '<div class="card">Nessuna gara.' + (org() ? ' <a class="btn" href="/admin.html#menu">Vai a Gestione per crearne una</a>' : ' Chiedi all\'organizzazione di assegnartene una.') + '</div>' + formazione; return; }
   const avvisi = await api(`/avvisi?evento=${ev.id}`).catch(() => []);
   const scene = await api(`/eventi/${ev.id}/scene`).catch(() => []);
   const tipoGara = TIPO_EV[ev.tipo] || 'Gara';
+  const gestioneGara = org() && aree.some((a) => !['valutazione', 'esami', 'formazione_esame'].includes(a));
+  const tileGara = (aree.includes('valutazione') ? tileF('#valutazione', 'valutazione', 'Valutazione', esc(ev.nome)) : '')
+    + (gestioneGara ? tileF('/admin.html#menu', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '')
+    + (gestioneGara && aree.includes('classifiche') ? tileF('#monitor', 'monitor', 'Monitor', 'Avanzamento delle schede') : '');
   $('#app').innerHTML = `<div class="banner"><small>${tipoGara} ${statoGara(ev)}</small><h2>${esc(ev.nome)}</h2>
     <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
     ${org() ? `<label>Cambia gara</label>${menuGare(eventi, ev)}` : ''}</div>
-    <div class="sezione-home"><h3>Cosa vuoi fare</h3><div class="tiles">
-      ${(me.aree || []).includes('valutazione') ? `<a class="tile" href="#valutazione"><i class="ico">${ICONE.valutazione}</i><b>Valutazione</b><span>${esc(ev.nome)}</span></a>` : ''}
-      ${(me.aree || []).includes('esami') ? `<a class="tile" href="/esami.html"><i class="ico">${ICONE.esami}</i><b>Esami</b><span>Sessioni d'esame e valutazioni</span></a>` : ''}
-      <a class="tile" href="#documenti"><i class="ico">${ICONE.documenti}</i><b>Documentazione</b><span>Regolamento, comunicazioni, manuali</span></a>
-      ${org() && (me.aree || []).some((a) => !['valutazione', 'esami'].includes(a)) ? `<a class="tile" href="/admin.html#menu"><i class="ico">${ICONE.gestione}</i><b>Gestione</b><span>Scene, schede, squadre, classifiche</span></a>
-      ${(me.aree || []).includes('classifiche') ? `<a class="tile" href="#monitor"><i class="ico">${ICONE.monitor}</i><b>Monitor</b><span>Avanzamento delle schede</span></a>` : ''}` : ''}</div></div>
+    ${tileGara.trim() ? `<div class="sezione-home"><h3>Gara</h3><div class="tiles">${tileGara}</div></div>` : ''}
+    ${formazione}
     ${mappaHtml(ev, scene)}
     <div class="card"><strong>Avvisi e informazioni</strong>${avvisi.length ? avvisi.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessun avviso.</small></p>'}</div>`;
   if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem('ev', $('#selgara').value); vistaHome(); };

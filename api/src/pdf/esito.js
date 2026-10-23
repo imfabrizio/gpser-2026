@@ -8,7 +8,7 @@ const FONT_B = new URL('../../../assets/fonts/LiberationSans-Bold.ttf', import.m
 const LOGO = fs.readFileSync(new URL('../../../assets/logo-cri.jpg', import.meta.url));
 const ROSSO = '#C8102E';
 const LIV = { MB: 'Molto bene', BE: 'Bene', SU: 'Soddisfacente', IN: 'Insufficiente', NE: 'Non eseguito' };
-const LIV3 = { MB: 'Eseguito correttamente', SU: 'Eseguito sufficientemente', NE: 'Non eseguito' };
+const LIV3 = { MB: 'Bene', SU: 'Sufficiente', NE: 'Non eseguito' };
 const dataIt = (d) => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '');
 const TIPO = { esame: 'Esame', corso: 'Corso', allenamento: 'Allenamento', gara: 'Gara', olimpiadi: 'Olimpiadi', megacode: 'Mega Code' };
 

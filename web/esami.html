@@ -25,7 +25,7 @@
   .stato-bar > div { display:flex; align-items:center; gap:8px; }
   .voce { border:1px solid var(--bordo); border-radius:8px; padding:8px 10px; margin-bottom:6px; background:#fff; display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
   .voce.diversa { border-color:var(--avviso); background:#FFF8E6; } .voce p { margin:0; flex:1 1 260px; }
-  .liv { display:flex; gap:6px; } .liv button { width:128px; min-height:44px; padding:6px; font-size:12.5px; font-weight:700; line-height:1.15; border:2px solid #111; color:#111; background:#fff; border-radius:8px; cursor:pointer; }
+  .liv { display:flex; gap:6px; } .liv button { width:104px; min-height:44px; padding:6px; font-size:12.5px; font-weight:700; line-height:1.15; border:2px solid #111; color:#111; background:#fff; border-radius:8px; cursor:pointer; }
   .liv button.on[data-l=NE] { background:#B71C1C; color:#fff; } .liv button.on[data-l=SU] { background:#FACC15; } .liv button.on[data-l=MB] { background:#1B8A3A; color:#fff; }
   .liv button.ered { border-style:dashed; opacity:.6; }
   .sezione { background:var(--inchiostro); color:#fff; font-family:var(--titoli); font-size:18px; border-radius:6px; padding:6px 10px; margin:10px 0 6px; }
@@ -53,7 +53,7 @@ const pdf = async (path) => { const w = window.open('', '_blank'); try { const r
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 const dataIt = (d) => (d ? d.split('-').reverse().join('/') : '');
 const badge = (e) => e.completa || e.superato ? `<span class="esito-b ${e.superato ? 'si' : 'no'}">${e.superato ? 'SUPERATO' : 'NON SUPERATO'}</span>` : `<span class="esito-b in">in corso</span>`;
-const ET = { NE: 'Non eseguito', SU: 'Eseguito sufficientemente bene', MB: 'Eseguito correttamente' };
+const ET = { NE: 'Non eseguito', SU: 'Sufficiente', MB: 'Bene' };
 
 async function elenco() {
   $('#titolo').textContent = 'Esami';
