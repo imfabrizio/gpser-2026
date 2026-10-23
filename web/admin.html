@@ -65,10 +65,9 @@
   @media (max-width:640px) { .voci { font-size:13px; } }
 </style>
 <link rel="stylesheet" href="stile.css">
-<script src="tema.js"></script>
 </head>
 <body>
-<header><img class="logo" src="/logo-cri.jpg" alt="CRI"><h1>GareCRI · Gestione</h1><span id="chi"></span><a href="/#sicurezza" style="color:#fff;font-size:14px">Sicurezza</a><button id="aspetto" class="aspetto-b" onclick="GareTema.scegli()">Aspetto</button><button id="esci">Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="CRI"><h1>GareCRI · Gestione</h1><span id="chi"></span><a href="/#sicurezza">Sicurezza</a><button id="esci">Esci</button></header>
 <nav id="tabs" hidden></nav>
 <main id="app"></main>
 <dialog id="dlg"></dialog>
@@ -834,7 +833,7 @@ async function render() {
 (async () => {
   if (!token || !me) { location.href = '/'; return; }
   if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata all\'organizzazione. <a href="/">Torna alle valutazioni</a></div></main>'; return; }
-  try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); GareTema.sync(me); } catch (e) { /* offline: resta il profilo salvato */ }
+  try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch (e) { /* offline: resta il profilo salvato */ }
   if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata. <a href="/">Torna alla Home</a></div></main>'; return; }
   $('#chi').textContent = me.nome; const h0 = location.hash.slice(1); tab = TABS.some(([k]) => k === h0) && consentito(h0) ? h0 : 'menu';
   disegnaTabs(); await caricaEventi(); render();
