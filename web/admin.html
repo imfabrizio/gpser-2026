@@ -31,7 +31,7 @@
   .tag.ok { background:#d9f0dc; color:#1b5e20; } .tag.no { background:#fde0e0; color:#a00; }
   table { width:100%; border-collapse:collapse; } td, th { padding:7px 5px; border-bottom:1px solid var(--bordo); text-align:left; vertical-align:middle; }
   .scheda { border:1px solid var(--bordo); border-radius:10px; padding:10px; margin-top:8px; }
-  .msg { padding:10px 12px; border-radius:8px; margin-bottom:10px; } .msg.err { background:#fde0e0; color:#a00; } .msg.ok { background:#d9f0dc; color:#1b5e20; }
+  .msg { padding:10px 12px; border-radius:8px; margin-bottom:10px; position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:50; max-width:min(560px,92vw); box-shadow:0 6px 20px #0004; font-weight:700; } .msg.err { background:#fde0e0; color:#a00; } .msg.ok { background:#d9f0dc; color:#1b5e20; }
   dialog { border:0; border-radius:14px; padding:16px; width:min(96vw, 900px); max-height:92vh; box-shadow:0 8px 30px #0005; }
   dialog::backdrop { background:#0006; }
   .voci td input, .voci td select { padding:6px; font-size:14px; }
@@ -89,7 +89,7 @@ async function api(path, opt = {}) {
   return j;
 }
 const flash = (testo, ok = true) => { const d = document.createElement('div'); d.className = 'msg ' + (ok ? 'ok' : 'err'); d.textContent = testo;
-  $('#app').prepend(d); setTimeout(() => d.remove(), ok ? 3000 : 8000); };
+  document.body.append(d); setTimeout(() => d.remove(), ok ? 3000 : 8000); };
 const fai = async (fn, okMsg) => { try { await fn(); await render(); if (okMsg) flash(okMsg); } catch (e) { flash(e.message, false); } };
 const dlg = (html) => { $('#dlg').innerHTML = html; $('#dlg').showModal(); };
 const chiudi = () => $('#dlg').close();
@@ -370,7 +370,9 @@ async function tScene() {
   document.querySelectorAll('.delsc').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la scena con tutte le sue schede?')) fai(() => api(`/scene/${b.dataset.id}`, { method: 'DELETE' }), 'Scena eliminata'); }; });
   document.querySelectorAll('.a_ok').forEach((b) => { b.onclick = () => { const c = b.closest('.scheda');
     fai(() => api(`/scene/${b.dataset.id}/schede`, { body: { patologiaId: c.querySelector('.a_pat').value, slot: Number(c.querySelector('.a_slot').value), simulatore: c.querySelector('.a_sim').value.trim() } }), 'Scheda aggiunta'); }; });
-  $('#ns_ok').onclick = () => { const c = $('#ns_cod').value.trim().toUpperCase(), t = $('#ns_tit').value.trim(); if (c && t) fai(() => api(`/eventi/${ev.id}/scene`, { body: { codice: c, titolo: t, ordine: scene.length } }), 'Scena creata'); };
+  $('#ns_ok').onclick = () => { const c = $('#ns_cod').value.trim().toUpperCase(), t = $('#ns_tit').value.trim(); if (!c || !t) return flash('Scrivi il codice (es. A) e il titolo della scena', false);
+    if (scene.some((x) => x.codice === c)) return flash(`La scena ${c} esiste già in questa gara: scegli un altro codice`, false);
+    fai(() => api(`/eventi/${ev.id}/scene`, { body: { codice: c, titolo: t, ordine: scene.length } }), 'Scena creata'); };
   document.querySelectorAll('.dup').forEach((b) => { b.onclick = () => dlg(`<h3>Duplica scena</h3><label>Evento di destinazione</label>
     <select id="d_ev">${eventi.map((e) => `<option value="${e.id}">${esc(e.codice)} – ${esc(e.nome)}</option>`).join('')}</select>
     <label>Codice nella destinazione</label><input id="d_cod" maxlength="3">
