@@ -438,7 +438,63 @@ create table if not exists unita_territoriale (
 create unique index if not exists unita_uq on unita_territoriale (comitato_id, lower(nome));
 alter table partecipante add column if not exists unita text;
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql');   -- lo schema qui sopra le include già tutte
+-- Comitati dell'Emilia-Romagna (elenco del portale Gaia della CRI; le province vanno verificate)
+insert into comitato (nome, regione, provincia) values
+  ('Bassa Romagna', 'Emilia-Romagna', 'RA'),
+  ('Bagnolo in Piano', 'Emilia-Romagna', 'RE'),
+  ('Bedonia', 'Emilia-Romagna', 'PR'),
+  ('Bologna', 'Emilia-Romagna', 'BO'),
+  ('Canossa', 'Emilia-Romagna', 'RE'),
+  ('Carpi', 'Emilia-Romagna', 'MO'),
+  ('Carpineti', 'Emilia-Romagna', 'RE'),
+  ('Casina', 'Emilia-Romagna', 'RE'),
+  ('Castellarano', 'Emilia-Romagna', 'RE'),
+  ('Cattolica - Morciano di Romagna', 'Emilia-Romagna', 'RN'),
+  ('Cavriago', 'Emilia-Romagna', 'RE'),
+  ('Cento-Bondeno', 'Emilia-Romagna', 'FE'),
+  ('Cervia', 'Emilia-Romagna', 'RA'),
+  ('Cesena', 'Emilia-Romagna', 'FC'),
+  ('Cesenatico', 'Emilia-Romagna', 'FC'),
+  ('Correggio', 'Emilia-Romagna', 'RE'),
+  ('Fabbrico', 'Emilia-Romagna', 'RE'),
+  ('Faenza', 'Emilia-Romagna', 'RA'),
+  ('Ferrara', 'Emilia-Romagna', 'FE'),
+  ('Fidenza', 'Emilia-Romagna', 'PR'),
+  ('Finale Emilia', 'Emilia-Romagna', 'MO'),
+  ('Fontanellato', 'Emilia-Romagna', 'PR'),
+  ('Forlì', 'Emilia-Romagna', 'FC'),
+  ('Forlimpopoli - Bertinoro', 'Emilia-Romagna', 'FC'),
+  ('Guastalla', 'Emilia-Romagna', 'RE'),
+  ('Imola', 'Emilia-Romagna', 'BO'),
+  ('Medesano', 'Emilia-Romagna', 'PR'),
+  ('Modena', 'Emilia-Romagna', 'MO'),
+  ('Novellara', 'Emilia-Romagna', 'RE'),
+  ('Palanzano', 'Emilia-Romagna', 'PR'),
+  ('Parma', 'Emilia-Romagna', 'PR'),
+  ('Piacenza', 'Emilia-Romagna', 'PC'),
+  ('Ponte Taro', 'Emilia-Romagna', 'PR'),
+  ('Prignano sulla Secchia', 'Emilia-Romagna', 'MO'),
+  ('Quattro Castella', 'Emilia-Romagna', 'RE'),
+  ('Ravenna', 'Emilia-Romagna', 'RA'),
+  ('Reggio Emilia', 'Emilia-Romagna', 'RE'),
+  ('Reggiolo', 'Emilia-Romagna', 'RE'),
+  ('Riccione', 'Emilia-Romagna', 'RN'),
+  ('Rimini', 'Emilia-Romagna', 'RN'),
+  ('Rubiera', 'Emilia-Romagna', 'RE'),
+  ('San Secondo Parmense', 'Emilia-Romagna', 'PR'),
+  ('Sassuolo', 'Emilia-Romagna', 'MO'),
+  ('Scandiano', 'Emilia-Romagna', 'RE'),
+  ('Scurano', 'Emilia-Romagna', 'PR'),
+  ('Soragna', 'Emilia-Romagna', 'PR'),
+  ('Sorbolo', 'Emilia-Romagna', 'PR'),
+  ('Toano', 'Emilia-Romagna', 'RE'),
+  ('Tizzano Val Parma', 'Emilia-Romagna', 'PR')
+on conflict (lower(nome)) do nothing;
+update comitato set alias = (select array(select distinct unnest(alias || array['Prignano SS','Prignano S/S','Prignano S.S.']))) where lower(nome) = 'prignano sulla secchia';
+insert into unita_territoriale (comitato_id, nome)
+  select c.id, u from comitato c, unnest(array['Prignano sulla Secchia','Pavullo nel Frignano']) as u where lower(c.nome) = 'prignano sulla secchia' on conflict do nothing;
+
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql');   -- lo schema qui sopra le include già tutte
 
 -- schede d'esame TSSA (stesso contenuto della migrazione 015)
 insert into scala_punteggio (codice, mb, su, ne) values ('Esame 0-1-2', 2, 1, 0) on conflict (codice) do nothing;

@@ -936,7 +936,7 @@ test('COM-1 comitati: import, ricerca con suggerimenti, nomi liberi ricondotti a
   assert.equal(imp.importati, 3);
   const c1 = json(await chiama('GET', '/api/comitati/cerca?q=pri', { token: G })); assert.equal(c1[0].nome, 'Prignano sulla Secchia'); assert.deepEqual(c1[0].unita, ['Pavullo', 'Prignano']);
   assert.deepEqual(json(await chiama('GET', '/api/comitati/cerca?q=rub', { token: G }))[0].unita, ['Rubiera']);          // senza unità: una sola, col nome del comitato
-  assert.equal(json(await chiama('GET', '/api/comitati/cerca?provincia=MO', { token: G })).length, 2);
+  { const mo = json(await chiama('GET', '/api/comitati/cerca?provincia=MO', { token: G })).map((c) => c.nome); assert.ok(mo.includes('Modena') && !mo.includes('Rubiera')); }
   // "Prignano SS" e "Prignano S.S." diventano il nome ufficiale, con provincia e unità
   const p = json(await chiama('POST', '/api/persone', { token: O, body: { cognome: 'Test', nome: 'Com', comitato: 'Prignano S.S.' } }));
   assert.equal(p.comitato, 'Prignano sulla Secchia'); assert.equal(p.provincia, 'MO');
