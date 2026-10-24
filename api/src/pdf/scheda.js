@@ -106,18 +106,24 @@ export function disegnaScheda(doc, ctx) {
   rect(doc, 488, 173, 79, 43); rect(doc, 567, 173, 316, 43);
   testo(doc, 'Giudice', 488, 173, 79, 43, { size: 11 });
   if (!vuota && compilazione?.giudice) testo(doc, compilazione.giudice, 567, 173, 316, 43, { size: 11, font: 'Sans-Bold' });
-  rect(doc, X0, 216, 158, 21); rect(doc, 185, 216, 303, 21); rect(doc, 488, 216, 395, 21);
+  rect(doc, X0, 216, 158, 21); rect(doc, 185, 216, 303, 21);
   testo(doc, 'Squadra', X0, 216, 158, 21, { size: 9.5 });
   testo(doc, `${squadra.numero}-${squadra.nome}`, 185, 216, 303, 21, { size: 9.5, font: 'Sans-Bold' });
   rect(doc, X0, 237, 461, 44);
   testo(doc, scena.titolo, X0, 237, 461, 44, { size: 14, font: 'Sans-Bold' });
-  rect(doc, 488, 237, 395, 44);
+  // parametri del simulatore: griglia sulle stesse colonne dei livelli (vuota per le schede senza parametri, es. Master)
   const par = scheda.parametri || {};
-  const righe = [
-    [par.coscienza && `Coscienza: ${par.coscienza}`, par.fr != null && `FR: ${par.fr}`, par.fc != null && `FC: ${par.fc}`].filter(Boolean).join('    '),
-    par.cute ? `Cute: ${par.cute}` : '',
-  ].filter(Boolean).join('\n');
-  if (righe) testo(doc, righe, 488, 237, 395, 44, { size: 9.5, align: 'left', pad: 8, multi: true });
+  const campi = [['Coscienza', par.coscienza], ['FR', par.fr], ['FC', par.fc], ['Cute', par.cute]];
+  if (campi.some(([, v]) => v != null && v !== '')) {
+    rect(doc, XL, 216, COLW, 21); rect(doc, XL, 237, COLW, 44);
+    testo(doc, 'Parametri', XL, 237, COLW, 44, { size: 9.5 });
+    campi.forEach(([n, v], i) => {
+      const x = XL + (i + 1) * COLW;
+      rect(doc, x, 216, COLW, 21); rect(doc, x, 237, COLW, 44);
+      testo(doc, n, x, 216, COLW, 21, { size: 9.5 });
+      testo(doc, v == null ? '' : String(v), x, 237, COLW, 44, { size: 9.5, multi: true });
+    });
+  } else { rect(doc, XL, 216, X1 - XL, 21); rect(doc, XL, 237, X1 - XL, 44); }
 
   // intestazione colonne
   rect(doc, X0, 281, 461, 99);
