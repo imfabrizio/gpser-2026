@@ -1140,3 +1140,11 @@ test('ACC-1 il mio account: cambio password con quella attuale, per qualsiasi ru
   assert.equal((await chiama('POST', '/api/login', { body: { email: 'acc@t.it', password: 'password-lunga' } })).statusCode, 401);
   assert.equal((await chiama('POST', '/api/login', { body: { email: 'acc@t.it', password: 'nuova-password-1' } })).statusCode, 200);
 });
+
+test('ANT-1 anteprima di una scheda della libreria: PDF con lo stesso template delle schede stampate', async () => {
+  const pats = json(await chiama('GET', '/api/libreria/patologie', { token: tok['org@t'] }));
+  const r = await chiama('GET', `/api/libreria/patologie/${pats[0].id}/anteprima.pdf`, { token: tok['org@t'] });
+  assert.equal(r.statusCode, 200);
+  assert.match(r.headers['content-type'], /pdf/);
+  assert.equal(r.rawPayload.subarray(0, 4).toString(), '%PDF');
+});

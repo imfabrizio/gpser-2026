@@ -5,6 +5,7 @@ import { firmaToken, leggiToken, verificaPassword, troppiTentativi, registraFall
 import { inTransazione } from './db.js';
 import { sincronizza, riapri, httpErr } from './services/compilazioni.js';
 import { generaPdfSchede } from './services/stampa.js';
+import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
 import { aggiungiSchedaDaPatologia, creaScena, duplicaScena } from './services/scene.js';
 import { importaExcel } from './services/import-excel.js';
@@ -312,6 +313,19 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     `select pv.ordine, pv.sezione, v.testo, sp.codice as scala, pv.is_sep from patologia_voce pv
        join voce v on v.id=pv.voce_id join scala_punteggio sp on sp.id=pv.scala_id
       where pv.patologia_id=$1 order by pv.ordine`, [req.params.id])).rows; });
+  // anteprima di una scheda della libreria con lo stesso template delle schede stampate (PDF)
+  app.get('/api/libreria/patologie/:id/anteprima.pdf', { preHandler: soloOrg }, async (req, reply) => {
+    await controllaScheda(pool, req.utente, req.params.id, { modifica: false });
+    const { rows: [pt] } = await pool.query('select nome, sigla from patologia where id=$1', [req.params.id]);
+    const { rows: voci } = await pool.query(
+      `select pv.ordine as id, pv.sezione, v.testo, pv.is_sep, sp.mb, sp.be, sp.su, sp."in", sp.ne from patologia_voce pv
+         join voce v on v.id=pv.voce_id join scala_punteggio sp on sp.id=pv.scala_id where pv.patologia_id=$1 order by pv.ordine`, [req.params.id]);
+    const doc = creaDocumento(); const chunks = []; doc.on('data', (c) => chunks.push(c)); const fine = new Promise((r) => doc.on('end', r));
+    disegnaScheda(doc, { evento: { nome: 'Anteprima scheda', titolo_stampa: 'Anteprima scheda', luogo: '', data_txt: null }, squadra: { numero: 0, nome: '' },
+      scena: { codice: '', titolo: pt.nome }, scheda: { simulatore: 'M', titolo: pt.nome, parametri: {} }, voci, compilazione: null, risposte: new Map(), vuota: true });
+    doc.end(); await fine;
+    return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="anteprima.pdf"').send(Buffer.concat(chunks));
+  });
   app.post('/api/libreria/patologie', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const b = req.body;   // { codice, nome, sigla, is_bls, is_master, voci:[{sezione, testo, scala, is_sep}] }
     // chi ha solo l'area «schede del proprio comitato» crea schede private del suo comitato; la direzione crea quelle generali

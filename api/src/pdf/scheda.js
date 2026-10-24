@@ -94,7 +94,7 @@ export function disegnaScheda(doc, ctx) {
 
   // blocco identificativo
   const sim = scheda.simulatore;
-  const codice = `${scena.codice}${String(squadra.numero).padStart(2, '0')}${sim}`;
+  const codice = squadra.numero ? `${scena.codice}${String(squadra.numero).padStart(2, '0')}${sim}` : '';
   rect(doc, X0, 173, 158, 43);
   testo(doc, codice, X0, 173, 158, 43, { size: 24, font: 'Courier' });
   rect(doc, 185, 173, 217, 22); rect(doc, 185, 195, 217, 21);
@@ -108,7 +108,7 @@ export function disegnaScheda(doc, ctx) {
   if (!vuota && compilazione?.giudice) testo(doc, compilazione.giudice, 567, 173, 316, 43, { size: 11, font: 'Sans-Bold' });
   rect(doc, X0, 216, 158, 21); rect(doc, 185, 216, 303, 21); rect(doc, 488, 216, 395, 21);
   testo(doc, 'Squadra', X0, 216, 158, 21, { size: 9.5 });
-  testo(doc, `${squadra.numero}-${squadra.nome}`, 185, 216, 303, 21, { size: 9.5, font: 'Sans-Bold' });
+  testo(doc, squadra.numero ? `${squadra.numero}-${squadra.nome}` : '', 185, 216, 303, 21, { size: 9.5, font: 'Sans-Bold' });
   rect(doc, X0, 237, 461, 44);
   testo(doc, scena.titolo, X0, 237, 461, 44, { size: 14, font: 'Sans-Bold' });
   rect(doc, 488, 237, 395, 44);
