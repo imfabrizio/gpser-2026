@@ -1089,7 +1089,14 @@ insert into comitato (nome, regione) values
   ('Valnestore', 'Umbria')
 on conflict (lower(nome)) do nothing;
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql');   -- lo schema qui sopra le include già tutte
+-- Comitati regionali/provinciali non presenti negli elenchi Gaia letti (Trentino-Alto Adige, Valle d'Aosta): unità da aggiungere a mano
+insert into comitato (nome, regione, provincia) values
+  ('Provincia Autonoma di Trento', 'Trentino-Alto Adige', 'TN'),
+  ('Provincia Autonoma di Bolzano', 'Trentino-Alto Adige', 'BZ'),
+  ('Valle d''Aosta', 'Valle d''Aosta', 'AO')
+on conflict (lower(nome)) do nothing;
+
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql');   -- lo schema qui sopra le include già tutte
 
 -- schede d'esame TSSA (stesso contenuto della migrazione 015)
 insert into scala_punteggio (codice, mb, su, ne) values ('Esame 0-1-2', 2, 1, 0) on conflict (codice) do nothing;

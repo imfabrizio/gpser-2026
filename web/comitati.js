@@ -18,7 +18,7 @@ window.legaComitato = function (input, opt = {}) {
       const r = await fetch('/api/comitati/cerca?q=' + encodeURIComponent(input.value) + prov, { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } });
       if (!r.ok) return; const l = await r.json();
       mappa = Object.fromEntries(l.map((c) => [c.nome, c]));
-      dl.innerHTML = l.map((c) => `<option value="${c.nome.replace(/"/g, '&quot;')}" label="${c.provincia ? c.provincia : ''}">`).join('');
+      dl.innerHTML = l.map((c) => `<option value="${c.nome.replace(/"/g, '&quot;')}" label="${[c.provincia, c.regione].filter(Boolean).join(' · ').replace(/"/g, '')}">`).join('');
       applica();
     } catch { /* senza rete resta il campo libero */ }
   };
