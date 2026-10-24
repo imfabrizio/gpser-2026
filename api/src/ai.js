@@ -1,6 +1,6 @@
 // Generazione di bozze di schede con un modello AI. Chiave predefinita: GEMINI_API_KEY (impostata su Render, mai nel codice);
 // in alternativa la chiave personale dell'utente (Gemini, Claude o ChatGPT), conservata cifrata.
-const MODELLI = { gemini: process.env.GEMINI_MODEL || 'gemini-2.5-flash', anthropic: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5', openai: process.env.OPENAI_MODEL || 'gpt-4o-mini' };
+const MODELLI = { gemini: process.env.GEMINI_MODEL || 'gemini-3.8-flash', anthropic: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5', openai: process.env.OPENAI_MODEL || 'gpt-4o-mini' };
 
 export const PROVIDER = ['gemini', 'anthropic', 'openai'];
 
