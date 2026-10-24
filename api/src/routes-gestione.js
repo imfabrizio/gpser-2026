@@ -137,7 +137,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     if (comitato) { p.provincia ??= comitato.provincia?.toUpperCase() ?? null; const u = comitato.unita.length ? comitato.unita : [comitato.nome]; p.unita = u.find((x) => x.toLowerCase() === (p.unita || '').toLowerCase()) ?? (u.length === 1 ? u[0] : p.unita); }
   };
   const COL_PERSONA = `p.id, p.cognome, p.nome, to_char(p.data_nascita,'YYYY-MM-DD') as data_nascita, p.cf_cifrato, p.email, p.comitato, p.provincia, p.unita, p.note, p.ruolo_gara, p.utente_id,
-    (select r.nome from utente u join ruolo r on r.codice = u.ruolo where u.id = p.utente_id) as ruolo_utente, (select u.ruolo from utente u where u.id = p.utente_id) as ruolo_codice, (select coalesce(array_agg(x.ruolo), '{}') from utente_ruolo_extra x where x.utente_id = p.utente_id) as ruoli_extra, (select coalesce(array_agg(q.qualifica order by q.qualifica), '{}') from persona_qualifica q where q.partecipante_id = p.id) as qualifiche, (select u.admin from utente u where u.id = p.utente_id) as admin_utente`;
+    (select r.nome from utente u join ruolo r on r.codice = u.ruolo where u.id = p.utente_id) as ruolo_utente, (select u.ruolo from utente u where u.id = p.utente_id) as ruolo_codice, (select coalesce(array_agg(x.ruolo), '{}') from utente_ruolo_extra x where x.utente_id = p.utente_id) as ruoli_extra, (select u.per_evento from utente u where u.id = p.utente_id) as per_evento, (select coalesce(array_agg(q.qualifica order by q.qualifica), '{}') from persona_qualifica q where q.partecipante_id = p.id) as qualifiche, (select u.admin from utente u where u.id = p.utente_id) as admin_utente`;
   // il codice fiscale in chiaro lo vede solo l'admin; gli altri sanno solo se c'è
   const uscita = (req) => ({ cf_cifrato, ...r }) => ({ ...r, ha_cf: !!cf_cifrato, codice_fiscale: req.utente.ruolo === 'admin' && cf_cifrato ? decifra(cf_cifrato) : undefined });
   const duplicato = (e) => { if (e.code === '23505') throw httpErr(409, 'codice fiscale già presente in anagrafica'); throw e; };
@@ -202,7 +202,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   }));
   // assegna il ruolo direttamente dall'anagrafica: se la persona non ha ancora un accesso lo crea (solo Google/Microsoft, collegato all'email), altrimenti cambia il ruolo
   app.post('/api/persone/:id/accesso', { preHandler: soloAdmin }, async (req) => {
-    const { ruolo, admin, extra } = req.body || {};
+    const { ruolo, admin, extra, per_evento } = req.body || {};
     if (!ruolo || !(await ruoloEsiste(pool, ruolo))) throw httpErr(400, 'ruolo non valido');
     return inTransazione(pool, async (db) => {
       const { rows: [p] } = await db.query('select id, cognome, nome, email, utente_id from partecipante where id=$1', [req.params.id]);
@@ -220,7 +220,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
         }
       }
       if (uid === req.utente.id && admin === false) throw httpErr(400, 'non puoi togliere l\'admin a te stesso');
-      await db.query('update utente set ruolo=$2, admin=coalesce($3,admin) where id=$1', [uid, ruolo, typeof admin === 'boolean' ? admin : null]);
+      await db.query('update utente set ruolo=$2, admin=coalesce($3,admin), per_evento=coalesce($4,per_evento) where id=$1', [uid, ruolo, typeof admin === 'boolean' ? admin : null, typeof per_evento === 'boolean' ? per_evento : null]);
       if (Array.isArray(extra)) {                                                  // ruoli aggiuntivi: una persona può essere, per esempio, giudice master e organizzazione
         const el = [...new Set(extra.filter((x) => typeof x === 'string' && x !== ruolo))];
         const { rows: v } = await db.query('select codice from ruolo where codice = any($1::text[])', [el]);

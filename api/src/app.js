@@ -39,6 +39,14 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   // controllo di salute (pubblico, senza dati): usato dall'hosting e per tenere sveglio il servizio
   app.get('/salute', async () => { await pool.query('select 1'); return { ok: true }; });
 
+  // evento a cui appartiene la risorsa richiesta (null se la rotta non è legata a un evento)
+  const eventoDellaRotta = async (rotta, params = {}) => {
+    const id = params.id; if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+    const Q = { '/api/eventi/': null, '/api/scene/': 'select evento_id from scena where id=$1', '/api/schede/': 'select sc.evento_id from scena_scheda s join scena sc on sc.id = s.scena_id where s.id=$1',
+      '/api/squadre/': 'select evento_id from squadra where id=$1', '/api/iscritti/': 'select evento_id from iscrizione where id=$1', '/api/iscrizioni/': 'select evento_id from iscrizione where id=$1' };
+    for (const [pre, q] of Object.entries(Q)) if (rotta.startsWith(pre)) return q ? ((await pool.query(q, [id])).rows[0]?.evento_id ?? null) : id.toLowerCase();
+    return null;
+  };
   // ── autenticazione e ruoli ──
   // Si usa il pattern della rotta (non l'URL grezzo: /%61pi/... sfuggiva al vecchio controllo)
   // e ruolo/stato vengono riletti dal DB a ogni richiesta: disattivazioni e declassamenti valgono subito.
@@ -58,12 +66,17 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     }
     const { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.id=$1 and u.attivo', [t.id]);
     if (!u) throw httpErr(401, 'utente non valido');
-    req.utente = { id: u.id, nome: u.nome, evento_id: u.evento_id, eventi_ammessi: (u.ev_ruoli || []).map((r) => r.evento_id), mfa_attiva: u.mfa_attiva, admin: u.admin, aree: u.aree, ruolo_codice: u.ruolo, ruolo: ruoloEffettivo(u), via: t.via || 'pwd' };
+    req.utente = { id: u.id, nome: u.nome, evento_id: u.evento_id, eventi_ammessi: (u.ev_ruoli || []).map((r) => r.evento_id), per_evento: !!u.per_evento, eventi_org: u.ev_org || [], mfa_attiva: u.mfa_attiva, admin: u.admin, aree: u.aree, ruolo_codice: u.ruolo, ruolo: ruoloEffettivo(u), via: t.via || 'pwd' };
     // organizzazione e admin con password devono prima attivare la MFA: fino ad allora solo la pagina di configurazione
     if (mfaObbligatoria(u, req.utente.via) && !(rotta === '/api/me' || rotta.startsWith('/api/mfa'))) throw httpErr(403, 'configura_mfa');
     if (req.utente.ruolo === 'organizzazione') {                 // ruolo con aree: solo quelle consentite
       const serve = areeRichieste(req.method, rotta);
       if (serve && !serve.some((a) => u.aree.includes(a))) throw httpErr(403, 'area non consentita al tuo ruolo');
+    }
+    if (req.utente.ruolo === 'organizzazione' && u.per_evento) {      // organizzazione per evento: solo le gare a cui è iscritta come organizzazione
+      const ev = await eventoDellaRotta(rotta, req.params);
+      if (ev && !req.utente.eventi_org.includes(ev)) throw httpErr(403, 'gara non assegnata');
+      if (rotta === '/api/eventi' && req.method === 'POST') throw httpErr(403, 'non puoi creare eventi: chiedi a un admin');
     }
     if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta === '/api/me/tema' || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta))))
       throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
@@ -142,6 +155,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, comitato
          from evento where ($1 or id = $2 or id = any($3::uuid[]) or ($2::uuid is null and not cardinality($3::uuid[]) > 0 and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id, req.utente.eventi_ammessi])).rows;
+    if (req.utente.ruolo === 'organizzazione' && req.utente.per_evento) return righe.filter((e) => req.utente.eventi_org.includes(e.id));
     if (!soloFormazione(req.utente)) return righe;                                // chi gestisce solo i corsi vede i corsi del suo ambito
     const prof = await profiloFormativo(pool, req.utente.id), out = [];
     for (const e of righe) if (await puoGestireEvento(pool, req.utente, e, prof)) out.push(e);

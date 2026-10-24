@@ -385,8 +385,9 @@ function formRuoli(p, ruoli) {
     <label>Ruolo principale</label><select id="r_p">${ruoli.map((r) => `<option value="${r.codice}" ${r.codice === prima ? 'selected' : ''}>${esc(r.nome)}</option>`).join('')}</select>
     <label>Ruoli aggiuntivi</label><div class="aree">${ruoli.map((r) => `<label class="ar"><input type="checkbox" class="r_x" value="${r.codice}" ${extra.has(r.codice) ? 'checked' : ''}> ${esc(r.nome)}</label>`).join('')}</div>
     <label class="ar"><input type="checkbox" id="r_ad" ${p.admin_utente ? 'checked' : ''}> Amministratore</label>
+    <label class="ar"><input type="checkbox" id="r_pe" ${p.per_evento ? 'checked' : ''}> Organizzazione solo per le gare a cui è iscritto come «Organizzazione» (Segreteria)</label>
     <p><button class="b" id="r_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
-  $('#r_ok').onclick = () => { const body = { ruolo: $('#r_p').value, extra: [...document.querySelectorAll('.r_x')].filter((i) => i.checked && i.value !== $('#r_p').value).map((i) => i.value), admin: $('#r_ad').checked }; chiudi(); fai(() => api(`/persone/${p.id}/accesso`, { body }), 'Ruoli salvati'); };
+  $('#r_ok').onclick = () => { const body = { ruolo: $('#r_p').value, extra: [...document.querySelectorAll('.r_x')].filter((i) => i.checked && i.value !== $('#r_p').value).map((i) => i.value), admin: $('#r_ad').checked, per_evento: $('#r_pe').checked }; chiudi(); fai(() => api(`/persone/${p.id}/accesso`, { body }), 'Ruoli salvati'); };
 }
 function formPersona(p) {
   const f = (id, et, v = '', tipo = 'text', extra = '') => `<div><label>${et}</label><input id="${id}" type="${tipo}" value="${esc(v)}" ${extra}></div>`;

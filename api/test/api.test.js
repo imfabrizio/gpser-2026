@@ -1089,3 +1089,20 @@ test('AMB-1 ambito dei corsi: trainer locale solo per il proprio comitato, forma
   const eg = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'AMB-GARA', nome: 'Gara org', tipo: 'gara' } }));
   assert.ok(!json(await chiama('GET', '/api/eventi', { token: t1.tk })).some((e) => e.id === eg.id));   // le gare non le vede
 });
+
+test('ORG-1 organizzazione per evento: vede e gestisce solo le gare a cui è iscritta come organizzazione', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  const eA = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'OA-1', nome: 'Gara OA' } })), eB = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'OB-1', nome: 'Gara OB' } }));
+  const sB = json(await chiama('POST', `/api/eventi/${eB.id}/scene`, { token: O, body: { codice: 'A', titolo: 'Scena B' } }));
+  const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'orgx@t.it', nome: 'Oreste Xi', ruolo: 'organizzazione', password: 'password-lunga' } }));
+  const mia = json(await chiama('POST', '/api/login', { body: { email: 'orgx@t.it', password: 'password-lunga' } })).token;
+  assert.equal((await chiama('GET', `/api/eventi/${eB.id}/squadre`, { token: mia })).statusCode, 200);       // prima: ruolo globale
+  const pe = json(await chiama('GET', '/api/persone?q=Oreste', { token: O })).find((p) => p.utente_id === u.id);
+  assert.equal((await chiama('POST', `/api/persone/${pe.id}/accesso`, { token: A, body: { ruolo: 'organizzazione', per_evento: true } })).statusCode, 200);
+  assert.equal((await chiama('POST', `/api/eventi/${eA.id}/iscritti`, { token: O, body: { partecipante_id: pe.id, ruolo: 'organizzazione' } })).statusCode, 200);
+  assert.equal((await chiama('GET', `/api/eventi/${eA.id}/squadre`, { token: mia })).statusCode, 200);
+  assert.equal((await chiama('GET', `/api/eventi/${eB.id}/squadre`, { token: mia })).statusCode, 403);
+  assert.equal((await chiama('PATCH', `/api/scene/${sB.id}`, { token: mia, body: { titolo: 'x' } })).statusCode, 403);
+  assert.equal((await chiama('POST', '/api/eventi', { token: mia, body: { codice: 'OC-1', nome: 'No' } })).statusCode, 403);
+  const l = json(await chiama('GET', '/api/eventi', { token: mia })).map((e) => e.id); assert.ok(l.includes(eA.id) && !l.includes(eB.id));
+});

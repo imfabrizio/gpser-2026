@@ -11,9 +11,11 @@ export const SQL_UTENTE = `select u.*,
   coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id = u.id), '{}') as ruoli_extra,
   -- accessi legati a un evento: chi è iscritto a una gara come giudice / giudice master ha quell'accesso solo per quella gara
   coalesce((select json_agg(json_build_object('evento_id', i.evento_id, 'ruolo', i.ruolo)) from iscrizione i join partecipante p on p.id = i.partecipante_id join evento e on e.id = i.evento_id
-             where p.utente_id = u.id and not e.archiviato and i.ruolo in ('giudice','giudice_master')), '[]'::json) as ev_ruoli from utente u`;
+             where p.utente_id = u.id and not e.archiviato and i.ruolo in ('giudice','giudice_master')), '[]'::json) as ev_ruoli,
+  coalesce((select array_agg(i.evento_id) from iscrizione i join partecipante p on p.id = i.partecipante_id join evento e on e.id = i.evento_id
+             where p.utente_id = u.id and not e.archiviato and i.ruolo = 'organizzazione'), '{}') as ev_org from utente u`;
 export const mfaObbligatoria = (u, via) => process.env.MFA_ORG !== '0' && eStaff(u) && !u.mfa_attiva && via === 'pwd';
-export const profilo = (u, via) => ({ id: u.id, nome: u.nome, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, ruoli_extra: u.ruoli_extra || [], admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, tema: u.tema ?? null, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
+export const profilo = (u, via) => ({ id: u.id, nome: u.nome, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, ruoli_extra: u.ruoli_extra || [], per_evento: !!u.per_evento, admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, tema: u.tema ?? null, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
 export const creaSessione = (u, via) => ({ token: firmaToken({ id: u.id, via }), utente: profilo(u, via) });
 
 // ── provider esterni (OpenID Connect, flusso "authorization code" + PKCE) ──
