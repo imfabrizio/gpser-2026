@@ -1,4 +1,5 @@
 import { canonico } from './comitati.js';
+import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO } from './ambito.js';
 import crypto from 'node:crypto';
 // Rotte usate dall'interfaccia di gestione (web/admin.html).
 import { hashPassword } from './auth.js';
@@ -258,16 +259,41 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.patch('/api/eventi/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
     if (b.tipo && !['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode'].includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
+    const { rows: [att] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [req.params.id]);
+    if (!att) throw httpErr(404, 'evento inesistente');
+    const prof = soloFormazione(req.utente) ? await profiloFormativo(pool, req.utente.id) : null;
+    if (!(await puoGestireEvento(pool, req.utente, att, prof))) throw httpErr(403, 'evento fuori dal tuo ambito');
+    if (prof && b.tipo && !TIPI_CORSO.includes(b.tipo)) throw httpErr(403, 'tipo di evento non consentito');
+    const cambiaCom = 'comitato' in b && (!prof || prof.nazionale);                      // il comitato organizzatore lo cambia solo chi ha ambito nazionale (o la gestione gare)
+    const comitatoNuovo = cambiaCom && b.comitato ? (await canonico(pool, String(b.comitato))).nome : null;
     if (b.soglia_pct != null && b.soglia_pct !== '' && !(Number(b.soglia_pct) >= 1 && Number(b.soglia_pct) <= 100)) throw httpErr(400, 'soglia: percentuale tra 1 e 100');
     if (b.mappa_url && !/^https:\/\/(www\.)?google\.com\/maps\//.test(b.mappa_url.trim())) throw httpErr(400, 'la mappa deve essere un indirizzo https://www.google.com/maps/… (Condividi → Incorpora mappa)');
     const { rows: [e] } = await pool.query(
       `update evento set mappa_url = case when $9 then nullif(trim($10),'') else mappa_url end, codice=coalesce($8,codice), nome=coalesce($2,nome), titolo_stampa=coalesce($3,titolo_stampa), luogo=coalesce($4,luogo),
-         data=coalesce($5::date,data), tipo=coalesce($6,tipo), soglia_pct = case when $11 then $12::numeric else soglia_pct end, mostra_punteggi = coalesce($13::boolean, mostra_punteggi), codice_gaia = case when $14 then nullif(trim($15),'') else codice_gaia end, corso_id = case when $16 then $17::uuid else corso_id end, archiviato=coalesce($7,archiviato), attivo = case when coalesce($7,archiviato) then false else attivo end, updated_at=now()
+         data=coalesce($5::date,data), tipo=coalesce($6,tipo), soglia_pct = case when $11 then $12::numeric else soglia_pct end, mostra_punteggi = coalesce($13::boolean, mostra_punteggi), codice_gaia = case when $14 then nullif(trim($15),'') else codice_gaia end, corso_id = case when $16 then $17::uuid else corso_id end, comitato = case when $18 then $19 else comitato end, archiviato=coalesce($7,archiviato), attivo = case when coalesce($7,archiviato) then false else attivo end, updated_at=now()
        where id=$1 returning *`, [req.params.id, b.nome ?? null, b.titolo_stampa ?? null, b.luogo ?? null, b.data ?? null, b.tipo ?? null, b.archiviato ?? null, b.codice?.trim() || null, 'mappa_url' in b, b.mappa_url ?? '', 'soglia_pct' in b, b.soglia_pct === '' ? null : (b.soglia_pct ?? null), b.mostra_punteggi ?? null,
-       'codice_gaia' in b, b.codice_gaia ?? '', 'corso_id' in b, b.corso_id || null]);
+       'codice_gaia' in b, b.codice_gaia ?? '', 'corso_id' in b, b.corso_id || null, cambiaCom, comitatoNuovo]);
     if (!e) throw httpErr(404, 'evento inesistente');
     return e;
   });
+  // inviti: un trainer di un altro comitato viene invitato al singolo evento e lo gestisce solo per quello
+  const gestisce = async (req) => { const { rows: [e] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [req.params.id]); if (!e) throw httpErr(404, 'evento inesistente'); if (!(await puoGestireEvento(pool, req.utente, e))) throw httpErr(403, 'evento fuori dal tuo ambito'); return e; };
+  app.get('/api/eventi/:id/inviti', { preHandler: soloOrg }, async (req) => { await gestisce(req);
+    return (await pool.query(`select i.utente_id, u.nome, u.email, (select p.comitato from partecipante p where p.utente_id=u.id) as comitato from evento_invito i join utente u on u.id=i.utente_id where i.evento_id=$1 order by u.nome`, [req.params.id])).rows; });
+  app.get('/api/eventi/:id/invitabili', { preHandler: soloOrg }, async (req) => { await gestisce(req);
+    return (await pool.query(`select p.id, p.cognome, p.nome, p.comitato from partecipante p
+        where p.utente_id is not null and exists (select 1 from persona_qualifica pq join qualifica q on q.codice=pq.qualifica where pq.partecipante_id=p.id and q.ambito is not null)
+          and p.utente_id not in (select utente_id from evento_invito where evento_id=$1) order by p.cognome, p.nome`, [req.params.id])).rows; });
+  app.post('/api/eventi/:id/inviti', { preHandler: soloOrg }, async (req) => { await gestisce(req);
+    const { rows: [p] } = await pool.query('select id, utente_id from partecipante where id=$1', [req.body?.partecipante_id]);
+    if (!p) throw httpErr(404, 'persona inesistente');
+    if (!p.utente_id) throw httpErr(400, 'la persona non ha un accesso al sito: crealo prima dall\'anagrafica');
+    const { rowCount } = await pool.query('select 1 from persona_qualifica pq join qualifica q on q.codice=pq.qualifica where pq.partecipante_id=$1 and q.ambito is not null', [p.id]);
+    if (!rowCount) throw httpErr(400, 'si invitano persone con una qualifica di trainer, monitore, formatore o capo monitore');
+    await pool.query('insert into evento_invito (evento_id, utente_id, invitato_da) values ($1,$2,$3) on conflict do nothing', [req.params.id, p.utente_id, req.utente.id]);
+    return { ok: true }; });
+  app.delete('/api/eventi/:id/inviti/:utente', { preHandler: soloOrg }, async (req) => { await gestisce(req);
+    await pool.query('delete from evento_invito where evento_id=$1 and utente_id=$2', [req.params.id, req.params.utente]); return { ok: true }; });
   app.patch('/api/scene/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
     const { rows: [s] } = await pool.query(

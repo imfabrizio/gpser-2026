@@ -1065,3 +1065,27 @@ test('EV-1 accesso giudice legato alla gara: iscritto come giudice vede solo que
   assert.equal((await chiama('POST', `/api/iscrizioni/${isc.id}/accesso`, { token: O, body: {} })).statusCode, 200);
   assert.ok(json(await chiama('GET', '/api/persone?q=Senza', { token: O })).find((p) => p.id === sa.id).utente_id);
 });
+
+test('AMB-1 ambito dei corsi: trainer locale solo per il proprio comitato, formatore nazionale, invito al singolo corso', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  const crea = async (email, nome, comitato, qual) => {
+    const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome, ruolo: 'istruttore', password: 'password-lunga' } }));
+    const pe = json(await chiama('GET', `/api/persone?q=${encodeURIComponent(nome.split(' ')[1])}`, { token: O })).find((x) => x.utente_id === u.id);
+    { const r = await chiama('PATCH', `/api/persone/${pe.id}`, { token: O, body: { cognome: pe.cognome, nome: pe.nome, email, comitato } }); assert.equal(r.statusCode, 200, r.body); }
+    await chiama('PUT', `/api/persone/${pe.id}/qualifiche`, { token: O, body: { qualifiche: [qual] } });
+    return { pe, tk: json(await chiama('POST', '/api/login', { body: { email, password: 'password-lunga' } })).token };
+  };
+  await chiama('POST', '/api/comitati/importa', { token: O, body: { testo: 'Piacenza;PC;Emilia-Romagna;\nParma;PR;Emilia-Romagna;' } });
+  const t1 = await crea('tr1@t.it', 'Tino Alfa', 'Piacenza', 'trainer_tssa'), t2 = await crea('tr2@t.it', 'Toni Beta', 'Parma', 'trainer_tssa'), f1 = await crea('fo1@t.it', 'Franco Gamma', 'Parma', 'formatore_tssa');
+  const c1 = json(await chiama('POST', '/api/eventi', { token: t1.tk, body: { codice: 'AMB-PC', nome: 'Corso Piacenza', tipo: 'corso', comitato: 'Parma' } }));
+  assert.equal(c1.comitato, 'Piacenza', JSON.stringify(c1));                                                   // il trainer crea per il proprio comitato
+  assert.equal((await chiama('POST', '/api/eventi', { token: t1.tk, body: { codice: 'AMB-G', nome: 'Gara', tipo: 'gara' } })).statusCode, 403);
+  assert.equal((await chiama('PATCH', `/api/eventi/${c1.id}`, { token: t2.tk, body: { nome: 'X' } })).statusCode, 403);   // trainer di Parma sul corso di Piacenza
+  assert.equal((await chiama('PATCH', `/api/eventi/${c1.id}`, { token: f1.tk, body: { nome: 'Corso PC bis' } })).statusCode, 200);   // formatore: tutta Italia
+  assert.ok(!json(await chiama('GET', '/api/eventi', { token: t2.tk })).some((e) => e.id === c1.id));
+  assert.equal((await chiama('POST', `/api/eventi/${c1.id}/inviti`, { token: t1.tk, body: { partecipante_id: t2.pe.id } })).statusCode, 200);   // invito
+  assert.equal((await chiama('PATCH', `/api/eventi/${c1.id}`, { token: t2.tk, body: { nome: 'Corso PC ter' } })).statusCode, 200);
+  assert.ok(json(await chiama('GET', '/api/eventi', { token: t2.tk })).some((e) => e.id === c1.id));
+  const eg = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'AMB-GARA', nome: 'Gara org', tipo: 'gara' } }));
+  assert.ok(!json(await chiama('GET', '/api/eventi', { token: t1.tk })).some((e) => e.id === eg.id));   // le gare non le vede
+});

@@ -201,12 +201,15 @@ async function tCorsi() {
   const corsi = eventi.filter((e) => e.tipo === 'corso' && !e.archiviato);
   const sess = await api('/esami/sessioni').catch(() => []);
   const figli = (c) => eventi.filter((e) => e.corso_id === c.id && !e.archiviato);
+  const extra = Object.fromEntries(await Promise.all(corsi.map(async (c) => [c.id, await Promise.all([api(`/eventi/${c.id}/inviti`).catch(() => []), api(`/eventi/${c.id}/invitabili`).catch(() => [])])])));
   $('#app').innerHTML = `<div class="card"><h3>Nuovo corso</h3><div class="riga">
       <div><label>N° corso su Gaia</label><input id="c_gaia" placeholder="es. 12345"></div><div style="flex:2"><label>Nome</label><input id="c_nome" placeholder="Corso TSSA Modena autunno"></div>
       <div><label>Luogo</label><input id="c_luogo"></div><div><label>Data</label><input id="c_data" type="date"></div><div class="stretto"><button class="b" id="c_ok">Crea corso</button></div></div></div>
-    ${corsi.map((c) => `<div class="card"><h3>${c.codice_gaia ? esc(c.codice_gaia) + ' · ' : ''}${esc(c.nome)}</h3><p><small>${esc(c.luogo || '')} ${esc(c.data || '')}</small></p>
+    ${corsi.map((c) => `<div class="card"><h3>${c.codice_gaia ? esc(c.codice_gaia) + ' · ' : ''}${esc(c.nome)}</h3><p><small>${esc(c.comitato || '')} ${esc(c.luogo || '')} ${esc(c.data || '')}</small></p>
       <p><b>Mega Code</b> ${figli(c).filter((e) => e.tipo === 'megacode').map((e) => `<button class="s p apri" data-id="${e.id}">${esc(e.nome)}</button>`).join(' ') || '<small>nessuno</small>'} <button class="b p nmc" data-id="${c.id}">Nuovo Mega Code</button></p>
       <p><b>Sessioni d'esame</b> ${sess.filter((x) => x.evento_id === c.id).map((x) => `<button class="s p" onclick="location.href='/esami.html#s/${x.id}'">${esc(x.nome)} (${x.prove})</button>`).join(' ') || '<small>nessuna</small>'} <button class="b p" onclick="location.href='/esami.html'">Apri Esami</button></p>
+      <p><b>Formatori invitati</b> ${extra[c.id][0].map((i) => `<span class="tag">${esc(i.nome)}${i.comitato ? ' · ' + esc(i.comitato) : ''} <a href="#" class="dinv" data-e="${c.id}" data-u="${i.utente_id}" title="Togli">×</a></span>`).join('') || '<small>nessuno</small>'}
+        <select class="inv" data-e="${c.id}"><option value="">Invita un trainer / formatore…</option>${extra[c.id][1].map((x) => `<option value="${x.id}">${esc(x.cognome + ' ' + x.nome)}${x.comitato ? ' · ' + esc(x.comitato) : ''}</option>`).join('')}</select></p>
       <p><button class="s p apri" data-id="${c.id}">Dati e squadre del corso</button></p></div>`).join('') || '<div class="card"><em>Nessun corso: creane uno qui sopra con il numero assegnato da Gaia.</em></div>'}`;
   $('#c_ok').onclick = () => { const nome = $('#c_nome').value.trim(), g = $('#c_gaia').value.trim(); if (!nome) return alert('Scrivi il nome del corso');
     fai(async () => { const e = await api('/eventi', { body: { codice: ('CORSO-' + (g || nome)).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: 'corso', nome, titolo_stampa: nome, luogo: $('#c_luogo').value, data: $('#c_data').value || null, codice_gaia: g } });
@@ -214,6 +217,8 @@ async function tCorsi() {
   document.querySelectorAll('.nmc').forEach((b) => { b.onclick = () => { const c = eventi.find((e) => e.id === b.dataset.id), n = figli(c).filter((e) => e.tipo === 'megacode').length + 1;
     fai(async () => { const e = await api('/eventi', { body: { codice: `${c.codice}-MC${n}`, tipo: 'megacode', nome: `Mega Code ${n} · ${c.nome}`, titolo_stampa: `Mega Code ${n}`, luogo: c.luogo, data: c.data, corso_id: c.id } });
       await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_corsi', ev.id); }, 'Mega Code creato'); }; });
+  document.querySelectorAll('.inv').forEach((x) => { x.onchange = () => { if (x.value) fai(() => api(`/eventi/${x.dataset.e}/inviti`, { body: { partecipante_id: x.value } }), 'Invitato: gestirà solo questo corso'); }; });
+  document.querySelectorAll('.dinv').forEach((a) => { a.onclick = (e) => { e.preventDefault(); fai(() => api(`/eventi/${a.dataset.e}/inviti/${a.dataset.u}`, { method: 'DELETE' }), 'Invito tolto'); }; });
   document.querySelectorAll('.apri').forEach((b) => { b.onclick = () => { ev = eventi.find((e) => e.id === b.dataset.id); localStorage.setItem('ev_corsi', ev.id); vai('evento'); }; });
 }
 

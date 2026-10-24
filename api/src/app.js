@@ -18,6 +18,7 @@ import { registraComitati } from './routes-comitati.js';
 import { canonico } from './comitati.js';
 import { generaClassificaPdf } from './pdf/classifica.js';
 import { generaEsitoPdf } from './pdf/esito.js';
+import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO } from './ambito.js';
 import { haSchede, comitatoDi, controllaScheda } from './libreria-ambito.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
@@ -137,19 +138,33 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   // ── eventi, squadre, scene ──
   app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
     const org = RUOLI_ORG.includes(req.utente.ruolo);
-    return (await pool.query(
-      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id
+    const righe = (await pool.query(
+      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, comitato
          from evento where ($1 or id = $2 or id = any($3::uuid[]) or ($2::uuid is null and not cardinality($3::uuid[]) > 0 and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id, req.utente.eventi_ammessi])).rows;
+    if (!soloFormazione(req.utente)) return righe;                                // chi gestisce solo i corsi vede i corsi del suo ambito
+    const prof = await profiloFormativo(pool, req.utente.id), out = [];
+    for (const e of righe) if (await puoGestireEvento(pool, req.utente, e, prof)) out.push(e);
+    return out;
   });
   app.post('/api/eventi', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
     if (!b.codice || !b.nome) throw httpErr(400, 'codice e nome obbligatori');
     if (b.tipo && !TIPI_EVENTO.includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
-    const tipo = b.tipo || 'gara', didattico = ['allenamento', 'corso', 'esame', 'megacode'].includes(tipo);
+    const tipo = b.tipo || 'gara';
+    let comitato = typeof b.comitato === 'string' && b.comitato.trim() ? (await canonico(pool, b.comitato.trim())).nome : null;
+    if (soloFormazione(req.utente)) {
+      if (!TIPI_CORSO.includes(tipo)) throw httpErr(403, 'puoi creare solo corsi, Mega Code ed esami');
+      const prof = await profiloFormativo(pool, req.utente.id);
+      if (!prof.locale && !prof.nazionale) throw httpErr(403, 'serve una qualifica di trainer, monitore, formatore o capo monitore');
+      if (!prof.nazionale) { if (!prof.comitato) throw httpErr(400, 'imposta il tuo comitato in anagrafica'); comitato = prof.comitato; }   // il trainer crea per il suo comitato
+      else comitato = comitato || prof.comitato;
+      if (b.corso_id) { const { rows: [c] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [b.corso_id]); if (!c || !(await puoGestireEvento(pool, req.utente, c, prof))) throw httpErr(403, 'corso non nel tuo ambito'); }
+    }
+    const didattico = ['allenamento', 'corso', 'esame', 'megacode'].includes(tipo);
     return (await pool.query(
-      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, mostra_punteggi, soglia_pct, codice_gaia, corso_id) values ($1,$2,$3,$4,$5,$6,$7,$8,nullif(trim($9),''),$10) returning *`,
-      [b.codice, b.nome, tipo, b.titolo_stampa, b.luogo, b.data, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null])).rows[0];
+      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato) values ($1,$2,$3,$4,$5,$6,$7,$8,nullif(trim($9),''),$10,$11) returning *`,
+      [b.codice, b.nome, tipo, b.titolo_stampa, b.luogo, b.data, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, comitato])).rows[0];
   });
   // un solo evento attivo alla volta (nel vecchio sistema se ne potevano attivare due)
   app.post('/api/eventi/:id/attiva', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
