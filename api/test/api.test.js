@@ -929,6 +929,30 @@ test('ESA-1 area Esami: sessione, principale + secondari, valore diverso per un 
   p = json(await chiama('PATCH', `/api/esami/prove/${pid}`, { token: O, body: { stato: 'bozza' } })); assert.equal(p.stato, 'bozza');
 });
 
+test('COM-1 comitati: import, ricerca con suggerimenti, nomi liberi ricondotti al nome ufficiale', async () => {
+  const O = tok['org@t'], G = tok['giu@t'];
+  assert.equal((await chiama('POST', '/api/comitati/importa', { token: G, body: { testo: 'x' } })).statusCode, 403);
+  const imp = json(await chiama('POST', '/api/comitati/importa', { token: O, body: { testo: 'Comitato;Provincia;Regione;Unità\nPrignano sulla Secchia;MO;Emilia-Romagna;Prignano|Pavullo\nRubiera;RE;Emilia-Romagna;\nModena;MO;Emilia-Romagna;Modena' } }));
+  assert.equal(imp.importati, 3);
+  const c1 = json(await chiama('GET', '/api/comitati/cerca?q=pri', { token: G })); assert.equal(c1[0].nome, 'Prignano sulla Secchia'); assert.deepEqual(c1[0].unita, ['Pavullo', 'Prignano']);
+  assert.deepEqual(json(await chiama('GET', '/api/comitati/cerca?q=rub', { token: G }))[0].unita, ['Rubiera']);          // senza unità: una sola, col nome del comitato
+  assert.equal(json(await chiama('GET', '/api/comitati/cerca?provincia=MO', { token: G })).length, 2);
+  // "Prignano SS" e "Prignano S.S." diventano il nome ufficiale, con provincia e unità
+  const p = json(await chiama('POST', '/api/persone', { token: O, body: { cognome: 'Test', nome: 'Com', comitato: 'Prignano S.S.' } }));
+  assert.equal(p.comitato, 'Prignano sulla Secchia'); assert.equal(p.provincia, 'MO');
+  const r = json(await chiama('POST', '/api/persone', { token: O, body: { cognome: 'Test2', nome: 'Rub', comitato: 'rubiera' } }));
+  assert.equal(r.comitato, 'Rubiera'); assert.equal(r.unita, 'Rubiera');
+  // un nome sconosciuto resta com'è e compare tra i da ricondurre con il suggerimento
+  const x = json(await chiama('POST', '/api/persone', { token: O, body: { cognome: 'Test3', nome: 'Err', comitato: 'Prignano sul Secchia' } }));
+  assert.equal(x.comitato, 'Prignano sul Secchia');
+  const da = json(await chiama('GET', '/api/comitati/da-ricondurre', { token: O })).find((d) => d.testo === 'Prignano sul Secchia');
+  assert.ok(da); assert.equal(da.suggerimenti[0].nome, 'Prignano sulla Secchia');
+  const ok = json(await chiama('POST', '/api/comitati/ricondurre', { token: O, body: { da: da.testo, comitatoId: da.suggerimenti[0].id } }));
+  assert.ok(ok.aggiornate >= 1);
+  const dopo = json(await chiama('GET', '/api/persone?q=Err', { token: O })).find((q) => q.cognome === 'Test3'); assert.equal(dopo.comitato, 'Prignano sulla Secchia');
+  assert.equal(json(await chiama('POST', '/api/persone', { token: O, body: { cognome: 'Test4', nome: 'Err', comitato: 'Prignano sul Secchia' } })).comitato, 'Prignano sulla Secchia');   // ora l'alias è riconosciuto
+});
+
 test('CM-1 schede dei comitati: private al comitato, la direzione le vede solo su richiesta e non le modifica', async () => {
   const A = tok['adm@t'], O = tok['org@t'];
   const mk = async (email, comitato) => {

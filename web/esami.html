@@ -2,6 +2,7 @@
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Esami · GareCRI</title>
 <link rel="stylesheet" href="stile.css">
+<script src="comitati.js"></script>
 <style>
   * { box-sizing:border-box; } body { margin:0; }
   header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; } header h1 { flex:1; margin:0; }
@@ -81,6 +82,7 @@ async function sessione(sid) {
   document.querySelectorAll('.delp').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la prova con tutte le valutazioni?')) fai(async () => { await api('/esami/prove/' + b.dataset.id, { method: 'DELETE' }); sessione(sid); }, 'Prova eliminata'); }; });
   // suggerimenti dall'anagrafica
   let mappa = {}, t; const dl = $('#pers');
+  document.querySelectorAll('.c_c').forEach((i) => legaComitato(i));
   document.querySelectorAll('.c_n').forEach((i) => { i.oninput = () => { clearTimeout(t); t = setTimeout(async () => {
     const r = await api('/esami/persone?q=' + encodeURIComponent(i.value)).catch(() => []);
     mappa = Object.fromEntries(r.map((p) => [`${p.cognome} ${p.nome}`, p])); dl.innerHTML = Object.keys(mappa).map((n) => `<option value="${esc(n)}">`).join(''); }, 250);

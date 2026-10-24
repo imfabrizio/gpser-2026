@@ -1,3 +1,4 @@
+import { canonico } from './comitati.js';
 import crypto from 'node:crypto';
 // Rotte usate dall'interfaccia di gestione (web/admin.html).
 import { hashPassword } from './auth.js';
@@ -125,9 +126,14 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) throw httpErr(400, 'email non valida');
     if (b.data_nascita && !/^\d{4}-\d{2}-\d{2}$/.test(b.data_nascita)) throw httpErr(400, 'data di nascita non valida');
     return { cognome: testo(b.cognome), nome: testo(b.nome), data_nascita: b.data_nascita || null, cf, email: em,
-             comitato: testo(b.comitato), provincia: testo(b.provincia)?.toUpperCase() ?? null, note: testo(b.note) };
+             comitato: testo(b.comitato), provincia: testo(b.provincia)?.toUpperCase() ?? null, unita: testo(b.unita), note: testo(b.note) };
   };
-  const COL_PERSONA = `p.id, p.cognome, p.nome, to_char(p.data_nascita,'YYYY-MM-DD') as data_nascita, p.cf_cifrato, p.email, p.comitato, p.provincia, p.note, p.ruolo_gara, p.utente_id,
+  // comitato scritto in modo libero → nome ufficiale; provincia e unità territoriale si completano da sole (unità = il comitato stesso se non ne ha)
+  const ufficiale = async (p) => {
+    const { nome, comitato } = await canonico(pool, p.comitato); p.comitato = nome;
+    if (comitato) { p.provincia ??= comitato.provincia?.toUpperCase() ?? null; const u = comitato.unita.length ? comitato.unita : [comitato.nome]; p.unita = u.find((x) => x.toLowerCase() === (p.unita || '').toLowerCase()) ?? (u.length === 1 ? u[0] : p.unita); }
+  };
+  const COL_PERSONA = `p.id, p.cognome, p.nome, to_char(p.data_nascita,'YYYY-MM-DD') as data_nascita, p.cf_cifrato, p.email, p.comitato, p.provincia, p.unita, p.note, p.ruolo_gara, p.utente_id,
     (select r.nome from utente u join ruolo r on r.codice = u.ruolo where u.id = p.utente_id) as ruolo_utente, (select u.admin from utente u where u.id = p.utente_id) as admin_utente`;
   // il codice fiscale in chiaro lo vede solo l'admin; gli altri sanno solo se c'è
   const uscita = (req) => ({ cf_cifrato, ...r }) => ({ ...r, ha_cf: !!cf_cifrato, codice_fiscale: req.utente.ruolo === 'admin' && cf_cifrato ? decifra(cf_cifrato) : undefined });
@@ -143,25 +149,27 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.post('/api/persone', { preHandler: soloOrg }, async (req) => {
     const p = persona(req.body || {});
     if (!p.cognome || !p.nome) throw httpErr(400, 'cognome e nome obbligatori');
+    await ufficiale(p);
     const cf = datiCf(p.cf);                                                     // si può scrivere da chi gestisce l'anagrafica, ma lo legge solo l'admin
     try {
       const { rows: [r] } = await pool.query(
-        `insert into partecipante (cognome, nome, data_nascita, cf_cifrato, cf_hash, email, comitato, provincia, note)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
-        [p.cognome, p.nome, p.data_nascita, cf.cf_cifrato, cf.cf_hash, p.email, p.comitato, p.provincia, p.note]);
+        `insert into partecipante (cognome, nome, data_nascita, cf_cifrato, cf_hash, email, comitato, provincia, note, unita)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`,
+        [p.cognome, p.nome, p.data_nascita, cf.cf_cifrato, cf.cf_hash, p.email, p.comitato, p.provincia, p.note, p.unita]);
       return (await pool.query(`select ${COL_PERSONA} from partecipante p where p.id=$1`, [r.id])).rows.map(uscita(req))[0];
     } catch (e) { return duplicato(e); }
   });
   app.patch('/api/persone/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {}, p = persona(b);
     if (!p.cognome || !p.nome) throw httpErr(400, 'cognome e nome obbligatori');
+    await ufficiale(p);
     const tocca = 'codice_fiscale' in b;                                         // se il campo non c'è (chi non è admin non lo vede) resta com'è
     const cf = tocca ? datiCf(p.cf) : null;
     try {
       const { rowCount } = await pool.query(
-        `update partecipante set cognome=$2, nome=$3, data_nascita=$4, email=$5, comitato=$6, provincia=$7, note=$8,
+        `update partecipante set cognome=$2, nome=$3, data_nascita=$4, email=$5, comitato=$6, provincia=$7, note=$8, unita=$12,
            cf_cifrato = case when $9 then $10 else cf_cifrato end, cf_hash = case when $9 then $11 else cf_hash end where id=$1`,
-        [req.params.id, p.cognome, p.nome, p.data_nascita, p.email, p.comitato, p.provincia, p.note, tocca, cf?.cf_cifrato ?? null, cf?.cf_hash ?? null]);
+        [req.params.id, p.cognome, p.nome, p.data_nascita, p.email, p.comitato, p.provincia, p.note, tocca, cf?.cf_cifrato ?? null, cf?.cf_hash ?? null, p.unita]);
       if (!rowCount) throw httpErr(404, 'persona inesistente');
     } catch (e) { if (e.statusCode) throw e; return duplicato(e); }
     return (await pool.query(`select ${COL_PERSONA} from partecipante p where p.id=$1`, [req.params.id])).rows.map(uscita(req))[0];

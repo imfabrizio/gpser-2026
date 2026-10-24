@@ -14,6 +14,8 @@ import { registraSegreteria } from './routes-segreteria.js';
 import { registraRisorse } from './routes-risorse.js';
 import { registraDocumenti } from './routes-documenti.js';
 import { registraEsami } from './routes-esami.js';
+import { registraComitati } from './routes-comitati.js';
+import { canonico } from './comitati.js';
 import { generaClassificaPdf } from './pdf/classifica.js';
 import { generaEsitoPdf } from './pdf/esito.js';
 import { haSchede, comitatoDi, controllaScheda } from './libreria-ambito.js';
@@ -50,7 +52,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (t.rid) {                                   // sessione di chi non è ancora registrato: solo il modulo di richiesta
       const { rows: [r] } = await pool.query('select * from richiesta_accesso where id=$1 and scade_il > now()', [t.rid]);
       if (!r) throw httpErr(401, 'richiesta scaduta: accedi di nuovo per ripresentarla');
-      if (!['/api/me', '/api/registrazione'].includes(rotta)) throw httpErr(403, 'accesso in attesa di approvazione');
+      if (!['/api/me', '/api/registrazione', '/api/comitati/cerca'].includes(rotta)) throw httpErr(403, 'accesso in attesa di approvazione');
       req.richiesta = r; return;
     }
     const { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.id=$1 and u.attivo', [t.id]);
@@ -160,12 +162,12 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     return (await pool.query(
       `insert into squadra (evento_id, numero, nome, comitato)
        select $1, coalesce(max(numero),0)+1, $2, $3 from squadra where evento_id=$1 returning *`,
-      [req.params.id, req.body.nome, (req.body.comitato || '').trim() || null])).rows[0];
+      [req.params.id, req.body.nome, (await canonico(pool, req.body.comitato)).nome])).rows[0];
   });
   app.patch('/api/squadre/:id', { preHandler: soloOrg }, async (req) =>
     (await pool.query(`update squadra set nome=coalesce($2,nome), attiva=coalesce($3,attiva),
          comitato = case when $4::boolean then nullif(trim($5),'') else comitato end, updated_at=now() where id=$1 returning *`,
-      [req.params.id, req.body.nome ?? null, req.body.attiva ?? null, 'comitato' in req.body, req.body.comitato ?? ''])).rows[0]);
+      [req.params.id, req.body.nome ?? null, req.body.attiva ?? null, 'comitato' in req.body, (await canonico(pool, req.body.comitato)).nome ?? ''])).rows[0]);
 
   app.get('/api/eventi/:id/scene', async (req) => {
     const { rows } = await pool.query(
@@ -388,6 +390,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   registraRisorse(app, pool, { inTransazione, soloOrg });
   registraDocumenti(app, pool, { soloOrg });
   registraEsami(app, pool, { soloOrg });
+  registraComitati(app, pool, { soloOrg });
 
   app.setErrorHandler((err, req, reply) => {
     let status = err.statusCode || 500, msg = err.message;

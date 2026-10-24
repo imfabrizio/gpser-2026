@@ -1,6 +1,7 @@
 // Esami: sessioni, prove con candidato principale e fino a due secondari. La scheda si compila una volta e vale per tutti;
 // su una singola voce si può dare un valore diverso a un candidato. L'esito è Superato / Non superato.
 import { httpErr } from './services/compilazioni.js';
+import { canonico } from './comitati.js';
 import { valutaEsito } from './esito.js';
 import { generaEsitoPdf } from './pdf/esito.js';
 import { generaRiepilogoEsamiPdf } from './pdf/riepilogo-esami.js';
@@ -91,7 +92,7 @@ export function registraEsami(app, pool, { soloOrg }) {
     let i = 0;
     for (const c of cands) {
       await pool.query('insert into candidato_esame (prova_id, ruolo, nome, comitato, partecipante_id, ordine) values ($1,$2,$3,$4,$5,$6)',
-        [p.id, i === 0 ? 'principale' : 'secondario', String(c.nome).trim().slice(0, 120), String(c.comitato || '').trim().slice(0, 120) || null,
+        [p.id, i === 0 ? 'principale' : 'secondario', String(c.nome).trim().slice(0, 120), (await canonico(pool, String(c.comitato || '').trim().slice(0, 120))).nome,
          UUID.test(c.partecipanteId || '') ? c.partecipanteId : null, i]);
       i++;
     }

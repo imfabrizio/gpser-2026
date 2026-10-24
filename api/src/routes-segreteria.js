@@ -1,4 +1,5 @@
 // Segreteria: iscritti alla gara, registrazione degli arrivi, badge.
+import { canonico } from './comitati.js';
 import { httpErr } from './services/compilazioni.js';
 import { generaBadge } from './pdf/badge.js';
 import { RUOLI_BADGE, SENZA_SQUADRA_OK } from './ruoli-gara.js';
@@ -37,7 +38,7 @@ export function registraSegreteria(app, pool, { soloOrg }) {
     let pid = b.partecipante_id;
     if (pid) { if (!UUID.test(pid) || !(await pool.query('select 1 from partecipante where id=$1', [pid])).rowCount) throw httpErr(400, 'persona inesistente'); }
     else {
-      const cognome = testo(b.cognome), nome = testo(b.nome), comitato = testo(b.comitato, 120), provincia = testo(b.provincia, 4)?.toUpperCase() ?? null;
+      const cognome = testo(b.cognome), nome = testo(b.nome), comitato = (await canonico(pool, testo(b.comitato, 120))).nome, provincia = testo(b.provincia, 4)?.toUpperCase() ?? null;
       if (!cognome || !nome) throw httpErr(400, 'cognome e nome obbligatori');
       const { rows: [esiste] } = await pool.query(
         `select id from partecipante where lower(cognome)=lower($1) and lower(nome)=lower($2) and coalesce(lower(comitato),'') = coalesce(lower($3),'') limit 1`, [cognome, nome, comitato]);

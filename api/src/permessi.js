@@ -29,6 +29,7 @@ const REGOLE = [
   R('GET|POST|PATCH|DELETE', '/api/eventi/:id/iscritti(/da-squadre)?', ['segreteria']), R('PATCH|DELETE', '/api/iscritti/:id', ['segreteria']), R('POST', '/api/iscritti/:id/(arrivo|annulla-arrivo)', ['segreteria']),
   R('GET', '/api/eventi/:id/badge.pdf', ['segreteria']), R('PUT', '/api/eventi/:id/formato-badge', ['segreteria']), R('GET', '/api/segreteria/persone', ['segreteria']),
   R('GET|POST|DELETE', '/api/badge/formati(/:id)?', ['segreteria']),
+  R('GET|POST|PATCH|DELETE', '/api/comitati(/:id|/importa|/da-ricondurre|/ricondurre)?', ['anagrafiche']),
   R('POST', '/api/import/excel', ['importa']), R('GET|POST|PATCH|DELETE', '/api/persone(/:id)?', ['anagrafiche']),
 ];
 // null = rotta non vincolata a un'area (la decidono i controlli della rotta stessa)

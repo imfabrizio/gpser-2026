@@ -93,3 +93,9 @@ Migrazione 015: in libreria (categoria «Esame TSSA») le schede Skill 01 PTC, 0
 
 - **Esami** (area «Esami», migrazione 016, pagina `/esami.html`, tessera in Home): sessione con data e luogo, senza squadre né scene. Ogni prova ha una scheda della libreria a tre livelli (le Skill TSSA), un candidato principale e fino a due secondari. La scheda si compila una volta e vale per tutti; con «Solo <nome>» si cambia una voce per un singolo candidato. Esito Superato / Non superato per candidato (le fasce della scheda, errore grave = non superato). PDF per candidato e riepilogo della sessione. Assegnata ai ruoli Organizzazione, Istruttore, Manovre salvavita, Monitore.
 - **Mega Code** (migrazione 017): tipo di evento formativo, struttura come le gare (squadra, scene, schede). Le schede per ruolo (leader, autista, soccorritore) vanno ancora definite.
+
+## Comitati e unità territoriali
+
+Migrazione 018. In Gestione → Segreteria → **Comitati** (area Anagrafiche): elenco con provincia, regione, unità territoriali e alias; import da testo (`nome;provincia;regione;unità1|unità2`, anche incollato da Excel); sezione «Nomi da correggere» che riconduce le scritture libere al nome ufficiale (Prignano SS → Prignano sulla Secchia) e le ricorda come alias.
+Dove si scrive un comitato (anagrafica, squadre, arrivi, richiesta di accesso, esami) compaiono i suggerimenti dalle prime lettere; scelto il comitato si compilano provincia e unità territoriale (se non ne ha, l'unità è il comitato stesso). Anche scrivendo a mano, un nome riconosciuto viene salvato nella forma ufficiale.
+L'elenco ufficiale va caricato una volta dall'import (non è scaricabile in automatico).

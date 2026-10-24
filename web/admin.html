@@ -67,6 +67,7 @@
 <link rel="stylesheet" href="stile.css">
 </head>
 <body>
+<script src="comitati.js"></script>
 <header><img class="logo" src="/logo-cri.jpg" alt="CRI"><h1>GareCRI · Gestione</h1><span id="chi"></span><a href="/#sicurezza">Sicurezza</a><button id="esci">Esci</button></header>
 <nav id="tabs" hidden></nav>
 <main id="app"></main>
@@ -97,16 +98,16 @@ window.chiudi = chiudi;
 
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
-const TABS = [['menu', 'Gestione'], ['evento', 'Dati della gara'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['importa', 'Importa'],
+const TABS = [['menu', 'Gestione'], ['evento', 'Dati della gara'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
   ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
-const AREA_TAB = { risorse: 'scene', segreteria: 'segreteria', evento: 'gara', scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: 'stampa', importa: 'importa' };
+const AREA_TAB = { risorse: 'scene', segreteria: 'segreteria', evento: 'gara', scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: 'stampa', importa: 'importa' };
 const DESC = { evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', squadre: 'Squadre, comitato e componenti',
-  segreteria: 'Registra gli arrivi e stampa i badge', persone: 'Persone e requisiti', importa: 'Carica le scene dai vecchi file Excel', libreria: 'Crea e modifica le schede, anche dei comitati', punteggi: 'Valore di MB, BE, SU, IN, NE per ogni scala',
+  segreteria: 'Registra gli arrivi e stampa i badge', persone: 'Persone e requisiti', comitati: 'Elenco dei comitati, unità territoriali e nomi da correggere', importa: 'Carica le scene dai vecchi file Excel', libreria: 'Crea e modifica le schede, anche dei comitati', punteggi: 'Valore di MB, BE, SU, IN, NE per ogni scala',
   classifiche: 'Generale, SEP, BLSD, Master, DIU', monitor: 'Avanzamento delle schede', stampa: 'Schede vuote o compilate, per scena o squadra', news: 'Avvisi per i partecipanti e notizie pubbliche', documenti: 'Regolamento, comunicazioni e manuali',
   richieste: 'Chi ha chiesto l\'accesso: approva e assegna il ruolo', ruoli: 'Crea ruoli e scegli a quali aree possono accedere', utenti: 'Accessi, ruoli e gara assegnata' };
 // i contenitori della Gestione: il menu iniziale ne mostra cinque, le sottosezioni sono linguette dentro
 const GRUPPI = [['gara', 'Gara', 'Dati, scene, risorse e squadre', 'evento', ['evento', 'scene', 'risorse', 'squadre']],
-  ['segr', 'Segreteria', 'Arrivi e badge, anagrafiche, importa', 'segreteria', ['segreteria', 'persone', 'importa']],
+  ['segr', 'Segreteria', 'Arrivi e badge, anagrafiche, comitati, importa', 'segreteria', ['segreteria', 'persone', 'comitati', 'importa']],
   ['sch', 'Schede', 'Libreria, punteggi, schede dei comitati', 'libreria', ['libreria', 'punteggi']],
   ['ris', 'Risultati', 'Classifiche, monitor, stampa', 'classifiche', ['classifiche', 'monitor', 'stampa']],
   ['amm', 'Amministrazione', 'Notizie, documenti, utenti, ruoli, richieste', 'utenti', ['news', 'documenti', 'richieste', 'ruoli', 'utenti']]];
@@ -261,6 +262,7 @@ async function tSquadre() {
     <div class="card"><h3>Nuova squadra</h3><div class="riga"><input id="ns" placeholder="Nome squadra"><input id="ns_c" placeholder="Comitato"><div class="stretto"><button class="b" id="ns_ok">Aggiungi</button></div></div></div>`;
   legaSelettore();
   document.querySelectorAll('.nm').forEach((i) => { i.onchange = () => fai(() => api(`/squadre/${i.dataset.id}`, { method: 'PATCH', body: { nome: i.value } }), 'Nome aggiornato'); });
+  document.querySelectorAll('.cm, #ns_c').forEach((i) => legaComitato(i));
   document.querySelectorAll('.cm').forEach((i) => { i.onchange = () => fai(() => api(`/squadre/${i.dataset.id}`, { method: 'PATCH', body: { comitato: i.value } }), 'Comitato aggiornato'); });
   document.querySelectorAll('.tg').forEach((b) => { b.onclick = () => fai(() => api(`/squadre/${b.dataset.sq}`, { method: 'PATCH', body: { attiva: b.dataset.a !== 'true' } })); });
   document.querySelectorAll('.mb').forEach((b) => { b.onclick = () => apriComponenti(b.dataset.sq, b.dataset.n); });
@@ -291,6 +293,37 @@ async function apriComponenti(squadraId, nomeSquadra) {
 
 // ───────── PERSONE (anagrafica) ─────────
 const RUOLI_GARA = { accompagnatore: 'accompagnatore', simulatore: 'simulatore', truccatore: 'truccatore', partecipante_leader: 'capo squadra', partecipante_membro: 'componente', giudice: 'giudice', giudice_master: 'giudice master', allenatore: 'allenatore', fotografo: 'fotografo', supporter: 'supporter', altro: 'altro' };
+async function tComitati() {
+  const [lista, daRic] = await Promise.all([api('/comitati'), api('/comitati/da-ricondurre')]);
+  const opz = lista.map((c) => `<option value="${c.id}">${esc(c.nome)}${c.provincia ? ' (' + esc(c.provincia) + ')' : ''}</option>`).join('');
+  $('#app').innerHTML = `${daRic.length ? `<div class="card"><h3>Nomi da correggere (${daRic.length})</h3><p class="nota">Scritti a mano e diversi dall'elenco. Scegli il comitato giusto: tutti i dati si aggiornano e quella scrittura viene riconosciuta in futuro.</p>
+      <table>${daRic.map((d, i) => `<tr><td><b>${esc(d.testo)}</b><br><small>${d.n} volte</small></td><td>
+        ${d.suggerimenti.map((s) => `<button class="s p rc" data-i="${i}" data-c="${s.id}">${esc(s.nome)}</button>`).join(' ')}
+        <select class="rs" data-i="${i}"><option value="">altro comitato…</option>${opz}</select></td></tr>`).join('')}</table></div>` : (lista.length ? '<div class="card">Nessun nome da correggere: tutte le anagrafiche usano i nomi dell\'elenco.</div>' : '')}
+    <div class="card"><h3>Aggiungi o importa</h3><div class="riga"><div style="flex:2"><label>Comitato</label><input id="c_n"></div><div><label>Prov.</label><input id="c_p" maxlength="2"></div><div><label>Regione</label><input id="c_r"></div></div>
+      <div class="riga"><div><label>Unità territoriali (separate da virgola; vuoto = una sola, col nome del comitato)</label><input id="c_u"></div><div class="stretto"><button class="b" id="c_ok">Aggiungi</button></div></div>
+      <details><summary>Importa un elenco</summary><p class="nota">Una riga per comitato: <code>nome;provincia;regione;unità1|unità2</code> (si può incollare anche da Excel). Chi esiste già viene aggiornato.</p>
+      <textarea id="c_t" rows="6" placeholder="Prignano sulla Secchia;MO;Emilia-Romagna;Prignano|Pavullo"></textarea><p><button class="b" id="c_imp">Importa</button></p></details></div>
+    <div class="card"><h3>Elenco (${lista.length})</h3><input id="c_q" placeholder="Cerca per nome o provincia" autocomplete="off">
+      <table id="c_tab">${lista.map((c) => `<tr data-k="${esc((c.nome + ' ' + (c.provincia || '')).toLowerCase())}"><td><b>${esc(c.nome)}</b> <small>${esc(c.provincia || '')} ${esc(c.regione || '')}</small><br><small>${c.unita.length ? esc(c.unita.join(', ')) : 'unità: ' + esc(c.nome)}${c.alias.length ? ' · alias: ' + esc(c.alias.join(', ')) : ''}</small></td>
+        <td><button class="s p ce" data-id="${c.id}">Modifica</button> <button class="x p cd" data-id="${c.id}">Elimina</button></td></tr>`).join('') || '<tr><td>Elenco vuoto: importa i comitati qui sopra.</td></tr>'}</table></div>`;
+  const ricondurci = (i, id) => { if (id) fai(async () => { const r = await api('/comitati/ricondurre', { body: { da: daRic[i].testo, comitatoId: id } }); flash(r.aggiornate + ' voci aggiornate'); }); };
+  document.querySelectorAll('.rc').forEach((b) => { b.onclick = () => ricondurci(Number(b.dataset.i), b.dataset.c); });
+  document.querySelectorAll('.rs').forEach((s) => { s.onchange = () => ricondurci(Number(s.dataset.i), s.value); });
+  $('#c_ok').onclick = () => { const nome = $('#c_n').value.trim(); if (!nome) return flash('Scrivi il nome del comitato', false);
+    fai(() => api('/comitati', { body: { nome, provincia: $('#c_p').value, regione: $('#c_r').value, unita: $('#c_u').value.split(',') } }), 'Comitato aggiunto'); };
+  $('#c_imp').onclick = () => { if (!$('#c_t').value.trim()) return flash('Incolla prima le righe da importare', false);
+    fai(async () => { const r = await api('/comitati/importa', { body: { testo: $('#c_t').value } }); flash(r.importati + ' comitati importati'); }); };
+  $('#c_q').oninput = () => { const q = $('#c_q').value.trim().toLowerCase(); document.querySelectorAll('#c_tab tr').forEach((r) => { r.hidden = !!q && !(r.dataset.k || '').includes(q); }); };
+  document.querySelectorAll('.cd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare il comitato dall\'elenco? Le anagrafiche che lo usano restano com\'è.')) fai(() => api('/comitati/' + b.dataset.id, { method: 'DELETE' }), 'Comitato eliminato'); }; });
+  document.querySelectorAll('.ce').forEach((b) => { b.onclick = () => { const c = lista.find((x) => x.id === b.dataset.id);
+    dlg(`<h3>Modifica comitato</h3><div class="griglia"><div><label>Nome</label><input id="m_n" value="${esc(c.nome)}"></div><div><label>Prov.</label><input id="m_p" maxlength="2" value="${esc(c.provincia || '')}"></div><div><label>Regione</label><input id="m_r" value="${esc(c.regione || '')}"></div></div>
+      <label>Unità territoriali (virgola)</label><input id="m_u" value="${esc(c.unita.join(', '))}"><label>Altri modi di scriverlo (virgola)</label><input id="m_a" value="${esc(c.alias.join(', '))}">
+      <p class="nota">Se cambi il nome, si aggiorna anche nelle anagrafiche e nelle squadre.</p><p><button class="b" id="m_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+    $('#m_ok').onclick = () => { const body = { nome: $('#m_n').value, provincia: $('#m_p').value, regione: $('#m_r').value, unita: $('#m_u').value.split(','), alias: $('#m_a').value.split(',') }; chiudi();
+      fai(() => api('/comitati/' + c.id, { method: 'PATCH', body }), 'Comitato salvato'); }; }; });
+}
+
 async function tPersone() {
   const q = (cache.qPersone || '').trim();
   const lista = await api('/persone' + (q ? '?q=' + encodeURIComponent(q) : ''));
@@ -313,12 +346,14 @@ function formPersona(p) {
   dlg(`<h3>${p ? 'Modifica' : 'Nuova'} persona</h3><div class="griglia">
     ${f('f_cog', 'Cognome *', p?.cognome)}${f('f_nom', 'Nome *', p?.nome)}${f('f_dn', 'Data di nascita', p?.data_nascita, 'date')}
     ${f('f_cf', admin() ? 'Codice fiscale (facoltativo)' : 'Codice fiscale (facoltativo, non leggibile dopo il salvataggio)', p?.codice_fiscale, 'text', `maxlength="16" ${p?.ha_cf && !admin() ? 'placeholder="già registrato"' : ''}`)}${f('f_em', 'Email (sarà anche il login)', p?.email, 'email')}
-    ${f('f_cm', 'Comitato di appartenenza', p?.comitato)}${f('f_pr', 'Provincia (sigla)', p?.provincia, 'text', 'maxlength="2"')}</div>
+    ${f('f_cm', 'Comitato di appartenenza', p?.comitato)}${f('f_pr', 'Provincia (sigla)', p?.provincia, 'text', 'maxlength="2"')}
+    <div><label>Unità territoriale</label><select id="f_un"><option>${esc(p?.unita || p?.comitato || '')}</option></select></div></div>
     <label>Note</label><textarea id="f_no" rows="2">${esc(p?.note || '')}</textarea>
     <p><button class="b" id="f_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+  legaComitato($('#f_cm'), { provincia: $('#f_pr'), unita: $('#f_un') });
   $('#f_ok').onclick = () => {
     const body = { cognome: $('#f_cog').value, nome: $('#f_nom').value, data_nascita: $('#f_dn').value || null, email: $('#f_em').value,
-      comitato: $('#f_cm').value, provincia: $('#f_pr').value, note: $('#f_no').value };
+      comitato: $('#f_cm').value, provincia: $('#f_pr').value, unita: $('#f_un').value, note: $('#f_no').value };
     if (admin() || $('#f_cf').value.trim()) body.codice_fiscale = $('#f_cf').value;     // chi non è admin non vede il codice: lo manda solo se lo scrive
     if (!body.cognome.trim() || !body.nome.trim()) return alert('Cognome e nome sono obbligatori');
     chiudi();
@@ -612,6 +647,7 @@ function dialogIscritto(S, x = null) {
       $('#ag_r').innerHTML = r.map((p) => `<button class="s p sc" data-i="${p.id}" data-c="${esc(p.cognome)}" data-n="${esc(p.nome)}" data-co="${esc(p.comitato || '')}" data-p="${esc(p.provincia || '')}">${esc(p.cognome)} ${esc(p.nome)} <small>${esc(p.comitato || '')}</small></button>`).join('') || '<small>Nessuna persona trovata: scrivi i dati qui sotto.</small>';
       document.querySelectorAll('.sc').forEach((b) => { b.onclick = () => { pid = b.dataset.i; $('#ag_c').value = b.dataset.c; $('#ag_n').value = b.dataset.n; $('#ag_co').value = b.dataset.co; $('#ag_p').value = b.dataset.p; $('#ag_r').innerHTML = `<small>Selezionato dall'anagrafica: ${esc(b.dataset.c)} ${esc(b.dataset.n)}</small>`; }; });
     }, 250); };
+    legaComitato($('#ag_co'), { provincia: $('#ag_p') });
     ['ag_c', 'ag_n', 'ag_co', 'ag_p'].forEach((id) => { $('#' + id).oninput = () => { pid = null; }; });
   }
   $('#ag_ok').onclick = async () => {
@@ -823,7 +859,7 @@ async function render() {
   if (!consentito(tab)) tab = 'menu';
   try {
     if (tab === 'menu') tMenu(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
-    else if (tab === 'persone') await tPersone(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
+    else if (tab === 'persone') await tPersone(); else if (tab === 'comitati') await tComitati(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   const g = gruppoDi(tab), nVis = g ? figliVisibili(g).length : 0;
   const mezzo = g && nVis > 1 ? ` › <span>${esc(g[1])}</span>` : '';          // il contenitore compare solo se ha più sezioni

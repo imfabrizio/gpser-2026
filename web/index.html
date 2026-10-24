@@ -60,6 +60,7 @@
 .esito { position:sticky; top:0; z-index:5; padding:10px 14px; margin:8px 0; border-radius:10px; background:#eee; font-size:18px; text-align:center; } .esito.si { background:#d7f0d9; color:#1b5e20; } .esito.no { background:#fde0e0; color:#9b1c1c; } .liv b { font-weight:700; }
 </style>
 <link rel="stylesheet" href="stile.css">
+<script src="comitati.js"></script>
 </head>
 <body>
 <header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GareCRI</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#sicurezza" hidden>Sicurezza</a><button id="esci" hidden>Esci</button></header>
@@ -151,6 +152,7 @@ async function vistaRegistrazione() {
       <label>Codice ruolo (se te l'hanno comunicato)</label><input id="r_k" maxlength="40" autocomplete="off">
       <p class="err" id="r_e" hidden></p>
       <button class="btn" id="r_go">Invia richiesta</button></div>`;
+    legaComitato($('#r_co'), { provincia: $('#r_p') });
     $('#r_r').onchange = () => { $('#r_sq').hidden = !d.con_squadra.includes($('#r_r').value); };
     $('#r_go').onclick = async () => {
       const e = $('#r_e'); e.hidden = true; $('#r_go').disabled = true;

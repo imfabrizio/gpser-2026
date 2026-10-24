@@ -1,3 +1,4 @@
+import { canonico } from './comitati.js';
 import crypto from 'node:crypto';
 // Registrazione con approvazione: chi entra con Google/Microsoft senza essere registrato compila un modulo;
 // l'amministratore lo approva (scegliendo il ruolo) o lo rifiuta. Senza risposta entro 48 ore la richiesta sparisce.
@@ -48,7 +49,7 @@ export function registraRichieste(app, pool, { soloAdmin, fetchImpl = fetch }) {
 
   app.post('/api/registrazione', { preHandler: rich }, async (req) => {
     const b = req.body || {}, r = req.richiesta;
-    const nome = pulisci(b.nome), cognome = pulisci(b.cognome), comitato = pulisci(b.comitato, 120), provincia = pulisci(b.provincia, 40).toUpperCase();
+    const nome = pulisci(b.nome), cognome = pulisci(b.cognome), comitato = (await canonico(pool, pulisci(b.comitato, 120))).nome ?? '', provincia = pulisci(b.provincia, 40).toUpperCase();
     const ruolo = String(b.ruolo_gara || '');
     if (!nome || !cognome || !comitato || !provincia) throw httpErr(400, 'nome, cognome, comitato e provincia sono obbligatori');
     if (!RUOLI_GARA[ruolo]) throw httpErr(400, 'scegli un ruolo');
