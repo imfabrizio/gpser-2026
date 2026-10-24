@@ -63,7 +63,7 @@
 <script src="comitati.js"></script>
 </head>
 <body>
-<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GareCRI</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#sicurezza" hidden>Sicurezza</a><button id="esci" hidden>Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GareCRI</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#account" hidden title="Il mio account">Il mio account</a><button id="esci" hidden>Esci</button></header>
 <main id="app"></main>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
@@ -202,17 +202,30 @@ async function vistaLogin(msg = '') {
 }
 // ── sicurezza: verifica in due passaggi (MFA) ──
 async function vistaSicurezza() {
-  $('#esci').hidden = false; $('#hhome').hidden = !!(me && me.mfa_da_configurare); $('#titolo').textContent = 'Sicurezza';
+  $('#esci').hidden = false; $('#hhome').hidden = !!(me && me.mfa_da_configurare); $('#titolo').textContent = 'Il mio account';
   const st = await api('/mfa');
+  const conAi = (me.aree || []).some((a) => ['schede', 'formazione_esame'].includes(a)) || me.admin;
+  const ai = conAi ? await api('/ai/stato').catch(() => null) : null;
   const obbl = me && me.mfa_da_configurare;
   $('#app').innerHTML = `${obbl ? '<div class="avviso"><strong>Per continuare devi attivare la verifica in due passaggi.</strong> Serve un\'app di autenticazione (Microsoft Authenticator, Google Authenticator, …).</div>' : ''}
+    <div class="card"><h2>${esc(me.nome)}</h2><p>${esc(me.email || '')}</p><p><small>Ruolo: ${esc(me.ruolo_nome || me.ruolo_codice || me.ruolo)}${me.admin ? ' · amministratore' : ''}</small></p></div>
+    <div class="card"><h2>Password</h2><p><small>Se accedi solo con Google o Microsoft non hai una password del sito.</small></p>
+      <label>Password attuale</label><input id="pw0" type="password" autocomplete="current-password"><label>Nuova password (min. 8 caratteri)</label><input id="pw1" type="password" autocomplete="new-password">
+      <button class="btn" id="pwok">Cambia password</button><p id="pwmsg" class="err"></p></div>
     <div class="card"><h2>Verifica in due passaggi (MFA)</h2>
     ${st.attiva ? `<p class="ok"><strong>Attiva.</strong> Codici di recupero rimasti: ${st.recupero_rimasti}.</p>
       ${st.obbligatoria ? '' : ''}<label>Per disattivarla inserisci un codice</label><input id="dc" inputmode="numeric" placeholder="123456"><button class="btn sec" id="dis">Disattiva</button>`
     : `<p>Non attiva. Aggiunge un codice temporaneo all'accesso con password.</p><button class="btn" id="ini">Attiva MFA</button><div id="conf"></div>`}
     <p id="msg" class="err"></p></div>
+    ${ai ? `<div class="card"><h2>Chiavi AI personali</h2><p><small>Per generare schede con la tua chiave (Claude, ChatGPT o Gemini). Restano cifrate sul sito e non si possono rivedere: per cambiarle, salvane una nuova. ${ai.predefinito ? 'Se non ne metti, si usa Gemini del sito.' : ''}</small></p>
+      <p>${['gemini', 'anthropic', 'openai'].map((k) => `<span class="tag ${ai.personali.includes(k) ? 'ok' : ''}">${{ gemini: 'Gemini', anthropic: 'Claude', openai: 'ChatGPT' }[k]}: ${ai.personali.includes(k) ? 'salvata <a href="#" class="kdel" data-p="${k}">togli</a>' : 'nessuna'}</span>`).join(' ')}</p>
+      <label>Servizio</label><select id="k_p"><option value="gemini">Gemini</option><option value="anthropic">Claude</option><option value="openai">ChatGPT</option></select><label>Chiave</label><input id="k_k" type="password" autocomplete="off">
+      <button class="btn" id="k_ok">Salva chiave</button><p id="kmsg" class="err"></p></div>` : ''}
     <div class="card"><strong>Accesso con provider esterni</strong><p>${st.identita.length ? 'Collegato a: ' + st.identita.map(esc).join(', ') : 'Nessun provider collegato. Si collega al primo accesso con Google o Microsoft, se la tua email è quella registrata.'}</p></div>
     ${obbl ? '' : '<a class="btn sec" href="#">Home</a>'}`;
+  $('#pwok').onclick = async () => { try { await api('/me/password', { body: { attuale: $('#pw0').value, nuova: $('#pw1').value } }); $('#pw0').value = $('#pw1').value = ''; $('#pwmsg').className = 'ok'; $('#pwmsg').textContent = 'Password cambiata.'; } catch (e) { $('#pwmsg').className = 'err'; $('#pwmsg').textContent = e.message; } };
+  if ($('#k_ok')) $('#k_ok').onclick = async () => { try { await api('/me/chiavi-ai', { method: 'PUT', body: { provider: $('#k_p').value, chiave: $('#k_k').value } }); vistaSicurezza(); } catch (e) { $('#kmsg').textContent = e.message; } };
+  document.querySelectorAll('.kdel').forEach((a) => { a.onclick = async (e) => { e.preventDefault(); await api('/me/chiavi-ai/' + a.dataset.p, { method: 'DELETE' }); vistaSicurezza(); }; });
   if ($('#ini')) $('#ini').onclick = async () => {
     try {
       const r = await api('/mfa/inizia', { body: {} });
@@ -454,7 +467,7 @@ async function route() {
     try { return await avviaSessione(await api('/auth/ticket', { body: { ticket: t } })); } catch (e) { return vistaLogin(e.message); }
   }
   if (location.hash.startsWith('#sso-errore=')) { const c = location.hash.slice(12); history.replaceState(null, '', location.pathname + '#login'); return vistaLogin(ERR_SSO[c] || 'Accesso non riuscito.'); }
-  $('#hsic').hidden = !token || !!(me && me.in_attesa);
+  $('#hsic').hidden = !token || !!(me && me.in_attesa); if (me && me.nome) $('#hsic').textContent = me.nome;
   if (!token) { return location.hash === '#login' ? vistaLogin() : vistaPubblica(); }
   if (!window.__meOk) { window.__meOk = true; try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch { /* offline: resta il profilo salvato */ } }
   if (me.in_attesa) { try { return await vistaRegistrazione(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
@@ -464,7 +477,7 @@ async function route() {
   $('#app').classList.toggle('largo', v === 'valuta'); if (v !== 'valuta') $('#app').classList.remove('sola-lettura');
   try {
     if (v === 'valuta') return await vistaValuta(a, b);
-    if (v === 'sicurezza') return await vistaSicurezza();
+    if (v === 'sicurezza' || v === 'account') return await vistaSicurezza();
     if (v === 'valutazione') return await vistaSelezione();
     if (v === 'classifica') { location.href = '/admin.html#classifiche'; return; }
     if (v === 'monitor') return await vistaMonitor();

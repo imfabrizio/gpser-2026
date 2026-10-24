@@ -1128,3 +1128,15 @@ test('AI-1 scheda generata con l\'AI: sempre bozza privata, da pubblicare; chiav
   const st = json(await chiama('GET', '/api/ai/stato', { token: O })); assert.deepEqual(st.personali, ['anthropic']);
   const { rows: [k] } = await pool.query(`select chiave_cifrata from utente_chiave_ai limit 1`); assert.ok(!k.chiave_cifrata.includes('sk-ant'));
 });
+
+test('ACC-1 il mio account: cambio password con quella attuale, per qualsiasi ruolo', async () => {
+  const A = tok['adm@t'];
+  await chiama('POST', '/api/utenti', { token: A, body: { email: 'acc@t.it', nome: 'Anna Account', ruolo: 'partecipante', password: 'password-lunga' } });
+  const t = json(await chiama('POST', '/api/login', { body: { email: 'acc@t.it', password: 'password-lunga' } })).token;
+  assert.equal(json(await chiama('GET', '/api/me', { token: t })).email, 'acc@t.it');
+  assert.equal((await chiama('POST', '/api/me/password', { token: t, body: { attuale: 'sbagliata-1', nuova: 'nuova-password-1' } })).statusCode, 400);
+  assert.equal((await chiama('POST', '/api/me/password', { token: t, body: { attuale: 'password-lunga', nuova: 'corta' } })).statusCode, 400);
+  assert.equal((await chiama('POST', '/api/me/password', { token: t, body: { attuale: 'password-lunga', nuova: 'nuova-password-1' } })).statusCode, 200);
+  assert.equal((await chiama('POST', '/api/login', { body: { email: 'acc@t.it', password: 'password-lunga' } })).statusCode, 401);
+  assert.equal((await chiama('POST', '/api/login', { body: { email: 'acc@t.it', password: 'nuova-password-1' } })).statusCode, 200);
+});

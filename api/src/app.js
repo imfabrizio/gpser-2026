@@ -79,7 +79,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       if (ev && !req.utente.eventi_org.includes(ev)) throw httpErr(403, 'gara non assegnata');
       if (rotta === '/api/eventi' && req.method === 'POST') throw httpErr(403, 'non puoi creare eventi: chiedi a un admin');
     }
-    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta === '/api/me/tema' || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta))))
+    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/me/') || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta))))
       throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
     if (!RUOLI_ORG.includes(req.utente.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
       const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);

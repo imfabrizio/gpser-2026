@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
-import { firmaToken, leggiToken, troppiTentativi, registraFallimento, azzeraFallimenti } from './auth.js';
+import { firmaToken, leggiToken, troppiTentativi, registraFallimento, azzeraFallimenti, hashPassword, verificaPassword } from './auth.js';
 import { httpErr } from './services/compilazioni.js';
 import { eStaff, ruoloEffettivo, AREE } from './permessi.js';
 import { nuovoSegreto, verificaTotp, cifra, decifra, otpauth, nuoviCodiciRecupero, hashRecupero } from './mfa.js';
@@ -15,7 +15,7 @@ export const SQL_UTENTE = `select u.*,
   coalesce((select array_agg(i.evento_id) from iscrizione i join partecipante p on p.id = i.partecipante_id join evento e on e.id = i.evento_id
              where p.utente_id = u.id and not e.archiviato and i.ruolo = 'organizzazione'), '{}') as ev_org from utente u`;
 export const mfaObbligatoria = (u, via) => process.env.MFA_ORG !== '0' && eStaff(u) && !u.mfa_attiva && via === 'pwd';
-export const profilo = (u, via) => ({ id: u.id, nome: u.nome, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, ruoli_extra: u.ruoli_extra || [], per_evento: !!u.per_evento, admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, tema: u.tema ?? null, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
+export const profilo = (u, via) => ({ id: u.id, nome: u.nome, email: u.email, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, ruoli_extra: u.ruoli_extra || [], per_evento: !!u.per_evento, admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, tema: u.tema ?? null, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
 export const creaSessione = (u, via) => ({ token: firmaToken({ id: u.id, via }), utente: profilo(u, via) });
 
 // ── provider esterni (OpenID Connect, flusso "authorization code" + PKCE) ──
@@ -114,6 +114,18 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
 
   // ── gestione del proprio MFA ──
   const utenteDb = async (id) => (await pool.query(SQL_UTENTE + ' where u.id=$1', [id])).rows[0];
+  // cambio della propria password (serve la password attuale; chi accede solo con Google/Microsoft non ne ha una propria)
+  app.post('/api/me/password', async (req) => {
+    const { attuale, nuova } = req.body || {};
+    if (typeof nuova !== 'string' || nuova.length < 8) throw httpErr(400, 'la nuova password deve avere almeno 8 caratteri');
+    const chiave = `pw|${req.ip}|${req.utente.id}`; if (troppiTentativi(chiave)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
+    const u = await utenteDb(req.utente.id);
+    if (typeof attuale !== 'string' || !verificaPassword(attuale, u.password_hash)) { registraFallimento(chiave); throw httpErr(400, 'la password attuale non è corretta'); }
+    azzeraFallimenti(chiave);
+    await pool.query('update utente set password_hash=$2 where id=$1', [u.id, hashPassword(nuova)]);
+    await pool.query(`insert into audit_log (utente_id, azione, entita, entita_id) values ($1::uuid,'password_cambiata','utente',$2::text)`, [u.id, u.id]);
+    return { ok: true };
+  });
   app.get('/api/mfa', async (req) => {
     const u = await utenteDb(req.utente.id);
     const { rows } = await pool.query('select provider from utente_identita where utente_id=$1', [u.id]);

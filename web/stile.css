@@ -108,3 +108,6 @@ footer.pie a { color:#fff; }
 
 header a.home { display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px; padding:0; }
 header a.home svg { display:block; }
+
+header a#chi, header a#hsic { border:1.5px solid #8C94A3; font-weight:700; padding:8px 16px; }
+header a#chi::before, header a#hsic::before { content:''; display:inline-block; width:14px; height:14px; margin-right:7px; vertical-align:-2px; background:currentColor; -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8'/%3E%3C/svg%3E") center/contain no-repeat; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8'/%3E%3C/svg%3E") center/contain no-repeat; }
