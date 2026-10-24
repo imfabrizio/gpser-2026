@@ -43,6 +43,6 @@ export async function chiama(provider, chiave, prompt, f = fetch) {
     estrai = (j) => j.choices?.[0]?.message?.content || '';
   } else throw new Error('provider non supportato');
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(r.status === 401 || r.status === 403 || r.status === 400 && /API key/i.test(JSON.stringify(j)) ? 'chiave AI non valida o non autorizzata' : r.status === 429 ? 'limite gratuito del servizio AI raggiunto: riprova più tardi' : 'il servizio AI non ha risposto (' + r.status + ')');
+  if (!r.ok) throw new Error(r.status === 401 || r.status === 403 || r.status === 400 && /API key/i.test(JSON.stringify(j)) ? 'chiave AI non valida o non autorizzata' : r.status === 429 ? 'limite gratuito del servizio AI raggiunto: riprova più tardi' : 'il servizio AI ha risposto con un errore (' + r.status + (j.error?.message ? ': ' + String(j.error.message).slice(0, 160) : '') + ')');
   return estrai(j);
 }

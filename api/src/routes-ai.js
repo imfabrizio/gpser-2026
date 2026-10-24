@@ -42,7 +42,7 @@ export function registraAi(app, pool, { soloOrg, inTransazione }, { fetchAi = (.
     usi.set(req.utente.id, [...recenti, ora]);
     let s;
     try { s = leggiScheda(await chiama(provider, chiave, promptScheda({ argomento, indicazioni, nVoci: Number(b.n_voci) || 20 }), fetchAi)); }
-    catch (e) { throw httpErr(502, e.message); }
+    catch (e) { req.log.warn({ err: e.message }, 'generazione AI fallita'); throw httpErr(424, e.message); }   // 424: il messaggio arriva all'utente (con 5xx verrebbe nascosto)
     return inTransazione(pool, async (db) => {
       let comitato = null;
       if (!haSchede(req.utente)) { comitato = await comitatoDi(pool, req.utente); if (!comitato) throw httpErr(400, 'il tuo comitato non risulta in anagrafica'); }
