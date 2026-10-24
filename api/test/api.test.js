@@ -1045,3 +1045,23 @@ test('PER-1 ruolo assegnato dall\'anagrafica: crea l\'accesso collegato alla per
   const mc = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'MC-9', nome: 'Mega Code 1', tipo: 'megacode', corso_id: corso.id } })); assert.equal(mc.corso_id, corso.id);
   const se = json(await chiama('POST', '/api/esami/sessioni', { token: O, body: { nome: 'Esame corso', evento_id: corso.id } })); assert.equal(se.evento_id, corso.id);
 });
+
+test('EV-1 accesso giudice legato alla gara: iscritto come giudice vede solo quella gara', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  const eA = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'EVA-1', nome: 'Gara A' } })), eB = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'EVB-1', nome: 'Gara B' } }));
+  const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'gev@t', nome: 'Gianni Evento', ruolo: 'partecipante', password: 'password-lunga' } }));
+  const mia = json(await chiama('POST', '/api/login', { body: { email: 'gev@t', password: 'password-lunga' } })).token;
+  assert.equal(json(await chiama('GET', '/api/me', { token: mia })).ruolo, 'partecipante');
+  const pers = json(await chiama('GET', '/api/persone?q=Evento', { token: O })).find((p) => p.utente_id === u.id);
+  assert.equal((await chiama('POST', `/api/eventi/${eA.id}/iscritti`, { token: O, body: { partecipante_id: pers.id, ruolo: 'giudice' } })).statusCode, 200);
+  assert.equal(json(await chiama('GET', '/api/me', { token: mia })).ruolo, 'giudice');
+  const lista = json(await chiama('GET', '/api/eventi', { token: mia })).map((e) => e.id);
+  assert.ok(lista.includes(eA.id) && !lista.includes(eB.id));
+  assert.equal((await chiama('GET', `/api/eventi/${eB.id}/squadre`, { token: mia })).statusCode, 403);
+  assert.equal((await chiama('GET', `/api/eventi/${eA.id}/squadre`, { token: mia })).statusCode, 200);
+  // crea accesso a chi non ce l'ha
+  const sa = json(await chiama('POST', '/api/persone', { token: O, body: { cognome: 'Senza', nome: 'Acc', email: 'senza.acc@t.it' } }));
+  const isc = json(await chiama('POST', `/api/eventi/${eA.id}/iscritti`, { token: O, body: { partecipante_id: sa.id, ruolo: 'giudice' } }));
+  assert.equal((await chiama('POST', `/api/iscrizioni/${isc.id}/accesso`, { token: O, body: {} })).statusCode, 200);
+  assert.ok(json(await chiama('GET', '/api/persone?q=Senza', { token: O })).find((p) => p.id === sa.id).utente_id);
+});

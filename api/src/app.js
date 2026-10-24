@@ -57,7 +57,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     }
     const { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.id=$1 and u.attivo', [t.id]);
     if (!u) throw httpErr(401, 'utente non valido');
-    req.utente = { id: u.id, nome: u.nome, evento_id: u.evento_id, mfa_attiva: u.mfa_attiva, admin: u.admin, aree: u.aree, ruolo_codice: u.ruolo, ruolo: ruoloEffettivo(u), via: t.via || 'pwd' };
+    req.utente = { id: u.id, nome: u.nome, evento_id: u.evento_id, eventi_ammessi: (u.ev_ruoli || []).map((r) => r.evento_id), mfa_attiva: u.mfa_attiva, admin: u.admin, aree: u.aree, ruolo_codice: u.ruolo, ruolo: ruoloEffettivo(u), via: t.via || 'pwd' };
     // organizzazione e admin con password devono prima attivare la MFA: fino ad allora solo la pagina di configurazione
     if (mfaObbligatoria(u, req.utente.via) && !(rotta === '/api/me' || rotta.startsWith('/api/mfa'))) throw httpErr(403, 'configura_mfa');
     if (req.utente.ruolo === 'organizzazione') {                 // ruolo con aree: solo quelle consentite
@@ -69,6 +69,10 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (!RUOLI_ORG.includes(req.utente.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
       const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);
       if (m && m[1].toLowerCase() !== u.evento_id) throw httpErr(403, 'gara non assegnata');
+    }
+    if (!RUOLI_ORG.includes(req.utente.ruolo) && !u.evento_id && !(u.aree || []).includes('valutazione') && (u.ev_ruoli || []).length) {   // accesso solo per le gare a cui è iscritto
+      const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);
+      if (m && !req.utente.eventi_ammessi.includes(m[1].toLowerCase())) throw httpErr(403, 'gara non assegnata');
     }
   });
   const soloOrg = async (req) => { if (!RUOLI_ORG.includes(req.utente.ruolo)) throw httpErr(403, 'permesso negato'); };
@@ -135,8 +139,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const org = RUOLI_ORG.includes(req.utente.ruolo);
     return (await pool.query(
       `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id
-         from evento where ($1 or id = $2 or ($2::uuid is null and attivo)) and ($1 or not archiviato)
-        order by data desc nulls last`, [org, req.utente.evento_id])).rows;
+         from evento where ($1 or id = $2 or id = any($3::uuid[]) or ($2::uuid is null and not cardinality($3::uuid[]) > 0 and attivo)) and ($1 or not archiviato)
+        order by data desc nulls last`, [org, req.utente.evento_id, req.utente.eventi_ammessi])).rows;
   });
   app.post('/api/eventi', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};

@@ -8,7 +8,8 @@ export const AREE = {
 const gestione = (u) => (u.aree || []).filter((a) => a !== 'valutazione');   // «valutazione» da sola non dà accesso alla Gestione
 export const eStaff = (u) => !!u.admin || gestione(u).length > 0;
 export const ruoloEffettivo = (u) => u.admin ? 'admin' : gestione(u).length ? 'organizzazione'
-  : (u.aree || []).includes('valutazione') ? (u.ruolo === 'giudice_master' || (u.ruoli_extra || []).includes('giudice_master') ? 'giudice_master' : 'giudice') : 'partecipante';
+  : (u.aree || []).includes('valutazione') ? (u.ruolo === 'giudice_master' || (u.ruoli_extra || []).includes('giudice_master') ? 'giudice_master' : 'giudice')
+  : (u.ev_ruoli || []).some((r) => r.ruolo === 'giudice_master') ? 'giudice_master' : (u.ev_ruoli || []).length ? 'giudice' : 'partecipante';
 
 // quali aree aprono quali rotte (metodo, pattern della rotta Fastify) — basta averne una
 const R = (m, rotta, aree) => [new RegExp(`^(${m})$`), new RegExp(`^${rotta}$`), aree];
@@ -25,7 +26,7 @@ const REGOLE = [
   R('POST', '/api/sync', ['valutazione']), R('GET', '/api/compilazioni', ['valutazione']), R('GET', '/api/schede/:id/esito.pdf', ['valutazione']), R('GET', '/api/schede/:id', ['valutazione', 'scene']),
   R('POST|PATCH|DELETE', '/api/documenti(/:id)?', ['documentazione']),
   R('GET|POST|PATCH|PUT|DELETE', '/api/esami/.*', ['esami']), R('GET|POST|PATCH|PUT|DELETE', '/api/esami', ['esami']),
-  R('GET', '/api/eventi/:id/risorse', ['scene']), R('PUT', '/api/scene/:id/risorse', ['scene']),
+  R('POST', '/api/iscrizioni/:id/accesso', ['scene', 'segreteria']), R('GET', '/api/eventi/:id/risorse', ['scene']), R('PUT', '/api/scene/:id/risorse', ['scene']),
   R('GET|POST|PATCH|DELETE', '/api/eventi/:id/iscritti(/da-squadre)?', ['segreteria']), R('PATCH|DELETE', '/api/iscritti/:id', ['segreteria']), R('POST', '/api/iscritti/:id/(arrivo|annulla-arrivo)', ['segreteria']),
   R('GET', '/api/eventi/:id/badge.pdf', ['segreteria']), R('PUT', '/api/eventi/:id/formato-badge', ['segreteria']), R('GET', '/api/segreteria/persone', ['segreteria']),
   R('GET|POST|DELETE', '/api/badge/formati(/:id)?', ['segreteria']),

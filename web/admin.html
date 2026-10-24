@@ -786,9 +786,10 @@ async function dialogGiudiciRisorse(R, schedaId, ass) {
   const senza = R.persone.filter((p) => ['giudice', 'giudice_master'].includes(p.ruolo) && !p.utente_id);
   dlg(`<h3>Giudici della scheda</h3>
     <p><b>Iscritti alla gara</b></p>${iscritti.length ? iscritti.map(riga).join('') : '<p class="nota">Nessun giudice iscritto con un account. Iscrivi i giudici dalla Segreteria e collegali a un utente.</p>'}
-    ${senza.length ? `<p class="nota">Iscritti come giudici ma senza account (non possono accedere): ${senza.map((p) => esc(p.cognome + ' ' + p.nome)).join(', ')}.</p>` : ''}
+    ${senza.length ? `<p class="nota">Iscritti come giudici ma senza accesso:</p>${senza.map((p) => `<p style="margin:2px 0">${esc(p.cognome + ' ' + p.nome)} <button class="s p gs_acc" data-id="${p.id}">Crea accesso</button></p>`).join('')}` : ''}
     ${altri.length ? `<details style="margin-top:8px"><summary>Altri giudici non iscritti a questa gara (${altri.length})</summary>${altri.map(riga).join('')}</details>` : ''}
     <p><button class="b" id="gs_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+  document.querySelectorAll('.gs_acc').forEach((b) => { b.onclick = () => { chiudi(); fai(() => api(`/iscrizioni/${b.dataset.id}/accesso`, { body: {} }), 'Accesso creato: vale per questa gara'); }; });
   $('#gs_ok').onclick = () => { const ids = [...document.querySelectorAll('#dlg input:checked')].map((i) => i.value); chiudi();
     fai(() => api(`/schede/${schedaId}/assegnazioni`, { method: 'PUT', body: { utenti: ids } }), 'Giudici assegnati'); };
 }

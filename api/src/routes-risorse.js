@@ -1,4 +1,6 @@
 // Risorse della gara: quanti giudici, simulatori e truccatori servono e dove sono assegnati.
+import crypto from 'node:crypto';
+import { hashPassword } from './auth.js';
 import { httpErr } from './services/compilazioni.js';
 
 const UUID = /^[0-9a-f-]{36}$/i;
@@ -43,6 +45,23 @@ export function registraRisorse(app, pool, { inTransazione, soloOrg }) {
       })),
     };
   });
+
+  // crea l'accesso di un giudice iscritto alla gara: solo Google/Microsoft con la sua email, senza poteri propri;
+  // il suo accesso vale per le gare a cui è iscritto come giudice o giudice master
+  app.post('/api/iscrizioni/:id/accesso', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    if (!UUID.test(req.params.id)) throw httpErr(400, 'id non valido');
+    const { rows: [p] } = await db.query(`select i.ruolo, p.id as pid, p.email, p.nome, p.cognome, p.utente_id from iscrizione i join partecipante p on p.id = i.partecipante_id where i.id=$1`, [req.params.id]);
+    if (!p) throw httpErr(404, 'iscrizione inesistente');
+    if (!['giudice', 'giudice_master'].includes(p.ruolo)) throw httpErr(400, 'l\'accesso serve ai giudici e ai giudici master');
+    if (p.utente_id) return { ok: true, esistente: true };
+    const email = (p.email || '').trim();
+    if (!email) throw httpErr(400, 'serve l\'email della persona: scrivila in anagrafica, sarà il suo login');
+    let { rows: [u] } = await db.query('select id from utente where lower(email)=lower($1)', [email]);
+    if (!u) ({ rows: [u] } = await db.query(`insert into utente (email, nome, ruolo, password_hash) values ($1,$2,'partecipante',$3) returning id`,
+      [email, `${p.nome} ${p.cognome}`.trim(), hashPassword(crypto.randomBytes(24).toString('base64url'))]));
+    await db.query('update partecipante set utente_id=$1 where id=$2 and utente_id is null', [u.id, p.pid]);
+    return { ok: true, utente_id: u.id };
+  }));
 
   // simulatori e truccatori di una scena (sostituisce l'elenco)
   app.put('/api/scene/:id/risorse', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
