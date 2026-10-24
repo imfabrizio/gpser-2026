@@ -23,6 +23,7 @@ export async function aggiungiSchedaDaPatologia(db, {
   scenaId, slot, patologiaId, simulatore, parametri = {}, titolo, overrides = [],
 }) {
   const { rows: [pat] } = await db.query(`select * from patologia where id = $1`, [patologiaId]);
+  if (pat?.bozza) throw httpErr(400, 'scheda in bozza: pubblicala prima di usarla in una scena');
   if (!pat) throw httpErr(404, 'patologia inesistente');
   const { rows: [scheda] } = await db.query(
     `insert into scena_scheda (scena_id, slot, patologia_id, titolo, sigla, simulatore, is_bls, is_master, is_diu, parametri, fasce)

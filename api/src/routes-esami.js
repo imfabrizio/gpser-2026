@@ -63,7 +63,7 @@ export function registraEsami(app, pool, { soloOrg }) {
   });
   // schede della libreria utilizzabili negli esami: a tre livelli (non eseguito / sufficiente / corretto)
   app.get('/api/esami/schede', { preHandler: soloOrg }, async () => (await pool.query(
-    `select p.id, p.nome, p.categoria from patologia p where p.comitato is null
+    `select p.id, p.nome, p.categoria from patologia p where p.comitato is null and not p.bozza
        and exists (select 1 from patologia_voce where patologia_id=p.id)
        and not exists (select 1 from patologia_voce pv join scala_punteggio sp on sp.id=pv.scala_id where pv.patologia_id=p.id and (sp.be is not null or sp."in" is not null))
      order by p.categoria nulls last, p.nome`)).rows);

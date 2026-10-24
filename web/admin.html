@@ -534,13 +534,13 @@ async function tLibreria() {
   const modificabile = (p) => (p.comitato ? (!direzione || admin()) : direzione);
   $('#app').innerHTML = `<div class="card"><h3>Schede in libreria (${pat.length})</h3>
     ${direzione ? '' : `<p class="nota">Le schede che crei qui sono visibili solo al tuo comitato. Le schede generali puoi guardarle e copiarle, ma non modificarle.</p>`}
-    <p><button class="b" id="np">Nuova scheda</button> ${direzione ? '<button class="s" id="vp">Punteggi MB/BE/SU/IN/NE</button> ' : ''}<button class="s" id="nm">Nuova da modello…</button>
+    <p><button class="b" id="np">Nuova scheda</button> ${direzione ? '<button class="s" id="vp">Punteggi MB/BE/SU/IN/NE</button> ' : ''}<button class="s" id="nm">Nuova da modello…</button> <button class="s" id="ai">Genera con l'AI</button>
       ${direzione ? `<label style="display:inline-flex;gap:6px;align-items:center;font-size:15px;color:inherit;margin-left:10px"><input type="checkbox" id="vcom" ${conComitati ? 'checked' : ''}> Vedi anche schede dei comitati</label>` : ''}</p>
     <input id="pf" placeholder="Cerca (es. Ictus, frattura, Olimpiadi, Gara D)" style="margin-bottom:8px">
     ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:236px"></colgroup>${l.map((p) => `<tr class="pr" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + usiTesto(p)).toLowerCase())}"><td><strong>${esc(p.nome)}</strong> <span class="tag">${esc(p.sigla)}</span>
-      ${p.categoria2 ? `<span class="tag">+ ${esc(p.categoria2)}</span>` : ''}${p.is_bls ? '<span class="tag">BLSD</span>' : ''}${p.is_diu ? '<span class="tag">DIU</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}${p.comitato ? `<span class="tag no">Privata · ${esc(p.comitato)}</span>` : ''}
+      ${p.categoria2 ? `<span class="tag">+ ${esc(p.categoria2)}</span>` : ''}${p.bozza ? '<span class="tag no">Bozza' + (p.generata_ai ? ' AI' : '') + '</span>' : ''}${p.is_bls ? '<span class="tag">BLSD</span>' : ''}${p.is_diu ? '<span class="tag">DIU</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}${p.comitato ? `<span class="tag no">Privata · ${esc(p.comitato)}</span>` : ''}
 <span class="evt">${esc(ultimaGara(p))}</span></td><td>${p.voci} voci</td>
-      <td style="white-space:nowrap">${modificabile(p) ? `<button class="s p ed" data-id="${p.id}">Modifica</button> ` : `<button class="s p ed" data-id="${p.id}">Apri</button> `}<button class="s p cp" data-id="${p.id}">Copia</button> ${modificabile(p) ? `<button class="x p del" data-id="${p.id}">Elimina</button>` : ''}</td></tr>`).join('')}</table></details>`).join('')}
+      <td style="white-space:nowrap">${modificabile(p) ? `<button class="s p ed" data-id="${p.id}">Modifica</button> ` : `<button class="s p ed" data-id="${p.id}">Apri</button> `}${p.bozza ? `<button class="b p pub" data-id="${p.id}">Pubblica</button> ` : ''}<button class="s p cp" data-id="${p.id}">Copia</button> ${modificabile(p) ? `<button class="x p del" data-id="${p.id}">Elimina</button>` : ''}</td></tr>`).join('')}</table></details>`).join('')}
     <p class="nota">Modificare una patologia non cambia le scene già create: ognuna ne conserva una copia.</p></div>
 `;
   $('#pf').oninput = () => { const q = $('#pf').value.trim().toLowerCase();
@@ -556,6 +556,21 @@ async function tLibreria() {
   document.querySelectorAll('.del').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la patologia?')) fai(() => api(`/libreria/patologie/${b.dataset.id}`, { method: 'DELETE' }), 'Eliminata'); }; });
   document.querySelectorAll('.ed').forEach((b) => { b.onclick = async () => editorPatologia(pat.find((p) => p.id === b.dataset.id), await api(`/libreria/patologie/${b.dataset.id}`)); });
   $('#np').onclick = () => editorPatologia(null, []);
+  document.querySelectorAll('.pub').forEach((b) => { b.onclick = () => { if (confirm('Pubblicare la scheda? Dopo averla controllata sarà utilizzabile nelle scene e negli esami.')) fai(() => api(`/libreria/patologie/${b.dataset.id}/pubblica`, { body: {} }), 'Scheda pubblicata'); }; });
+  $('#ai').onclick = async () => { const st = await api('/ai/stato').catch((e) => ({ errore: e.message }));
+    dlg(`<h3>Genera una scheda con l'AI</h3><p class="nota">L'AI prepara una bozza: la ritrovi qui in libreria con l'etichetta «Bozza». Rileggila e correggila prima di pubblicarla: non usare mai una scheda generata senza controllarla.</p>
+      <label>Argomento</label><input id="ai_a" placeholder="es. Ictus, Frattura di femore, Overdose da oppioidi">
+      <label>Indicazioni (facoltative)</label><textarea id="ai_i" rows="3" placeholder="es. solo valutazione primaria, per soccorritori TSSA, circa 15 voci"></textarea>
+      <label>Servizio</label><select id="ai_p"><option value="gemini" ${st.predefinito || (st.personali || []).includes('gemini') ? '' : 'disabled'}>Gemini ${st.predefinito ? '(del sito)' : (st.personali || []).includes('gemini') ? '(tua chiave)' : '— non attivo'}</option>
+        <option value="anthropic" ${(st.personali || []).includes('anthropic') ? '' : 'disabled'}>Claude ${(st.personali || []).includes('anthropic') ? '(tua chiave)' : '— serve la tua chiave'}</option>
+        <option value="openai" ${(st.personali || []).includes('openai') ? '' : 'disabled'}>ChatGPT ${(st.personali || []).includes('openai') ? '(tua chiave)' : '— serve la tua chiave'}</option></select>
+      <details style="margin-top:8px"><summary>Usa una mia chiave personale</summary><div class="riga"><div><label>Servizio</label><select id="k_p"><option value="gemini">Gemini</option><option value="anthropic">Claude</option><option value="openai">ChatGPT</option></select></div>
+        <div style="flex:3"><label>Chiave</label><input id="k_k" type="password" autocomplete="off" placeholder="incolla qui la chiave: resta cifrata sul sito"></div><div class="stretto"><button class="s" id="k_ok">Salva chiave</button></div></div></details>
+      <p><button class="b" id="ai_ok">Genera bozza</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+    $('#k_ok').onclick = async () => { try { await api('/me/chiavi-ai', { method: 'PUT', body: { provider: $('#k_p').value, chiave: $('#k_k').value } }); flash('Chiave salvata'); chiudi(); $('#ai').click(); } catch (e) { flash(e.message, false); } };
+    $('#ai_ok').onclick = () => { const a = $('#ai_a').value.trim(); if (a.length < 3) return flash('Scrivi l\'argomento', false); const body = { argomento: a, indicazioni: $('#ai_i').value, provider: $('#ai_p').value };
+      $('#ai_ok').disabled = true; $('#ai_ok').textContent = 'Sto generando…';
+      api('/libreria/genera', { body }).then(() => { chiudi(); render(); flash('Bozza creata: controllala e pubblicala'); }).catch((e) => { flash(e.message, false); $('#ai_ok').disabled = false; $('#ai_ok').textContent = 'Genera bozza'; }); }; };
   if ($('#vp')) $('#vp').onclick = () => vai('punteggi');
   if ($('#vcom')) $('#vcom').onchange = () => { localStorage.setItem('libComitati', $('#vcom').checked ? '1' : '0'); render(); };
 }

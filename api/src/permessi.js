@@ -21,6 +21,7 @@ const REGOLE = [
   R('PUT', '/api/schede/:id/voci/:ordine', ['scene']), R('PATCH|DELETE', '/api/schede/:id', ['scene']), R('PUT', '/api/schede/:id/assegnazioni', ['scene']),
   R('GET', '/api/eventi/:id/(assegnazioni|master)', ['scene']), R('PUT', '/api/scene/:id/master', ['scene']), R('GET', '/api/giudici', ['scene']),
   R('GET', '/api/libreria/(scale|voci|patologie(/:id)?)', ['schede', 'scene', 'formazione_esame']), R('POST', '/api/libreria/scale', ['schede']), R('POST', '/api/libreria/patologie', ['schede', 'formazione_esame']),
+  R('GET', '/api/ai/stato', ['schede', 'formazione_esame']), R('POST', '/api/libreria/genera', ['schede', 'formazione_esame']), R('POST', '/api/libreria/patologie/:id/pubblica', ['schede', 'formazione_esame']),
   R('PUT|DELETE', '/api/libreria/patologie/:id', ['schede', 'formazione_esame']),
   R('GET', '/api/eventi/:id/(classifica|classifica.pdf|monitor)', ['classifiche']), R('GET', '/api/eventi/:id/stampa.pdf', ['stampa']),
   R('POST', '/api/sync', ['valutazione']), R('GET', '/api/compilazioni', ['valutazione']), R('GET', '/api/schede/:id/esito.pdf', ['valutazione']), R('GET', '/api/schede/:id', ['valutazione', 'scene']),

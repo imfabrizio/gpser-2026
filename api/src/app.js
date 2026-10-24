@@ -18,6 +18,7 @@ import { registraComitati } from './routes-comitati.js';
 import { canonico } from './comitati.js';
 import { generaClassificaPdf } from './pdf/classifica.js';
 import { generaEsitoPdf } from './pdf/esito.js';
+import { registraAi } from './routes-ai.js';
 import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO } from './ambito.js';
 import { haSchede, comitatoDi, controllaScheda } from './libreria-ambito.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
@@ -305,7 +306,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     `select p.*, (select count(*) from patologia_voce where patologia_id=p.id) as voci,
        (select coalesce(jsonb_agg(jsonb_build_object('evento', x.nome, 'codice', x.codice, 'luogo', x.luogo, 'data', to_char(x.data, 'YYYY-MM-DD')) order by x.data desc nulls last), '[]'::jsonb)
           from (select distinct e.id, e.nome, e.codice, e.luogo, e.data from scena_scheda ss join scena s on s.id = ss.scena_id join evento e on e.id = s.evento_id where ss.patologia_id = p.id) x) as usi
-       from patologia p where p.comitato is null or $1::boolean or lower(trim(p.comitato)) = lower(trim($2::text)) order by nome`, [tutte, mio])).rows;
+       from patologia p where (p.comitato is null or $1::boolean or lower(trim(p.comitato)) = lower(trim($2::text))) and (not p.bozza or p.creata_da = $3::uuid) order by nome`, [tutte, mio, req.utente.id])).rows;
   });
   app.get('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => { await controllaScheda(pool, req.utente, req.params.id, { modifica: false }); return (await pool.query(
     `select pv.ordine, pv.sezione, v.testo, sp.codice as scala, pv.is_sep from patologia_voce pv
@@ -424,6 +425,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   registraDocumenti(app, pool, { soloOrg });
   registraEsami(app, pool, { soloOrg });
   registraComitati(app, pool, { soloOrg });
+  registraAi(app, pool, { soloOrg, inTransazione });
 
   app.setErrorHandler((err, req, reply) => {
     let status = err.statusCode || 500, msg = err.message;

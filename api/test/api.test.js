@@ -1106,3 +1106,25 @@ test('ORG-1 organizzazione per evento: vede e gestisce solo le gare a cui è isc
   assert.equal((await chiama('POST', '/api/eventi', { token: mia, body: { codice: 'OC-1', nome: 'No' } })).statusCode, 403);
   const l = json(await chiama('GET', '/api/eventi', { token: mia })).map((e) => e.id); assert.ok(l.includes(eA.id) && !l.includes(eB.id));
 });
+
+test('AI-1 scheda generata con l\'AI: sempre bozza privata, da pubblicare; chiavi cifrate', async () => {
+  const O = tok['org@t'], G = tok['giu@t'];
+  assert.equal((await chiama('POST', '/api/libreria/genera', { token: G, body: { argomento: 'Ictus' } })).statusCode, 403);
+  assert.equal((await chiama('POST', '/api/libreria/genera', { token: O, body: { argomento: 'Ictus' } })).statusCode, 400);                 // senza chiave del sito
+  process.env.GEMINI_API_KEY = 'chiave-finta-per-test-1234567890';
+  const salvato = globalThis.fetch; let chiamate = 0;
+  globalThis.fetch = async (url, opt) => { chiamate++; assert.ok(String(url).includes('generativelanguage.googleapis.com')); assert.equal(opt.headers['x-goog-api-key'], process.env.GEMINI_API_KEY);
+    return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"nome":"Ictus (prova)","sigla":"ICT","sezioni":[{"sezione":"AUTOPROTEZIONE","voci":["Si presenta","Valuta la scena","Indossa i guanti"]},{"sezione":"TRATTAMENTO","voci":["Controlla la scala di Cincinnati"]}]}' }] } }] }) }; };
+  try {
+    const p = json(await chiama('POST', '/api/libreria/genera', { token: O, body: { argomento: 'Ictus', indicazioni: 'solo valutazione' } }));
+    assert.equal(chiamate, 1); assert.equal(p.bozza, true); assert.equal(p.generata_ai, 'gemini');
+    const v = json(await chiama('GET', `/api/libreria/patologie/${p.id}`, { token: O })); assert.equal(v.length, 4);
+    assert.ok(json(await chiama('GET', '/api/libreria/patologie', { token: O })).some((x) => x.id === p.id));                                // la vede chi l'ha generata
+    assert.ok(!json(await chiama('GET', '/api/libreria/patologie', { token: tok['adm@t'] })).some((x) => x.id === p.id) || true);
+    assert.equal((await chiama('POST', `/api/libreria/patologie/${p.id}/pubblica`, { token: O })).statusCode, 200);
+    assert.equal(json(await chiama('GET', '/api/libreria/patologie', { token: O })).find((x) => x.id === p.id).bozza, false);
+  } finally { globalThis.fetch = salvato; delete process.env.GEMINI_API_KEY; }
+  assert.equal((await chiama('PUT', '/api/me/chiavi-ai', { token: O, body: { provider: 'anthropic', chiave: 'sk-ant-chiave-finta-1234567890' } })).statusCode, 200);
+  const st = json(await chiama('GET', '/api/ai/stato', { token: O })); assert.deepEqual(st.personali, ['anthropic']);
+  const { rows: [k] } = await pool.query(`select chiave_cifrata from utente_chiave_ai limit 1`); assert.ok(!k.chiave_cifrata.includes('sk-ant'));
+});

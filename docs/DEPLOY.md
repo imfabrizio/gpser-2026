@@ -99,3 +99,7 @@ Migrazione 015: in libreria (categoria «Esame TSSA») le schede Skill 01 PTC, 0
 Migrazione 018. In Gestione → Segreteria → **Comitati** (area Anagrafiche): elenco con provincia, regione, unità territoriali e alias; import da testo (`nome;provincia;regione;unità1|unità2`, anche incollato da Excel); sezione «Nomi da correggere» che riconduce le scritture libere al nome ufficiale (Prignano SS → Prignano sulla Secchia) e le ricorda come alias.
 Dove si scrive un comitato (anagrafica, squadre, arrivi, richiesta di accesso, esami) compaiono i suggerimenti dalle prime lettere; scelto il comitato si compilano provincia e unità territoriale (se non ne ha, l'unità è il comitato stesso). Anche scrivendo a mano, un nome riconosciuto viene salvato nella forma ufficiale.
 L'elenco ufficiale va caricato una volta dall'import (non è scaricabile in automatico).
+
+## Schede generate con l'AI
+
+Le bozze di schede si generano dalla Libreria («Genera con l'AI»). Chiave del sito: variabile `GEMINI_API_KEY` su Render (Environment), creata in Google AI Studio (aistudio.google.com → Get API key) con l'account Google del sito. Mai nel codice o nel repository. Modello predefinito `gemini-2.5-flash` (variabile facoltativa `GEMINI_MODEL`). Ogni utente può aggiungere una propria chiave (Gemini, Claude, ChatGPT): resta cifrata nel database. Le schede generate sono sempre bozze, visibili solo a chi le ha create finché non le pubblica; limite di 12 generazioni all'ora per utente.
