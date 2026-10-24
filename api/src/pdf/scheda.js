@@ -112,7 +112,7 @@ export function disegnaScheda(doc, ctx) {
   rect(doc, X0, 237, 461, 44);
   testo(doc, scena.titolo, X0, 237, 461, 44, { size: 14, font: 'Sans-Bold' });
   // parametri del simulatore: griglia sulle stesse colonne dei livelli (vuota per le schede senza parametri, es. Master)
-  const par = scheda.parametri || {};
+  const par = scheda.is_master ? {} : (scheda.parametri || {});   // la scheda Master non ha parametri
   const campi = [['Coscienza', par.coscienza], ['FR', par.fr], ['FC', par.fc], ['Cute', par.cute]];
   if (campi.some(([, v]) => v != null && v !== '')) {
     rect(doc, XL, 216, COLW, 21); rect(doc, XL, 237, COLW, 44);
