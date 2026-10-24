@@ -1018,3 +1018,16 @@ test('TEMA-1 ognuno sceglie il proprio aspetto, anche un partecipante', async ()
   assert.equal((await chiama('PATCH', '/api/me/tema', { body: { tema: 'a' } })).statusCode, 401);
   void U;
 });
+
+test('PER-1 ruolo assegnato dall\'anagrafica: crea l\'accesso collegato alla persona, solo admin', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  const p = json(await chiama('POST', '/api/persone', { token: O, body: { cognome: 'Accesso', nome: 'Anag', email: 'anag.accesso@t.it' } }));
+  assert.equal((await chiama('POST', `/api/persone/${p.id}/accesso`, { token: O, body: { ruolo: 'giudice' } })).statusCode, 403);   // l'organizzazione non assegna ruoli
+  const s = json(await chiama('POST', '/api/persone', { token: O, body: { cognome: 'Senzamail', nome: 'Anag' } }));
+  assert.equal((await chiama('POST', `/api/persone/${s.id}/accesso`, { token: A, body: { ruolo: 'giudice' } })).statusCode, 400);   // serve l'email
+  assert.equal((await chiama('POST', `/api/persone/${p.id}/accesso`, { token: A, body: { ruolo: 'inesistente' } })).statusCode, 400);
+  assert.equal((await chiama('POST', `/api/persone/${p.id}/accesso`, { token: A, body: { ruolo: 'giudice' } })).statusCode, 200);
+  let r = json(await chiama('GET', '/api/persone?q=Accesso', { token: O })).find((x) => x.id === p.id); assert.ok(r.utente_id); assert.equal(r.ruolo_codice, 'giudice');
+  assert.equal((await chiama('POST', `/api/persone/${p.id}/accesso`, { token: A, body: { ruolo: 'giudice_master' } })).statusCode, 200);
+  r = json(await chiama('GET', '/api/persone?q=Accesso', { token: O })).find((x) => x.id === p.id); assert.equal(r.ruolo_codice, 'giudice_master');
+});

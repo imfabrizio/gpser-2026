@@ -134,7 +134,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     if (comitato) { p.provincia ??= comitato.provincia?.toUpperCase() ?? null; const u = comitato.unita.length ? comitato.unita : [comitato.nome]; p.unita = u.find((x) => x.toLowerCase() === (p.unita || '').toLowerCase()) ?? (u.length === 1 ? u[0] : p.unita); }
   };
   const COL_PERSONA = `p.id, p.cognome, p.nome, to_char(p.data_nascita,'YYYY-MM-DD') as data_nascita, p.cf_cifrato, p.email, p.comitato, p.provincia, p.unita, p.note, p.ruolo_gara, p.utente_id,
-    (select r.nome from utente u join ruolo r on r.codice = u.ruolo where u.id = p.utente_id) as ruolo_utente, (select u.admin from utente u where u.id = p.utente_id) as admin_utente`;
+    (select r.nome from utente u join ruolo r on r.codice = u.ruolo where u.id = p.utente_id) as ruolo_utente, (select u.ruolo from utente u where u.id = p.utente_id) as ruolo_codice, (select u.admin from utente u where u.id = p.utente_id) as admin_utente`;
   // il codice fiscale in chiaro lo vede solo l'admin; gli altri sanno solo se c'è
   const uscita = (req) => ({ cf_cifrato, ...r }) => ({ ...r, ha_cf: !!cf_cifrato, codice_fiscale: req.utente.ruolo === 'admin' && cf_cifrato ? decifra(cf_cifrato) : undefined });
   const duplicato = (e) => { if (e.code === '23505') throw httpErr(409, 'codice fiscale già presente in anagrafica'); throw e; };
@@ -173,6 +173,30 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
       if (!rowCount) throw httpErr(404, 'persona inesistente');
     } catch (e) { if (e.statusCode) throw e; return duplicato(e); }
     return (await pool.query(`select ${COL_PERSONA} from partecipante p where p.id=$1`, [req.params.id])).rows.map(uscita(req))[0];
+  });
+  // assegna il ruolo direttamente dall'anagrafica: se la persona non ha ancora un accesso lo crea (solo Google/Microsoft, collegato all'email), altrimenti cambia il ruolo
+  app.post('/api/persone/:id/accesso', { preHandler: soloAdmin }, async (req) => {
+    const { ruolo, admin } = req.body || {};
+    if (!ruolo || !(await ruoloEsiste(pool, ruolo))) throw httpErr(400, 'ruolo non valido');
+    return inTransazione(pool, async (db) => {
+      const { rows: [p] } = await db.query('select id, cognome, nome, email, utente_id from partecipante where id=$1', [req.params.id]);
+      if (!p) throw httpErr(404, 'persona inesistente');
+      let uid = p.utente_id;
+      if (!uid) {
+        const email = (p.email || '').trim();
+        if (!email) throw httpErr(400, 'serve l\'email della persona: scrivila in anagrafica, sarà il suo login');
+        const { rows: [esiste] } = await db.query('select id from utente where lower(email)=lower($1)', [email]);
+        if (esiste) { uid = esiste.id; await db.query('update partecipante set utente_id=$1 where id=$2', [uid, p.id]); }
+        else {
+          uid = (await db.query('insert into utente (email, nome, ruolo, admin, password_hash) values ($1,$2,$3,$4,$5) returning id',
+            [email, `${p.nome} ${p.cognome}`.trim(), ruolo, !!admin, hashPassword(crypto.randomBytes(24).toString('base64url'))])).rows[0].id;
+          await db.query('update partecipante set utente_id=$1 where id=$2', [uid, p.id]);
+        }
+      }
+      if (uid === req.utente.id && admin === false) throw httpErr(400, 'non puoi togliere l\'admin a te stesso');
+      await db.query('update utente set ruolo=$2, admin=coalesce($3,admin) where id=$1', [uid, ruolo, typeof admin === 'boolean' ? admin : null]);
+      return { ok: true, utente_id: uid };
+    });
   });
   app.delete('/api/persone/:id', { preHandler: soloOrg }, async (req) => {
     const { rows: [x] } = await pool.query('select utente_id from partecipante where id=$1', [req.params.id]);

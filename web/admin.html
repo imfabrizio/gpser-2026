@@ -326,18 +326,21 @@ async function tComitati() {
 
 async function tPersone() {
   const q = (cache.qPersone || '').trim();
-  const lista = await api('/persone' + (q ? '?q=' + encodeURIComponent(q) : ''));
+  const [lista, ruoliR] = await Promise.all([api('/persone' + (q ? '?q=' + encodeURIComponent(q) : '')), admin() ? api('/ruoli') : Promise.resolve({ ruoli: [] })]);
+  const ruoli = ruoliR.ruoli;
   $('#app').innerHTML = `<div class="card"><h3>Anagrafica persone (${lista.length}${lista.length === 500 ? '+' : ''})</h3>
     <div class="riga"><input id="pq" placeholder="Cerca per cognome, nome, comitato, codice fiscale" value="${esc(q)}"><div class="stretto"><button class="s" id="pqc">Cerca</button> <button class="b" id="pn">Nuova persona</button></div></div>
     <table style="margin-top:8px"><tr><th>Cognome e nome</th><th>Nascita</th><th>Comitato</th><th>Prov.</th><th>Squadre</th><th>Accesso al sito</th><th></th></tr>
     ${lista.map((p) => `<tr><td>${esc(p.cognome)} ${esc(p.nome)}<br><small>${esc(p.email || '')}${p.codice_fiscale ? ' · ' + esc(p.codice_fiscale) : p.ha_cf ? ' · CF registrato' : ''}${p.ruolo_gara ? ' · ' + esc(RUOLI_GARA[p.ruolo_gara] || p.ruolo_gara) : ''}</small></td>
       <td>${esc(p.data_nascita || '')}</td><td>${esc(p.comitato || '')}</td><td>${esc(p.provincia || '')}</td><td>${p.squadre}</td>
-      <td>${p.utente_id ? `<span class="tag ok">${esc(p.ruolo_utente || '')}</span>${p.admin_utente ? '<span class="tag">admin</span>' : ''}` : '<small>—</small>'}</td>
+      <td>${admin() ? `<select class="pr" data-id="${p.id}"><option value="" ${p.utente_id ? 'disabled' : ''}>${p.utente_id ? '' : 'nessun accesso'}</option>${ruoli.map((r) => `<option value="${r.codice}" ${r.codice === p.ruolo_codice ? 'selected' : ''}>${esc(r.nome)}</option>`).join('')}</select>${p.admin_utente ? '<span class="tag">admin</span>' : ''}`
+        : p.utente_id ? `<span class="tag ok">${esc(p.ruolo_utente || '')}</span>${p.admin_utente ? '<span class="tag">admin</span>' : ''}` : '<small>—</small>'}</td>
       <td style="white-space:nowrap"><button class="s p pe" data-id="${p.id}">Modifica</button> <button class="x p pd" data-id="${p.id}">Elimina</button></td></tr>`).join('') || '<tr><td colspan="7"><em>Nessuna persona.</em></td></tr>'}</table>
     <p class="nota">Dati personali: visibili solo a organizzazione e admin. Codice fiscale, email e data di nascita sono facoltativi.</p></div>`;
   const cerca = () => { cache.qPersone = $('#pq').value; render(); };
   $('#pqc').onclick = cerca; $('#pq').onkeydown = (e) => { if (e.key === 'Enter') cerca(); };
   $('#pn').onclick = () => formPersona(null);
+  document.querySelectorAll('.pr').forEach((c) => { c.onchange = () => { if (c.value) fai(() => api(`/persone/${c.dataset.id}/accesso`, { body: { ruolo: c.value } }), 'Ruolo assegnato'); }; });
   document.querySelectorAll('.pe').forEach((b) => { b.onclick = () => formPersona(lista.find((p) => p.id === b.dataset.id)); });
   document.querySelectorAll('.pd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la persona dall\'anagrafica?')) fai(() => api(`/persone/${b.dataset.id}`, { method: 'DELETE' }), 'Persona eliminata'); }; });
 }
