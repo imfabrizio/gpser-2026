@@ -8,7 +8,7 @@ export const AREE = {
 const gestione = (u) => (u.aree || []).filter((a) => a !== 'valutazione');   // «valutazione» da sola non dà accesso alla Gestione
 export const eStaff = (u) => !!u.admin || gestione(u).length > 0;
 export const ruoloEffettivo = (u) => u.admin ? 'admin' : gestione(u).length ? 'organizzazione'
-  : (u.aree || []).includes('valutazione') ? (u.ruolo === 'giudice_master' ? 'giudice_master' : 'giudice') : 'partecipante';
+  : (u.aree || []).includes('valutazione') ? (u.ruolo === 'giudice_master' || (u.ruoli_extra || []).includes('giudice_master') ? 'giudice_master' : 'giudice') : 'partecipante';
 
 // quali aree aprono quali rotte (metodo, pattern della rotta Fastify) — basta averne una
 const R = (m, rotta, aree) => [new RegExp(`^(${m})$`), new RegExp(`^${rotta}$`), aree];

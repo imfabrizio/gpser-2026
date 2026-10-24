@@ -331,18 +331,28 @@ async function tPersone() {
   $('#app').innerHTML = `<div class="card"><h3>Anagrafica persone (${lista.length}${lista.length === 500 ? '+' : ''})</h3>
     <div class="riga"><input id="pq" placeholder="Cerca per cognome, nome, comitato, codice fiscale" value="${esc(q)}"><div class="stretto"><button class="s" id="pqc">Cerca</button> <button class="b" id="pn">Nuova persona</button></div></div>
     <table style="margin-top:8px"><tr><th>Cognome e nome</th><th>Nascita</th><th>Comitato</th><th>Prov.</th><th>Squadre</th><th>Accesso al sito</th><th></th></tr>
-    ${lista.map((p) => `<tr><td>${esc(p.cognome)} ${esc(p.nome)}<br><small>${esc(p.email || '')}${p.codice_fiscale ? ' · ' + esc(p.codice_fiscale) : p.ha_cf ? ' · CF registrato' : ''}${p.ruolo_gara ? ' · ' + esc(RUOLI_GARA[p.ruolo_gara] || p.ruolo_gara) : ''}</small></td>
+    ${lista.map((p) => `<tr><td>${esc(p.cognome)} ${esc(p.nome)}<br>${(p.qualifiche || []).map((q) => `<span class="tag">${esc(QUALIFICHE[q] || q)}</span>`).join('')}<small>${esc(p.email || '')}${p.codice_fiscale ? ' · ' + esc(p.codice_fiscale) : p.ha_cf ? ' · CF registrato' : ''}${p.ruolo_gara ? ' · ' + esc(RUOLI_GARA[p.ruolo_gara] || p.ruolo_gara) : ''}</small></td>
       <td>${esc(p.data_nascita || '')}</td><td>${esc(p.comitato || '')}</td><td>${esc(p.provincia || '')}</td><td>${p.squadre}</td>
-      <td>${admin() ? `<select class="pr" data-id="${p.id}"><option value="" ${p.utente_id ? 'disabled' : ''}>${p.utente_id ? '' : 'nessun accesso'}</option>${ruoli.map((r) => `<option value="${r.codice}" ${r.codice === p.ruolo_codice ? 'selected' : ''}>${esc(r.nome)}</option>`).join('')}</select>${p.admin_utente ? '<span class="tag">admin</span>' : ''}`
-        : p.utente_id ? `<span class="tag ok">${esc(p.ruolo_utente || '')}</span>${p.admin_utente ? '<span class="tag">admin</span>' : ''}` : '<small>—</small>'}</td>
+      <td>${p.utente_id ? `<span class="tag ok">${esc(p.ruolo_utente || '')}</span>${p.admin_utente ? '<span class="tag">admin</span>' : ''}${(p.ruoli_extra || []).map((c) => `<span class="tag">${esc((ruoli.find((r) => r.codice === c) || {}).nome || c)}</span>`).join('')}` : '<small>—</small>'}${admin() ? `<br><button class="s p pr" data-id="${p.id}">Ruoli…</button>` : ''}</td>
       <td style="white-space:nowrap"><button class="s p pe" data-id="${p.id}">Modifica</button> <button class="x p pd" data-id="${p.id}">Elimina</button></td></tr>`).join('') || '<tr><td colspan="7"><em>Nessuna persona.</em></td></tr>'}</table>
     <p class="nota">Dati personali: visibili solo a organizzazione e admin. Codice fiscale, email e data di nascita sono facoltativi.</p></div>`;
   const cerca = () => { cache.qPersone = $('#pq').value; render(); };
   $('#pqc').onclick = cerca; $('#pq').onkeydown = (e) => { if (e.key === 'Enter') cerca(); };
   $('#pn').onclick = () => formPersona(null);
-  document.querySelectorAll('.pr').forEach((c) => { c.onchange = () => { if (c.value) fai(() => api(`/persone/${c.dataset.id}/accesso`, { body: { ruolo: c.value } }), 'Ruolo assegnato'); }; });
+  document.querySelectorAll('.pr').forEach((c) => { c.onclick = () => formRuoli(lista.find((p) => p.id === c.dataset.id), ruoli); });
   document.querySelectorAll('.pe').forEach((b) => { b.onclick = () => formPersona(lista.find((p) => p.id === b.dataset.id)); });
   document.querySelectorAll('.pd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la persona dall\'anagrafica?')) fai(() => api(`/persone/${b.dataset.id}`, { method: 'DELETE' }), 'Persona eliminata'); }; });
+}
+const QUALIFICHE = { giudice: 'Giudice', giudice_master: 'Giudice master', simulatore: 'Simulatore', truccatore: 'Truccatore', trainer: 'Trainer', formatore: 'Formatore', monitore: 'Monitore', istruttore: 'Istruttore' };
+function formRuoli(p, ruoli) {
+  const prima = p.ruolo_codice || 'partecipante', extra = new Set(p.ruoli_extra || []);
+  dlg(`<h3>Ruoli di ${esc(p.cognome)} ${esc(p.nome)}</h3>
+    <p class="nota">Il ruolo principale dà l'accesso al sito; i ruoli aggiuntivi sommano i loro permessi (es. giudice master e organizzazione).${p.utente_id ? '' : ' La persona non ha ancora un accesso: sarà creato con la sua email, solo con Google o Microsoft.'}</p>
+    <label>Ruolo principale</label><select id="r_p">${ruoli.map((r) => `<option value="${r.codice}" ${r.codice === prima ? 'selected' : ''}>${esc(r.nome)}</option>`).join('')}</select>
+    <label>Ruoli aggiuntivi</label><div class="aree">${ruoli.map((r) => `<label class="ar"><input type="checkbox" class="r_x" value="${r.codice}" ${extra.has(r.codice) ? 'checked' : ''}> ${esc(r.nome)}</label>`).join('')}</div>
+    <label class="ar"><input type="checkbox" id="r_ad" ${p.admin_utente ? 'checked' : ''}> Amministratore</label>
+    <p><button class="b" id="r_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+  $('#r_ok').onclick = () => { const body = { ruolo: $('#r_p').value, extra: [...document.querySelectorAll('.r_x')].filter((i) => i.checked && i.value !== $('#r_p').value).map((i) => i.value), admin: $('#r_ad').checked }; chiudi(); fai(() => api(`/persone/${p.id}/accesso`, { body }), 'Ruoli salvati'); };
 }
 function formPersona(p) {
   const f = (id, et, v = '', tipo = 'text', extra = '') => `<div><label>${et}</label><input id="${id}" type="${tipo}" value="${esc(v)}" ${extra}></div>`;
@@ -351,6 +361,7 @@ function formPersona(p) {
     ${f('f_cf', admin() ? 'Codice fiscale (facoltativo)' : 'Codice fiscale (facoltativo, non leggibile dopo il salvataggio)', p?.codice_fiscale, 'text', `maxlength="16" ${p?.ha_cf && !admin() ? 'placeholder="già registrato"' : ''}`)}${f('f_em', 'Email (sarà anche il login)', p?.email, 'email')}
     ${f('f_cm', 'Comitato di appartenenza', p?.comitato)}${f('f_pr', 'Provincia (sigla)', p?.provincia, 'text', 'maxlength="2"')}
     <div><label>Unità territoriale</label><select id="f_un"><option>${esc(p?.unita || p?.comitato || '')}</option></select></div></div>
+    <label>Qualifiche (titoli permanenti, non danno accessi da sole)</label><div class="aree">${Object.entries(QUALIFICHE).map(([k, n]) => `<label class="ar"><input type="checkbox" class="f_q" value="${k}" ${(p?.qualifiche || []).includes(k) ? 'checked' : ''}> ${n}</label>`).join('')}</div>
     <label>Note</label><textarea id="f_no" rows="2">${esc(p?.note || '')}</textarea>
     <p><button class="b" id="f_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
   legaComitato($('#f_cm'), { provincia: $('#f_pr'), unita: $('#f_un') });
@@ -359,8 +370,9 @@ function formPersona(p) {
       comitato: $('#f_cm').value, provincia: $('#f_pr').value, unita: $('#f_un').value, note: $('#f_no').value };
     if (admin() || $('#f_cf').value.trim()) body.codice_fiscale = $('#f_cf').value;     // chi non è admin non vede il codice: lo manda solo se lo scrive
     if (!body.cognome.trim() || !body.nome.trim()) return alert('Cognome e nome sono obbligatori');
+    const qualifiche = [...document.querySelectorAll('.f_q')].filter((i) => i.checked).map((i) => i.value);
     chiudi();
-    fai(() => p ? api(`/persone/${p.id}`, { method: 'PATCH', body }) : api('/persone', { body }), 'Persona salvata');
+    fai(async () => { const r = p ? await api(`/persone/${p.id}`, { method: 'PATCH', body }) : await api('/persone', { body }); await api(`/persone/${r.id}/qualifiche`, { method: 'PUT', body: { qualifiche } }); return r; }, 'Persona salvata');
   };
 }
 
@@ -421,7 +433,7 @@ async function tScene() {
   document.querySelectorAll('.voci-b').forEach((b) => { b.onclick = () => apriVociScheda(b.dataset.id); });
 }
 async function apriMaster(scenaId, mas) {
-  const g = (await api('/giudici')).filter((x) => x.ruolo === 'giudice_master'); const sel = new Set(mas.filter((m) => m.scena_id === scenaId).map((m) => m.utente_id));
+  const g = (await api('/giudici')).filter((x) => x.ruoli.includes('giudice_master')); const sel = new Set(mas.filter((m) => m.scena_id === scenaId).map((m) => m.utente_id));
   dlg(`<h3>Giudice master della scena</h3><p class="nota">Il master comanda la scena: vede e può correggere o riaprire tutte le sue schede. Ogni sua correzione resta nel registro modifiche.</p>
     ${g.length ? g.map((x) => `<label style="font-size:15px;color:inherit"><input type="checkbox" value="${x.id}" ${sel.has(x.id) ? 'checked' : ''}> ${esc(x.nome)} <small>${esc(x.email)}</small></label>`).join('') : '<p>Nessun utente con ruolo «giudice master». Un admin può crearlo (o cambiare il ruolo di un giudice) in «Utenti».</p>'}
     <p><button class="b" id="ms_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
@@ -735,7 +747,7 @@ async function dialogRisorseScena(R, sc, ruolo, etichetta) {
 }
 // giudici di una scheda scelti tra gli iscritti alla gara (Segreteria): chi è arrivato è in evidenza
 async function dialogGiudiciRisorse(R, schedaId, ass) {
-  const utenti = (await api('/giudici')).filter((u) => u.ruolo === 'giudice');
+  const utenti = (await api('/giudici')).filter((u) => u.ruoli.includes('giudice'));
   const sel = new Set(ass.filter((a) => a.scheda_id === schedaId).map((a) => a.utente_id));
   const iscr = new Map(R.persone.filter((p) => p.utente_id).map((p) => [p.utente_id, p]));
   const dove = (uid) => R.scene.flatMap((sc) => sc.schede.filter((k) => k.id !== schedaId && k.giudici.some((g) => g.utente_id === uid)).map((k) => `${sc.codice} · ${k.titolo}`));

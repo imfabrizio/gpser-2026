@@ -81,7 +81,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     return u;
   });
   app.get('/api/giudici', { preHandler: soloOrg }, async () =>
-    (await pool.query(`select id, nome, email, ruolo from utente where attivo and ruolo in ('giudice','giudice_master') order by nome`)).rows);
+    (await pool.query(`select id, nome, email, ruolo, array_prepend(ruolo, coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id=u.id), '{}')) as ruoli from utente u where attivo and (ruolo in ('giudice','giudice_master') or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo in ('giudice','giudice_master'))) order by nome`)).rows);
 
   // ── assegnazioni giudici → schede ──
   app.get('/api/eventi/:id/assegnazioni', { preHandler: soloOrg }, async (req) =>
@@ -93,7 +93,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.put('/api/schede/:id/assegnazioni', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const ids = req.body?.utenti || [];
     if (!Array.isArray(ids)) throw httpErr(400, 'utenti: elenco di id');
-    const { rows: ok } = await db.query(`select id from utente where id = any($1::uuid[]) and ruolo in ('giudice','giudice_master') and attivo`, [ids]);
+    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (ruolo in ('giudice','giudice_master') or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo in ('giudice','giudice_master')))`, [ids]);
     if (ok.length !== new Set(ids).size) throw httpErr(400, 'solo utenti attivi con ruolo giudice o giudice master');
     await db.query('delete from assegnazione where scheda_id=$1', [req.params.id]);
     for (const u of new Set(ids)) await db.query('insert into assegnazione values ($1,$2)', [req.params.id, u]);
@@ -108,7 +108,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.put('/api/scene/:id/master', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const ids = req.body?.utenti || [];
     if (!Array.isArray(ids)) throw httpErr(400, 'utenti: elenco di id');
-    const { rows: ok } = await db.query(`select id from utente where id = any($1::uuid[]) and ruolo='giudice_master' and attivo`, [ids]);
+    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (ruolo='giudice_master' or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo='giudice_master'))`, [ids]);
     if (ok.length !== new Set(ids).size) throw httpErr(400, 'solo utenti attivi con ruolo giudice master');
     const { rowCount } = await db.query('select 1 from scena where id=$1', [req.params.id]);
     if (!rowCount) throw httpErr(404, 'scena inesistente');
@@ -134,7 +134,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     if (comitato) { p.provincia ??= comitato.provincia?.toUpperCase() ?? null; const u = comitato.unita.length ? comitato.unita : [comitato.nome]; p.unita = u.find((x) => x.toLowerCase() === (p.unita || '').toLowerCase()) ?? (u.length === 1 ? u[0] : p.unita); }
   };
   const COL_PERSONA = `p.id, p.cognome, p.nome, to_char(p.data_nascita,'YYYY-MM-DD') as data_nascita, p.cf_cifrato, p.email, p.comitato, p.provincia, p.unita, p.note, p.ruolo_gara, p.utente_id,
-    (select r.nome from utente u join ruolo r on r.codice = u.ruolo where u.id = p.utente_id) as ruolo_utente, (select u.ruolo from utente u where u.id = p.utente_id) as ruolo_codice, (select u.admin from utente u where u.id = p.utente_id) as admin_utente`;
+    (select r.nome from utente u join ruolo r on r.codice = u.ruolo where u.id = p.utente_id) as ruolo_utente, (select u.ruolo from utente u where u.id = p.utente_id) as ruolo_codice, (select coalesce(array_agg(x.ruolo), '{}') from utente_ruolo_extra x where x.utente_id = p.utente_id) as ruoli_extra, (select coalesce(array_agg(q.qualifica order by q.qualifica), '{}') from persona_qualifica q where q.partecipante_id = p.id) as qualifiche, (select u.admin from utente u where u.id = p.utente_id) as admin_utente`;
   // il codice fiscale in chiaro lo vede solo l'admin; gli altri sanno solo se c'è
   const uscita = (req) => ({ cf_cifrato, ...r }) => ({ ...r, ha_cf: !!cf_cifrato, codice_fiscale: req.utente.ruolo === 'admin' && cf_cifrato ? decifra(cf_cifrato) : undefined });
   const duplicato = (e) => { if (e.code === '23505') throw httpErr(409, 'codice fiscale già presente in anagrafica'); throw e; };
@@ -174,9 +174,18 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     } catch (e) { if (e.statusCode) throw e; return duplicato(e); }
     return (await pool.query(`select ${COL_PERSONA} from partecipante p where p.id=$1`, [req.params.id])).rows.map(uscita(req))[0];
   });
+  const QUALIFICHE = ['giudice', 'giudice_master', 'simulatore', 'truccatore', 'trainer', 'formatore', 'monitore', 'istruttore'];
+  app.put('/api/persone/:id/qualifiche', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    const q = req.body?.qualifiche;
+    if (!Array.isArray(q) || q.some((x) => !QUALIFICHE.includes(x))) throw httpErr(400, 'qualifiche non valide');
+    if (!(await db.query('select 1 from partecipante where id=$1', [req.params.id])).rowCount) throw httpErr(404, 'persona inesistente');
+    await db.query('delete from persona_qualifica where partecipante_id=$1', [req.params.id]);
+    for (const x of new Set(q)) await db.query('insert into persona_qualifica values ($1,$2)', [req.params.id, x]);
+    return { ok: true, qualifiche: [...new Set(q)] };
+  }));
   // assegna il ruolo direttamente dall'anagrafica: se la persona non ha ancora un accesso lo crea (solo Google/Microsoft, collegato all'email), altrimenti cambia il ruolo
   app.post('/api/persone/:id/accesso', { preHandler: soloAdmin }, async (req) => {
-    const { ruolo, admin } = req.body || {};
+    const { ruolo, admin, extra } = req.body || {};
     if (!ruolo || !(await ruoloEsiste(pool, ruolo))) throw httpErr(400, 'ruolo non valido');
     return inTransazione(pool, async (db) => {
       const { rows: [p] } = await db.query('select id, cognome, nome, email, utente_id from partecipante where id=$1', [req.params.id]);
@@ -195,6 +204,13 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
       }
       if (uid === req.utente.id && admin === false) throw httpErr(400, 'non puoi togliere l\'admin a te stesso');
       await db.query('update utente set ruolo=$2, admin=coalesce($3,admin) where id=$1', [uid, ruolo, typeof admin === 'boolean' ? admin : null]);
+      if (Array.isArray(extra)) {                                                  // ruoli aggiuntivi: una persona può essere, per esempio, giudice master e organizzazione
+        const el = [...new Set(extra.filter((x) => typeof x === 'string' && x !== ruolo))];
+        const { rows: v } = await db.query('select codice from ruolo where codice = any($1::text[])', [el]);
+        if (v.length !== el.length) throw httpErr(400, 'ruolo aggiuntivo non valido');
+        await db.query('delete from utente_ruolo_extra where utente_id=$1', [uid]);
+        for (const r of el) await db.query('insert into utente_ruolo_extra values ($1,$2)', [uid, r]);
+      }
       return { ok: true, utente_id: uid };
     });
   });

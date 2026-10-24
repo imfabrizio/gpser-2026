@@ -5,9 +5,12 @@ import { httpErr } from './services/compilazioni.js';
 import { eStaff, ruoloEffettivo, AREE } from './permessi.js';
 import { nuovoSegreto, verificaTotp, cifra, decifra, otpauth, nuoviCodiciRecupero, hashRecupero } from './mfa.js';
 
-export const SQL_UTENTE = `select u.*, coalesce(r.aree, '{}') as aree from utente u left join ruolo r on r.codice = u.ruolo`;
+// aree = unione di quelle del ruolo principale e dei ruoli aggiuntivi; ruoli_extra = codici dei ruoli aggiuntivi
+export const SQL_UTENTE = `select u.*,
+  coalesce((select array_agg(distinct a) from ruolo r2, unnest(r2.aree) a where r2.codice = u.ruolo or r2.codice in (select x.ruolo from utente_ruolo_extra x where x.utente_id = u.id)), '{}') as aree,
+  coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id = u.id), '{}') as ruoli_extra from utente u`;
 export const mfaObbligatoria = (u, via) => process.env.MFA_ORG !== '0' && eStaff(u) && !u.mfa_attiva && via === 'pwd';
-export const profilo = (u, via) => ({ id: u.id, nome: u.nome, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, tema: u.tema ?? null, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
+export const profilo = (u, via) => ({ id: u.id, nome: u.nome, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, ruoli_extra: u.ruoli_extra || [], admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, tema: u.tema ?? null, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
 export const creaSessione = (u, via) => ({ token: firmaToken({ id: u.id, via }), utente: profilo(u, via) });
 
 // ── provider esterni (OpenID Connect, flusso "authorization code" + PKCE) ──
@@ -59,7 +62,7 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
     if (!idt.sub) return errore('token');
     if (prov === 'google' && !(idt.email_verified === true || idt.email_verified === 'true')) return errore('email_non_verificata');
     // 1) identità già collegata; 2) altrimenti l'utente registrato con quella email (l'admin deve averlo creato prima)
-    let { rows: [u] } = await pool.query(`select u.*, coalesce(r.aree, '{}') as aree from utente_identita i join utente u on u.id=i.utente_id left join ruolo r on r.codice=u.ruolo where i.provider=$1 and i.sub=$2 and u.attivo`, [prov, idt.sub]);
+    let { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.attivo and u.id = (select utente_id from utente_identita where provider=$1 and sub=$2)', [prov, idt.sub]);
     if (!u && email) {
       ({ rows: [u] } = await pool.query(SQL_UTENTE + ' where lower(u.email)=$1 and u.attivo', [email]));
       if (u) await pool.query('insert into utente_identita (provider, sub, utente_id, email) values ($1,$2,$3,$4) on conflict do nothing', [prov, idt.sub, u.id, email]);

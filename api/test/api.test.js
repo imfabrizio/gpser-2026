@@ -1030,4 +1030,11 @@ test('PER-1 ruolo assegnato dall\'anagrafica: crea l\'accesso collegato alla per
   let r = json(await chiama('GET', '/api/persone?q=Accesso', { token: O })).find((x) => x.id === p.id); assert.ok(r.utente_id); assert.equal(r.ruolo_codice, 'giudice');
   assert.equal((await chiama('POST', `/api/persone/${p.id}/accesso`, { token: A, body: { ruolo: 'giudice_master' } })).statusCode, 200);
   r = json(await chiama('GET', '/api/persone?q=Accesso', { token: O })).find((x) => x.id === p.id); assert.equal(r.ruolo_codice, 'giudice_master');
+  // più ruoli: giudice master + organizzazione, e qualifiche permanenti
+  assert.equal((await chiama('POST', `/api/persone/${p.id}/accesso`, { token: A, body: { ruolo: 'giudice_master', extra: ['organizzazione'] } })).statusCode, 200);
+  r = json(await chiama('GET', '/api/persone?q=Accesso', { token: O })).find((x) => x.id === p.id); assert.deepEqual(r.ruoli_extra, ['organizzazione']);
+  const gl = json(await chiama('GET', '/api/giudici', { token: O })).find((x) => x.id === r.utente_id); assert.ok(gl.ruoli.includes('giudice_master') && gl.ruoli.includes('organizzazione'));
+  assert.equal((await chiama('PUT', `/api/persone/${p.id}/qualifiche`, { token: O, body: { qualifiche: ['giudice', 'trainer', 'formatore'] } })).statusCode, 200);
+  assert.equal((await chiama('PUT', `/api/persone/${p.id}/qualifiche`, { token: O, body: { qualifiche: ['re'] } })).statusCode, 400);
+  r = json(await chiama('GET', '/api/persone?q=Accesso', { token: O })).find((x) => x.id === p.id); assert.deepEqual(r.qualifiche, ['formatore', 'giudice', 'trainer']);
 });
