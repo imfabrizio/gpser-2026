@@ -55,7 +55,9 @@
   .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; } table.sg tr.arr td { background:#f3faf3; } .ris { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
   .chips-ris { display:flex; flex-wrap:wrap; gap:10px; } .tile-ris { flex:1; min-width:150px; background:#f6f6f6; border-radius:10px; padding:10px 12px; display:flex; flex-direction:column; } .tile-ris b { font-size:26px; color:var(--rosso); }
   .dove { font-size:15px; margin:2px 0 8px; color:#555; } .dove a { color:var(--rosso); text-decoration:none; font-weight:600; } .dove b { color:#222; }
-  table.lib { table-layout:fixed; } table.lib td { vertical-align:top; } .evt { display:block; font-size:12px; color:#777; margin-top:2px; }
+  table.lib { table-layout:fixed; } .azioni { display:flex; flex-wrap:wrap; gap:4px; justify-content:flex-end; }
+  .anteprima table { width:100%; border-collapse:collapse; } .anteprima th, .anteprima td { border:1px solid #999; padding:4px 6px; font-size:13px; } .anteprima .sez td { background:#222; color:#fff; font-weight:700; } .anteprima .q { width:34px; text-align:center; } .anteprima .q i { display:inline-block; width:14px; height:14px; border:1.5px solid #333; } .anteprima .nera { background:#222; }
+  @media print { body > *:not(#stampa-anteprima) { display:none !important; } #stampa-anteprima { display:block !important; } } table.lib td { vertical-align:top; } .evt { display:block; font-size:12px; color:#777; margin-top:2px; }
   .hubb { position:relative; } .hubb .badge { position:absolute; top:10px; right:12px; background:#C62828; color:#fff; font-style:normal; font-weight:700; border-radius:999px; min-width:26px; padding:2px 8px; font-size:14px; }
   .hubb .ico svg { width:44px; height:44px; }
   .hubb b { font-size:21px; color:#222; } .hubb span { font-size:13px; color:#555; }
@@ -195,6 +197,22 @@ function tMenu() {
   document.querySelectorAll('.hubb').forEach((b) => { b.onclick = () => { impostaFam(b.dataset.g === 'corsi' ? 'corsi' : 'gara'); vai(b.dataset.t); }; });
 }
 
+
+// anteprima di una scheda della libreria, stampabile (la stampa isola il solo contenuto dell'anteprima)
+function anteprimaScheda(p, voci, scale) {
+  const LIVELLI = [['mb', 'MB'], ['be', 'BE'], ['su', 'SU'], ['in', 'IN'], ['ne', 'NE']];
+  const sc = (c) => scale.find((x) => x.codice === c) || {};
+  const usati = LIVELLI.filter(([k]) => voci.some((v) => sc(v.scala)[k] != null));
+  let sezione = null;
+  const righe = voci.map((v) => { const h = v.sezione !== sezione ? `<tr class="sez"><td colspan="${usati.length + 1}">${esc(v.sezione)}</td></tr>` : ''; sezione = v.sezione;
+    return h + `<tr><td>${esc(v.testo)}${v.is_sep ? ' <b>(SEP)</b>' : ''}</td>${usati.map(([k]) => sc(v.scala)[k] != null ? '<td class="q"><i></i></td>' : '<td class="q nera"></td>').join('')}</tr>`; }).join('');
+  const html = `<div class="anteprima"><h3>${esc(p.nome)} <span class="tag">${esc(p.sigla)}</span> ${p.bozza ? '<span class="tag no">Bozza</span>' : ''}</h3>
+    <p><small>${voci.length} voci${p.comitato ? ' · scheda del comitato ' + esc(p.comitato) : ''}</small></p>
+    <table><tr><th>Voce</th>${usati.map(([, n]) => `<th class="q">${n}</th>`).join('')}</tr>${righe}</table></div>`;
+  dlg(`${html}<p class="no-print"><button class="b" id="an_st">Stampa</button> <button class="s" onclick="chiudi()">Chiudi</button></p>`);
+  $('#an_st').onclick = () => { const d = document.createElement('div'); d.id = 'stampa-anteprima'; d.style.display = 'none'; d.innerHTML = html; document.body.append(d);
+    window.addEventListener('afterprint', () => d.remove(), { once: true }); window.print(); };
+}
 
 // ───────── CORSI: corso (n. Gaia) con i suoi Mega Code ed esami ─────────
 async function tCorsi() {
@@ -537,10 +555,10 @@ async function tLibreria() {
     <p><button class="b" id="np">Nuova scheda</button> ${direzione ? '<button class="s" id="vp">Punteggi MB/BE/SU/IN/NE</button> ' : ''}<button class="s" id="nm">Nuova da modello…</button> <button class="s" id="ai">Genera con l'AI</button>
       ${direzione ? `<label style="display:inline-flex;gap:6px;align-items:center;font-size:15px;color:inherit;margin-left:10px"><input type="checkbox" id="vcom" ${conComitati ? 'checked' : ''}> Vedi anche schede dei comitati</label>` : ''}</p>
     <input id="pf" placeholder="Cerca (es. Ictus, frattura, Olimpiadi, Gara D)" style="margin-bottom:8px">
-    ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:236px"></colgroup>${l.map((p) => `<tr class="pr" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + usiTesto(p)).toLowerCase())}"><td><strong>${esc(p.nome)}</strong> <span class="tag">${esc(p.sigla)}</span>
+    ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:340px"></colgroup>${l.map((p) => `<tr class="pr" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + usiTesto(p)).toLowerCase())}"><td><strong>${esc(p.nome)}</strong> <span class="tag">${esc(p.sigla)}</span>
       ${p.categoria2 ? `<span class="tag">+ ${esc(p.categoria2)}</span>` : ''}${p.bozza ? '<span class="tag no">Bozza' + (p.generata_ai ? ' AI' : '') + '</span>' : ''}${p.is_bls ? '<span class="tag">BLSD</span>' : ''}${p.is_diu ? '<span class="tag">DIU</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}${p.comitato ? `<span class="tag no">Privata · ${esc(p.comitato)}</span>` : ''}
 <span class="evt">${esc(ultimaGara(p))}</span></td><td>${p.voci} voci</td>
-      <td style="white-space:nowrap">${modificabile(p) ? `<button class="s p ed" data-id="${p.id}">Modifica</button> ` : `<button class="s p ed" data-id="${p.id}">Apri</button> `}${p.bozza ? `<button class="b p pub" data-id="${p.id}">Pubblica</button> ` : ''}<button class="s p cp" data-id="${p.id}">Copia</button> ${modificabile(p) ? `<button class="x p del" data-id="${p.id}">Elimina</button>` : ''}</td></tr>`).join('')}</table></details>`).join('')}
+      <td><div class="azioni">${`<button class="s p an" data-id="${p.id}">Anteprima</button>`}${modificabile(p) ? `<button class="s p ed" data-id="${p.id}">Modifica</button>` : `<button class="s p ed" data-id="${p.id}">Apri</button>`}${p.bozza ? `<button class="b p pub" data-id="${p.id}">Pubblica</button>` : ''}<button class="s p cp" data-id="${p.id}">Copia</button>${modificabile(p) ? `<button class="x p del" data-id="${p.id}">Elimina</button>` : ''}</div></td></tr>`).join('')}</table></details>`).join('')}
     <p class="nota">Modificare una patologia non cambia le scene già create: ognuna ne conserva una copia.</p></div>
 `;
   $('#pf').oninput = () => { const q = $('#pf').value.trim().toLowerCase();
@@ -556,6 +574,7 @@ async function tLibreria() {
   document.querySelectorAll('.del').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la patologia?')) fai(() => api(`/libreria/patologie/${b.dataset.id}`, { method: 'DELETE' }), 'Eliminata'); }; });
   document.querySelectorAll('.ed').forEach((b) => { b.onclick = async () => editorPatologia(pat.find((p) => p.id === b.dataset.id), await api(`/libreria/patologie/${b.dataset.id}`)); });
   $('#np').onclick = () => editorPatologia(null, []);
+  document.querySelectorAll('.an').forEach((b) => { b.onclick = async () => { const p = pat.find((x) => x.id === b.dataset.id); anteprimaScheda(p, await api(`/libreria/patologie/${p.id}`), cache.scale); }; });
   document.querySelectorAll('.pub').forEach((b) => { b.onclick = () => { if (confirm('Pubblicare la scheda? Dopo averla controllata sarà utilizzabile nelle scene e negli esami.')) fai(() => api(`/libreria/patologie/${b.dataset.id}/pubblica`, { body: {} }), 'Scheda pubblicata'); }; });
   $('#ai').onclick = async () => { const st = await api('/ai/stato').catch((e) => ({ errore: e.message }));
     dlg(`<h3>Genera una scheda con l'AI</h3><p class="nota">L'AI prepara una bozza: la ritrovi qui in libreria con l'etichetta «Bozza». Rileggila e correggila prima di pubblicarla: non usare mai una scheda generata senza controllarla.</p>
