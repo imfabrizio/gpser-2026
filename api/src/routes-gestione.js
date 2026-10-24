@@ -174,10 +174,24 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     } catch (e) { if (e.statusCode) throw e; return duplicato(e); }
     return (await pool.query(`select ${COL_PERSONA} from partecipante p where p.id=$1`, [req.params.id])).rows.map(uscita(req))[0];
   });
-  const QUALIFICHE = ['giudice', 'giudice_master', 'simulatore', 'truccatore', 'trainer', 'formatore', 'monitore', 'istruttore'];
+  app.get('/api/qualifiche', { preHandler: soloOrg }, async () => (await pool.query('select codice, nome, ambito, sistema, (select count(*)::int from persona_qualifica p where p.qualifica = q.codice) as persone from qualifica q order by nome')).rows);
+  app.post('/api/qualifiche', { preHandler: soloAdmin }, async (req) => {
+    const nome = String(req.body?.nome || '').trim().slice(0, 60), codice = slug(nome), ambito = req.body?.ambito || null;
+    if (!codice) throw httpErr(400, 'nome della qualifica obbligatorio');
+    if (ambito && !['locale', 'nazionale'].includes(ambito)) throw httpErr(400, 'ambito non valido');
+    try { return (await pool.query('insert into qualifica (codice, nome, ambito) values ($1,$2,$3) returning codice, nome, ambito, sistema', [codice, nome, ambito])).rows[0]; }
+    catch (e) { if (e.code === '23505') throw httpErr(409, 'esiste già una qualifica con questo nome'); throw e; }
+  });
+  app.delete('/api/qualifiche/:codice', { preHandler: soloAdmin }, async (req) => {
+    const { rows: [q] } = await pool.query('select sistema from qualifica where codice=$1', [req.params.codice]);
+    if (!q) throw httpErr(404, 'qualifica inesistente'); if (q.sistema) throw httpErr(400, 'le qualifiche di base non si eliminano');
+    try { await pool.query('delete from qualifica where codice=$1', [req.params.codice]); } catch (e) { if (e.code === '23503') throw httpErr(409, 'qualifica assegnata a delle persone: toglila prima'); throw e; }
+    return { ok: true };
+  });
   app.put('/api/persone/:id/qualifiche', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const q = req.body?.qualifiche;
-    if (!Array.isArray(q) || q.some((x) => !QUALIFICHE.includes(x))) throw httpErr(400, 'qualifiche non valide');
+    if (!Array.isArray(q) || q.some((x) => typeof x !== 'string') || (await db.query('select 1 from qualifica where codice = any($1::text[])', [q])).rowCount === 0 && q.length) throw httpErr(400, 'qualifiche non valide');
+    { const { rows: v } = await db.query('select codice from qualifica where codice = any($1::text[])', [q]); if (v.length !== new Set(q).size) throw httpErr(400, 'qualifiche non valide'); }
     if (!(await db.query('select 1 from partecipante where id=$1', [req.params.id])).rowCount) throw httpErr(404, 'persona inesistente');
     await db.query('delete from persona_qualifica where partecipante_id=$1', [req.params.id]);
     for (const x of new Set(q)) await db.query('insert into persona_qualifica values ($1,$2)', [req.params.id, x]);
@@ -246,8 +260,9 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     if (b.mappa_url && !/^https:\/\/(www\.)?google\.com\/maps\//.test(b.mappa_url.trim())) throw httpErr(400, 'la mappa deve essere un indirizzo https://www.google.com/maps/… (Condividi → Incorpora mappa)');
     const { rows: [e] } = await pool.query(
       `update evento set mappa_url = case when $9 then nullif(trim($10),'') else mappa_url end, codice=coalesce($8,codice), nome=coalesce($2,nome), titolo_stampa=coalesce($3,titolo_stampa), luogo=coalesce($4,luogo),
-         data=coalesce($5::date,data), tipo=coalesce($6,tipo), soglia_pct = case when $11 then $12::numeric else soglia_pct end, mostra_punteggi = coalesce($13::boolean, mostra_punteggi), archiviato=coalesce($7,archiviato), attivo = case when coalesce($7,archiviato) then false else attivo end, updated_at=now()
-       where id=$1 returning *`, [req.params.id, b.nome ?? null, b.titolo_stampa ?? null, b.luogo ?? null, b.data ?? null, b.tipo ?? null, b.archiviato ?? null, b.codice?.trim() || null, 'mappa_url' in b, b.mappa_url ?? '', 'soglia_pct' in b, b.soglia_pct === '' ? null : (b.soglia_pct ?? null), b.mostra_punteggi ?? null]);
+         data=coalesce($5::date,data), tipo=coalesce($6,tipo), soglia_pct = case when $11 then $12::numeric else soglia_pct end, mostra_punteggi = coalesce($13::boolean, mostra_punteggi), codice_gaia = case when $14 then nullif(trim($15),'') else codice_gaia end, corso_id = case when $16 then $17::uuid else corso_id end, archiviato=coalesce($7,archiviato), attivo = case when coalesce($7,archiviato) then false else attivo end, updated_at=now()
+       where id=$1 returning *`, [req.params.id, b.nome ?? null, b.titolo_stampa ?? null, b.luogo ?? null, b.data ?? null, b.tipo ?? null, b.archiviato ?? null, b.codice?.trim() || null, 'mappa_url' in b, b.mappa_url ?? '', 'soglia_pct' in b, b.soglia_pct === '' ? null : (b.soglia_pct ?? null), b.mostra_punteggi ?? null,
+       'codice_gaia' in b, b.codice_gaia ?? '', 'corso_id' in b, b.corso_id || null]);
     if (!e) throw httpErr(404, 'evento inesistente');
     return e;
   });

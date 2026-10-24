@@ -2518,7 +2518,7 @@ on conflict do nothing;
 -- Qualifiche permanenti della persona (titoli: giudice, simulatore, trainer…) e ruoli di accesso aggiuntivi dell'utente.
 create table if not exists persona_qualifica (
   partecipante_id uuid not null references partecipante(id) on delete cascade,
-  qualifica text not null check (qualifica in ('giudice','giudice_master','simulatore','truccatore','trainer','formatore','monitore','istruttore')),
+  qualifica text not null,
   primary key (partecipante_id, qualifica)
 );
 create table if not exists utente_ruolo_extra (
@@ -2527,7 +2527,27 @@ create table if not exists utente_ruolo_extra (
   primary key (utente_id, ruolo)
 );
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql'), ('022-comitati-gaia-ufficiale.sql'), ('023-qualifiche-ruoli-multipli.sql');   -- lo schema qui sopra le include già tutte
+-- Qualifiche gestibili (si possono aggiungere nuove), numero del corso su Gaia, e collegamento di Mega Code ed esami al corso.
+create table if not exists qualifica (
+  codice  text primary key,
+  nome    text not null,
+  ambito  text check (ambito in ('locale','nazionale')),   -- trainer/monitore: locale; formatore/capo monitore: nazionale
+  sistema boolean not null default false
+);
+insert into qualifica (codice, nome, ambito, sistema) values
+  ('giudice','Giudice',null,true), ('giudice_master','Giudice master',null,true), ('simulatore','Simulatore',null,true), ('truccatore','Truccatore',null,true),
+  ('trainer_ms','Trainer MS','locale',true), ('trainer_tssa','Trainer TSSA','locale',true), ('monitore','Monitore','locale',true),
+  ('formatore_ms','Formatore MS','nazionale',true), ('formatore_tssa','Formatore TSSA','nazionale',true), ('capo_monitore','Capo monitore','nazionale',true)
+on conflict do nothing;
+alter table persona_qualifica drop constraint if exists persona_qualifica_qualifica_check;
+delete from persona_qualifica where qualifica not in (select codice from qualifica);
+alter table persona_qualifica drop constraint if exists persona_qualifica_qualifica_fk;
+alter table persona_qualifica add constraint persona_qualifica_qualifica_fk foreign key (qualifica) references qualifica(codice) on delete restrict;
+alter table evento add column if not exists codice_gaia text;                                    -- numero assegnato da Gaia al corso
+alter table evento add column if not exists corso_id uuid references evento(id) on delete set null;   -- Mega Code / esami figli di un corso
+alter table sessione_esame add column if not exists evento_id uuid references evento(id) on delete set null;
+
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql'), ('022-comitati-gaia-ufficiale.sql'), ('023-qualifiche-ruoli-multipli.sql'), ('024-qualifiche-corsi.sql');   -- lo schema qui sopra le include già tutte
 
 -- schede d'esame TSSA (stesso contenuto della migrazione 015)
 insert into scala_punteggio (codice, mb, su, ne) values ('Esame 0-1-2', 2, 1, 0) on conflict (codice) do nothing;

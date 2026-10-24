@@ -146,6 +146,8 @@ async function tEvento() {
     <div class="riga"><div><label>Luogo</label><input id="e_luogo" value="${esc(ev.luogo || '')}"></div>
       <div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
       <div><label>Tipo</label><select id="e_tipo">${['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode'].map((t) => `<option ${ev.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
+    <div class="riga"><div><label>N° corso su Gaia</label><input id="e_gaia" value="${esc(ev.codice_gaia || '')}"></div>
+      <div><label>Corso di riferimento</label><select id="e_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato && x.id !== ev.id).map((x) => `<option value="${x.id}" ${x.id === ev.corso_id ? 'selected' : ''}>${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>
     <div class="riga"><div><label>Soglia di superamento (%) — vuota se non serve</label><input id="e_soglia" type="number" min="1" max="100" value="${esc(ev.soglia_pct ?? '')}"></div>
       <div><label style="display:block">Punteggi ai giudici</label><label style="font-size:15px;color:inherit"><input type="checkbox" id="e_mp" ${ev.mostra_punteggi ? 'checked' : ''}> mostra punti e percentuale mentre compilano (esami, corsi, allenamenti)</label></div></div>
     <p><button class="b" id="e_salva">Salva</button> <button class="s" id="e_attiva" ${ev.attivo ? 'disabled' : ''}>Rendi attivo</button>
@@ -157,19 +159,21 @@ async function tEvento() {
   <div class="card"><h3>Nuova gara</h3><div class="riga">
     <div><label>Nome</label><input id="n_nome" placeholder="GPSER 2027"></div><div><label>Codice (se vuoto, ricavato dal nome)</label><input id="n_cod" placeholder="GPSER-2027"></div>
     <div><label>Tipo</label><select id="n_tipo"><option value="gara">gara</option><option value="olimpiadi">olimpiadi</option><option value="allenamento">allenamento</option><option value="corso">corso</option><option value="megacode">mega code (formativo)</option><option value="esame">esame (soglia 75%)</option></select></div>
-    <div><label>Luogo</label><input id="n_luogo"></div><div><label>Data</label><input id="n_data" type="date"></div></div>
+    <div><label>Luogo</label><input id="n_luogo"></div><div><label>Data</label><input id="n_data" type="date"></div>
+    <div><label>N° corso su Gaia (corsi)</label><input id="n_gaia" placeholder="es. 12345"></div>
+    <div><label>Corso di riferimento (Mega Code, esami)</label><select id="n_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato).map((x) => `<option value="${x.id}">${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>
     <p><button class="b" id="n_crea">Crea evento</button></p></div>`;
   if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});
   legaSelettore();
   if (ev) {
     $('#e_salva').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
-      luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia').value, mostra_punteggi: $('#e_mp').checked } }).then(caricaEventi), 'Salvato');
+      luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia').value, mostra_punteggi: $('#e_mp').checked, codice_gaia: $('#e_gaia').value, corso_id: $('#e_corso').value || null } }).then(caricaEventi), 'Salvato');
     $('#e_attiva').onclick = () => fai(() => api(`/eventi/${ev.id}/attiva`, { method: 'POST', body: {} }).then(caricaEventi), 'Evento attivato');
     $('#e_arch').onclick = () => { if (confirm('Archiviare questo evento? Sparisce dagli elenchi ma i dati restano.')) fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { archiviato: true } }).then(caricaEventi), 'Archiviato'); };
     $('#e_map_ok').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { mappa_url: $('#e_map').value.trim() } }).then(caricaEventi), 'Mappa salvata');
   }
   $('#n_crea').onclick = () => fai(async () => {
-    const e = await api('/eventi', { body: { codice: $('#n_cod').value.trim() || $('#n_nome').value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: $('#n_tipo').value, nome: $('#n_nome').value.trim(), titolo_stampa: $('#n_nome').value.trim(), luogo: $('#n_luogo').value, data: $('#n_data').value || null } });
+    const e = await api('/eventi', { body: { codice: $('#n_cod').value.trim() || $('#n_nome').value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: $('#n_tipo').value, nome: $('#n_nome').value.trim(), titolo_stampa: $('#n_nome').value.trim(), luogo: $('#n_luogo').value, data: $('#n_data').value || null, codice_gaia: $('#n_gaia').value, corso_id: $('#n_corso').value || null } });
     await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev', ev.id);
   }, 'Gara creata');
 }
@@ -326,8 +330,8 @@ async function tComitati() {
 
 async function tPersone() {
   const q = (cache.qPersone || '').trim();
-  const [lista, ruoliR] = await Promise.all([api('/persone' + (q ? '?q=' + encodeURIComponent(q) : '')), admin() ? api('/ruoli') : Promise.resolve({ ruoli: [] })]);
-  const ruoli = ruoliR.ruoli;
+  const [lista, ruoliR, quals] = await Promise.all([api('/persone' + (q ? '?q=' + encodeURIComponent(q) : '')), admin() ? api('/ruoli') : Promise.resolve({ ruoli: [] }), api('/qualifiche')]);
+  const ruoli = ruoliR.ruoli; QUALIFICHE = Object.fromEntries(quals.map((q) => [q.codice, q.nome]));
   $('#app').innerHTML = `<div class="card"><h3>Anagrafica persone (${lista.length}${lista.length === 500 ? '+' : ''})</h3>
     <div class="riga"><input id="pq" placeholder="Cerca per cognome, nome, comitato, codice fiscale" value="${esc(q)}"><div class="stretto"><button class="s" id="pqc">Cerca</button> <button class="b" id="pn">Nuova persona</button></div></div>
     <table style="margin-top:8px"><tr><th>Cognome e nome</th><th>Nascita</th><th>Comitato</th><th>Prov.</th><th>Squadre</th><th>Accesso al sito</th><th></th></tr>
@@ -343,7 +347,7 @@ async function tPersone() {
   document.querySelectorAll('.pe').forEach((b) => { b.onclick = () => formPersona(lista.find((p) => p.id === b.dataset.id)); });
   document.querySelectorAll('.pd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la persona dall\'anagrafica?')) fai(() => api(`/persone/${b.dataset.id}`, { method: 'DELETE' }), 'Persona eliminata'); }; });
 }
-const QUALIFICHE = { giudice: 'Giudice', giudice_master: 'Giudice master', simulatore: 'Simulatore', truccatore: 'Truccatore', trainer: 'Trainer', formatore: 'Formatore', monitore: 'Monitore', istruttore: 'Istruttore' };
+let QUALIFICHE = {};   // codice → nome, caricato da /api/qualifiche
 function formRuoli(p, ruoli) {
   const prima = p.ruolo_codice || 'partecipante', extra = new Set(p.ruoli_extra || []);
   dlg(`<h3>Ruoli di ${esc(p.cognome)} ${esc(p.nome)}</h3>
@@ -854,7 +858,7 @@ async function tUtenti() {
 
 // ───────── RUOLI E PERMESSI ─────────
 async function tRuoli() {
-  const { ruoli, aree } = await api('/ruoli');
+  const [{ ruoli, aree }, quals] = await Promise.all([api('/ruoli'), api('/qualifiche')]);
   const casella = (r, k) => `<label class="ar"><input type="checkbox" data-k="${k}" ${r.aree.includes(k) ? 'checked' : ''} ${r.sistema && r.codice !== 'organizzazione' ? 'disabled' : ''}> ${esc(aree[k])}</label>`;
   $('#app').innerHTML = `<div class="card"><h3>Ruoli e permessi</h3>
     <p><small>Ogni persona ha un ruolo. Spunta le aree di Gestione a cui il ruolo può accedere: chi non ne ha nessuna usa solo l'app (giudice, giudice master) o la Home. Utenti, Ruoli e Richieste sono riservati agli admin (spunta "Admin" sull'utente).</small></p>
@@ -863,7 +867,12 @@ async function tRuoli() {
       ${r.sistema && r.codice !== 'organizzazione' ? '<small>Nessun accesso alla Gestione: ruolo di base.</small>' : `<button class="b p rs">Salva</button>`} ${r.sistema ? '' : '<button class="x p rd">Elimina</button>'}</div>`).join('')}
   </div>
   <div class="card"><h3>Nuovo ruolo</h3><div class="riga"><div><label>Nome (es. Segreteria, Gestore news)</label><input id="nr_n"></div></div>
-    <div class="aree">${Object.keys(aree).map((k) => casella({ aree: [], sistema: false }, k)).join('')}</div><p><button class="b" id="nr_ok">Crea ruolo</button></p></div>`;
+    <div class="aree">${Object.keys(aree).map((k) => casella({ aree: [], sistema: false }, k)).join('')}</div><p><button class="b" id="nr_ok">Crea ruolo</button></p></div>
+  <div class="card"><h3>Qualifiche</h3><p><small>Titoli permanenti della persona (si assegnano dall'anagrafica). Da sole non danno accesso: l'accesso arriva dall'assegnazione a un evento. Locale = opera nel proprio comitato, nazionale = in tutta Italia.</small></p>
+    <table>${quals.map((q) => `<tr><td>${esc(q.nome)}${q.ambito ? ` <span class="tag">${q.ambito}</span>` : ''}${q.sistema ? ' <span class="tag">di base</span>' : ''}</td><td><small>${q.persone} persone</small></td><td>${q.sistema ? '' : `<button class="x p qd" data-c="${q.codice}">Elimina</button>`}</td></tr>`).join('')}</table>
+    <div class="riga"><div><label>Nuova qualifica</label><input id="nq_n"></div><div><label>Ambito</label><select id="nq_a"><option value="">nessuno</option><option value="locale">locale</option><option value="nazionale">nazionale</option></select></div><div class="stretto"><button class="b" id="nq_ok">Aggiungi</button></div></div></div>`;
+  $('#nq_ok').onclick = () => { const n = $('#nq_n').value.trim(); if (!n) return alert('Scrivi il nome della qualifica'); fai(() => api('/qualifiche', { body: { nome: n, ambito: $('#nq_a').value || null } }), 'Qualifica aggiunta'); };
+  document.querySelectorAll('.qd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la qualifica?')) fai(() => api(`/qualifiche/${b.dataset.c}`, { method: 'DELETE' }), 'Qualifica eliminata'); }; });
   const scelte = (el) => [...el.querySelectorAll('input[data-k]')].filter((i) => i.checked).map((i) => i.dataset.k);
   document.querySelectorAll('.rs').forEach((b) => { b.onclick = () => fai(() => api(`/ruoli/${b.closest('[data-c]').dataset.c}`, { method: 'PUT', body: { aree: scelte(b.closest('[data-c]')) } }), 'Permessi salvati'); });
   document.querySelectorAll('.rd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare il ruolo?')) fai(() => api(`/ruoli/${b.closest('[data-c]').dataset.c}`, { method: 'DELETE' }), 'Ruolo eliminato'); }; });

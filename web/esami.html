@@ -58,12 +58,14 @@ const ET = { NE: 'Non eseguito', SU: 'Sufficiente', MB: 'Bene' };
 
 async function elenco() {
   $('#titolo').textContent = 'Esami';
-  const ss = await api('/esami/sessioni');
+  const [ss, evs] = await Promise.all([api('/esami/sessioni'), api('/eventi')]);
+  const corsi = evs.filter((e) => e.tipo === 'corso' && !e.archiviato);
   $('#app').innerHTML = `<div class="card"><h3>Nuova sessione d'esame</h3><div class="riga"><div style="flex:3"><label>Nome</label><input id="n_nome" placeholder="Esame TSSA ottobre"></div>
-    <div><label>Data</label><input id="n_data" type="date"></div><div><label>Luogo</label><input id="n_luogo"></div><div class="stretto"><button class="b" id="n_ok">Crea</button></div></div></div>
-    <div class="elenco">${ss.length ? ss.map((s) => `<a class="voce-s" href="#s/${s.id}"><span><b>${esc(s.nome)}</b><br><small>${esc(s.luogo || '')} ${dataIt(s.data)}</small></span><span>${s.prove} prove</span></a>`).join('') : '<p class="nota">Nessuna sessione: creane una qui sopra.</p>'}</div>`;
+    <div><label>Data</label><input id="n_data" type="date"></div><div><label>Luogo</label><input id="n_luogo"></div>
+    <div style="flex:2"><label>Corso (n. Gaia)</label><select id="n_ev"><option value="">— nessun corso —</option>${corsi.map((e) => `<option value="${e.id}">${esc((e.codice_gaia ? e.codice_gaia + ' · ' : '') + e.nome)}</option>`).join('')}</select></div><div class="stretto"><button class="b" id="n_ok">Crea</button></div></div></div>
+    <div class="elenco">${ss.length ? ss.map((s) => `<a class="voce-s" href="#s/${s.id}"><span><b>${esc(s.nome)}</b><br><small>${esc(s.corso ? s.corso + ' · ' : '')}${esc(s.luogo || '')} ${dataIt(s.data)}</small></span><span>${s.prove} prove</span></a>`).join('') : '<p class="nota">Nessuna sessione: creane una qui sopra.</p>'}</div>`;
   $('#n_ok').onclick = () => { const nome = $('#n_nome').value.trim(); if (!nome) return flash('Scrivi il nome della sessione', false);
-    fai(async () => { const s = await api('/esami/sessioni', { body: { nome, data: $('#n_data').value || null, luogo: $('#n_luogo').value } }); location.hash = '#s/' + s.id; }); };
+    fai(async () => { const s = await api('/esami/sessioni', { body: { nome, data: $('#n_data').value || null, luogo: $('#n_luogo').value, evento_id: $('#n_ev').value || null } }); location.hash = '#s/' + s.id; }); };
 }
 
 async function sessione(sid) {

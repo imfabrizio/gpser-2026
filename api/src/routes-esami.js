@@ -11,6 +11,7 @@ const SOGLIA_DEFAULT = 75;       // senza fasce proprie della scheda
 const id = (v, nome = 'id') => { if (!UUID.test(v || '')) throw httpErr(400, `${nome} non valido`); return v; };
 const L = { NE: 'ne', SU: 'su', MB: 'mb' };
 
+const UUIDRE = /^[0-9a-f-]{36}$/i;
 export function esitoCandidato(prova, cand, risposte) {
   const comuni = new Map(), propri = new Map();
   for (const r of risposte) (r.candidato_id === null ? comuni : r.candidato_id === cand.id ? propri : null)?.set(r.ordine, r.livello);
@@ -41,21 +42,21 @@ export function registraEsami(app, pool, { soloOrg }) {
     candidati: p.candidati.map((c) => ({ id: c.id, nome: c.nome, comitato: c.comitato, ruolo: c.ruolo, esito: { punti: c.esito.punti, massimo: c.esito.massimo, giudizio: c.esito.giudizio, superato: c.esito.superato, completa: c.esito.completa, erroreGrave: c.esito.erroreGrave } })) });
 
   app.get('/api/esami/sessioni', { preHandler: soloOrg }, async () => (await pool.query(
-    `select s.id, s.nome, to_char(s.data,'YYYY-MM-DD') as data, s.luogo, (select count(*)::int from prova_esame p where p.sessione_id=s.id) as prove
+    `select s.id, s.nome, to_char(s.data,'YYYY-MM-DD') as data, s.luogo, s.evento_id, (select coalesce(e.codice_gaia || ' · ', '') || e.nome from evento e where e.id = s.evento_id) as corso, (select count(*)::int from prova_esame p where p.sessione_id=s.id) as prove
        from sessione_esame s order by s.data desc nulls last, s.created_at desc`)).rows);
   app.post('/api/esami/sessioni', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {}, nome = String(b.nome || '').trim();
     if (!nome || nome.length > 150) throw httpErr(400, 'nome obbligatorio (max 150 caratteri)');
     if (b.data && !/^\d{4}-\d{2}-\d{2}$/.test(b.data)) throw httpErr(400, 'data non valida');
-    return (await pool.query('insert into sessione_esame (nome, data, luogo, creato_da) values ($1,$2,$3,$4) returning id, nome, luogo',
-      [nome, b.data || null, String(b.luogo || '').trim() || null, req.utente.id])).rows[0];
+    return (await pool.query('insert into sessione_esame (nome, data, luogo, creato_da, evento_id) values ($1,$2,$3,$4,$5) returning id, nome, luogo, evento_id',
+      [nome, b.data || null, String(b.luogo || '').trim() || null, req.utente.id, UUIDRE.test(b.evento_id || '') ? b.evento_id : null])).rows[0];
   });
   app.delete('/api/esami/sessioni/:id', { preHandler: soloOrg }, async (req) => {
     const { rowCount } = await pool.query('delete from sessione_esame where id=$1', [id(req.params.id)]);
     if (!rowCount) throw httpErr(404, 'sessione inesistente'); return { ok: true };
   });
   app.get('/api/esami/sessioni/:id', { preHandler: soloOrg }, async (req) => {
-    const { rows: [s] } = await pool.query(`select id, nome, to_char(data,'YYYY-MM-DD') as data, luogo from sessione_esame where id=$1`, [id(req.params.id)]);
+    const { rows: [s] } = await pool.query(`select id, nome, to_char(data,'YYYY-MM-DD') as data, luogo, evento_id from sessione_esame where id=$1`, [id(req.params.id)]);
     if (!s) throw httpErr(404, 'sessione inesistente');
     const { rows } = await pool.query('select id from prova_esame where sessione_id=$1 order by ordine, created_at', [s.id]);
     return { sessione: s, prove: (await Promise.all(rows.map((r) => carica(r.id)))).map(leggero) };

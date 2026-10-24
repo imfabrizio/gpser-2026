@@ -1034,7 +1034,14 @@ test('PER-1 ruolo assegnato dall\'anagrafica: crea l\'accesso collegato alla per
   assert.equal((await chiama('POST', `/api/persone/${p.id}/accesso`, { token: A, body: { ruolo: 'giudice_master', extra: ['organizzazione'] } })).statusCode, 200);
   r = json(await chiama('GET', '/api/persone?q=Accesso', { token: O })).find((x) => x.id === p.id); assert.deepEqual(r.ruoli_extra, ['organizzazione']);
   const gl = json(await chiama('GET', '/api/giudici', { token: O })).find((x) => x.id === r.utente_id); assert.ok(gl.ruoli.includes('giudice_master') && gl.ruoli.includes('organizzazione'));
-  assert.equal((await chiama('PUT', `/api/persone/${p.id}/qualifiche`, { token: O, body: { qualifiche: ['giudice', 'trainer', 'formatore'] } })).statusCode, 200);
+  assert.equal((await chiama('PUT', `/api/persone/${p.id}/qualifiche`, { token: O, body: { qualifiche: ['giudice', 'trainer_ms', 'formatore_tssa'] } })).statusCode, 200);
   assert.equal((await chiama('PUT', `/api/persone/${p.id}/qualifiche`, { token: O, body: { qualifiche: ['re'] } })).statusCode, 400);
-  r = json(await chiama('GET', '/api/persone?q=Accesso', { token: O })).find((x) => x.id === p.id); assert.deepEqual(r.qualifiche, ['formatore', 'giudice', 'trainer']);
+  r = json(await chiama('GET', '/api/persone?q=Accesso', { token: O })).find((x) => x.id === p.id); assert.deepEqual(r.qualifiche, ['formatore_tssa', 'giudice', 'trainer_ms']);
+  const nq = json(await chiama('POST', '/api/qualifiche', { token: A, body: { nome: 'Capo Sala', ambito: 'locale' } })); assert.equal(nq.codice, 'capo_sala');
+  assert.equal((await chiama('POST', '/api/qualifiche', { token: O, body: { nome: 'X' } })).statusCode, 403);
+  assert.equal((await chiama('DELETE', '/api/qualifiche/giudice', { token: A })).statusCode, 400);
+  assert.equal((await chiama('DELETE', `/api/qualifiche/${nq.codice}`, { token: A })).statusCode, 200);
+  const corso = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'TSSA-9', nome: 'Corso TSSA', tipo: 'corso', codice_gaia: ' 4711 ' } })); assert.equal(corso.codice_gaia, '4711');
+  const mc = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'MC-9', nome: 'Mega Code 1', tipo: 'megacode', corso_id: corso.id } })); assert.equal(mc.corso_id, corso.id);
+  const se = json(await chiama('POST', '/api/esami/sessioni', { token: O, body: { nome: 'Esame corso', evento_id: corso.id } })); assert.equal(se.evento_id, corso.id);
 });

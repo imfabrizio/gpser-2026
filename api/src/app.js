@@ -134,7 +134,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
     const org = RUOLI_ORG.includes(req.utente.ruolo);
     return (await pool.query(
-      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi
+      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id
          from evento where ($1 or id = $2 or ($2::uuid is null and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id])).rows;
   });
@@ -144,8 +144,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (b.tipo && !TIPI_EVENTO.includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
     const tipo = b.tipo || 'gara', didattico = ['allenamento', 'corso', 'esame', 'megacode'].includes(tipo);
     return (await pool.query(
-      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, mostra_punteggi, soglia_pct) values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
-      [b.codice, b.nome, tipo, b.titolo_stampa, b.luogo, b.data, didattico, tipo === 'esame' ? 75 : null])).rows[0];
+      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, mostra_punteggi, soglia_pct, codice_gaia, corso_id) values ($1,$2,$3,$4,$5,$6,$7,$8,nullif(trim($9),''),$10) returning *`,
+      [b.codice, b.nome, tipo, b.titolo_stampa, b.luogo, b.data, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null])).rows[0];
   });
   // un solo evento attivo alla volta (nel vecchio sistema se ne potevano attivare due)
   app.post('/api/eventi/:id/attiva', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
