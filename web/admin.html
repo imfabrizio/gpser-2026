@@ -68,7 +68,7 @@
 </head>
 <body>
 <script src="comitati.js"></script>
-<header><img class="logo" src="/logo-cri.jpg" alt="CRI"><h1>GareCRI · Gestione</h1><span id="chi"></span><a href="/#sicurezza">Sicurezza</a><button id="esci">Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="CRI"><a class="home" href="/" title="Torna alla Home" aria-label="Home"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></a><h1>GareCRI · Gestione</h1><span id="chi"></span><a href="/#sicurezza">Sicurezza</a><button id="esci">Esci</button></header>
 <nav id="tabs" hidden></nav>
 <main id="app"></main>
 <dialog id="dlg"></dialog>
@@ -77,6 +77,11 @@ const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let token = localStorage.getItem('token'), me = JSON.parse(localStorage.getItem('me') || 'null');
 let eventi = [], ev = null, tab = 'menu', cache = {};
+// due famiglie di eventi con aree di gestione separate: gare (gara, olimpiadi, allenamento) e corsi (corso, mega code, esame)
+let fam = 'gara';
+const FAM_TIPI = { gara: ['gara', 'olimpiadi', 'allenamento'], corsi: ['corso', 'megacode', 'esame'] };
+const eventiFam = () => eventi.filter((e) => FAM_TIPI[fam].includes(e.tipo));
+const impostaFam = (f) => { fam = f; const s = localStorage.getItem('ev_' + fam), l = eventiFam(); ev = l.find((e) => e.id === s) || l.find((e) => e.attivo) || l[0] || null; };
 const LIV = ['mb', 'be', 'su', 'in', 'ne'];
 
 async function api(path, opt = {}) {
@@ -98,15 +103,16 @@ window.chiudi = chiudi;
 
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
-const TABS = [['menu', 'Gestione'], ['evento', 'Dati della gara'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
+const TABS = [['menu', 'Gestione'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
   ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
-const AREA_TAB = { risorse: 'scene', segreteria: 'segreteria', evento: 'gara', scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: 'stampa', importa: 'importa' };
-const DESC = { evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', squadre: 'Squadre, comitato e componenti',
+const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', segreteria: 'segreteria', evento: 'gara', scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: 'stampa', importa: 'importa' };
+const DESC = { corsi: 'Corsi, Mega Code ed esami', evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', squadre: 'Squadre, comitato e componenti',
   segreteria: 'Registra gli arrivi e stampa i badge', persone: 'Persone e requisiti', comitati: 'Elenco dei comitati, unità territoriali e nomi da correggere', importa: 'Carica le scene dai vecchi file Excel', libreria: 'Crea e modifica le schede, anche dei comitati', punteggi: 'Valore di MB, BE, SU, IN, NE per ogni scala',
   classifiche: 'Generale, SEP, BLSD, Master, DIU', monitor: 'Avanzamento delle schede', stampa: 'Schede vuote o compilate, per scena o squadra', news: 'Avvisi per i partecipanti e notizie pubbliche', documenti: 'Regolamento, comunicazioni e manuali',
   richieste: 'Chi ha chiesto l\'accesso: approva e assegna il ruolo', ruoli: 'Crea ruoli e scegli a quali aree possono accedere', utenti: 'Accessi, ruoli e gara assegnata' };
 // i contenitori della Gestione: il menu iniziale ne mostra cinque, le sottosezioni sono linguette dentro
 const GRUPPI = [['gara', 'Gara', 'Dati, scene, risorse e squadre', 'evento', ['evento', 'scene', 'risorse', 'squadre']],
+  ['corsi', 'Corsi', 'Corsi con Mega Code ed esami', 'corsi', ['corsi', 'evento', 'scene', 'risorse', 'squadre']],
   ['segr', 'Segreteria', 'Arrivi e badge, anagrafiche, comitati, importa', 'segreteria', ['segreteria', 'persone', 'comitati', 'importa']],
   ['sch', 'Schede', 'Libreria, punteggi, schede dei comitati', 'libreria', ['libreria', 'punteggi']],
   ['ris', 'Risultati', 'Classifiche, monitor, stampa', 'classifiche', ['classifiche', 'monitor', 'stampa']],
@@ -114,12 +120,12 @@ const GRUPPI = [['gara', 'Gara', 'Dati, scene, risorse e squadre', 'evento', ['e
 const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli'];
 const admin = () => me.ruolo === 'admin';
 const consentito = (k) => k === 'menu' || (SOLO_ADMIN.includes(k) ? admin() : admin() || [].concat(AREA_TAB[k]).some((a) => (me.aree || []).includes(a)));
-const gruppoDi = (k) => GRUPPI.find((g) => g[4].includes(k));
+const gruppoDi = (k) => { const c = GRUPPI.filter((g) => g[4].includes(k)); return c.find((g) => g[0] === fam) || c[0]; };
 const figliVisibili = (g) => g[4].filter(consentito);
-const nomeTab = (k) => TABS.find(([x]) => x === k)?.[1] || '';
+const nomeTab = (k) => k === 'evento' ? (fam === 'corsi' ? 'Dati dell\'evento' : 'Dati della gara') : (TABS.find(([x]) => x === k)?.[1] || '');
 let ELENCO_RUOLI = [];
-window.addEventListener('hashchange', () => { const h = location.hash.slice(1) || 'menu'; if (TABS.some(([k]) => k === h) && consentito(h) && h !== tab) { tab = h; disegnaTabs(); render(); } });
-const vai = (t) => { if (t === 'monitor') { location.href = '/#monitor'; return; } tab = t; history.replaceState(null, '', t === 'menu' ? location.pathname : '#' + t); disegnaTabs(); render(); };
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1) || 'menu'; if (TABS.some(([k]) => k === h) && consentito(h) && h !== tab) { tab = h; if (h === 'corsi') impostaFam('corsi'); disegnaTabs(); render(); } });
+const vai = (t) => { if (t === 'monitor') { location.href = '/#monitor'; return; } if (t === 'corsi') impostaFam('corsi'); else if (['persone', 'comitati', 'classifiche', 'stampa', 'news', 'segreteria'].includes(t) && fam !== 'gara') impostaFam('gara'); tab = t; history.replaceState(null, '', t === 'menu' ? location.pathname : '#' + t); disegnaTabs(); render(); };
 function disegnaTabs() {
   if (!TABS.some(([k]) => k === tab)) tab = 'menu';
   const g = gruppoDi(tab), vis = g ? figliVisibili(g) : [];
@@ -130,22 +136,21 @@ function disegnaTabs() {
 
 async function caricaEventi() {
   eventi = await api('/eventi');
-  const salvato = localStorage.getItem('ev');
-  ev = eventi.find((e) => e.id === salvato) || eventi.find((e) => e.attivo) || eventi[0] || null;
+  impostaFam(fam);
 }
-const selettoreEvento = () => `<div class="card"><label>Gara</label><div class="riga">
-  <select id="selev">${eventi.map((e) => `<option value="${e.id}" ${ev && e.id === ev.id ? 'selected' : ''}>${esc(e.codice)} – ${esc(e.nome)}${e.attivo ? ' (attivo)' : ''}</option>`).join('')}</select></div></div>`;
-const legaSelettore = () => { const s = $('#selev'); if (s) s.onchange = () => { ev = eventi.find((e) => e.id === s.value); localStorage.setItem('ev', ev.id); render(); }; };
+const selettoreEvento = () => `<div class="card"><label>${fam === 'corsi' ? 'Corso / evento' : 'Gara'}</label><div class="riga">
+  <select id="selev">${eventiFam().map((e) => `<option value="${e.id}" ${ev && e.id === ev.id ? 'selected' : ''}>${esc(e.codice)} – ${esc(e.nome)}${e.attivo ? ' (attivo)' : ''}</option>`).join('')}</select></div></div>`;
+const legaSelettore = () => { const s = $('#selev'); if (s) s.onchange = () => { ev = eventi.find((e) => e.id === s.value); localStorage.setItem('ev_' + fam, ev.id); render(); }; };
 
 // ───────── EVENTO ─────────
 async function tEvento() {
   $('#app').innerHTML = selettoreEvento() + (ev ? `
-  <div class="card"><h3>Dati della gara ${ev.attivo ? '<span class="tag ok">attivo</span>' : ''}</h3>
+  <div class="card"><h3>${fam === 'corsi' ? 'Dati dell\'evento' : 'Dati della gara'} ${ev.attivo ? '<span class="tag ok">attivo</span>' : ''}</h3>
     <div class="riga"><div><label>Codice</label><input id="e_cod" value="${esc(ev.codice)}"></div><div><label>Nome</label><input id="e_nome" value="${esc(ev.nome)}"></div>
       <div><label>Titolo in stampa</label><input id="e_tit" value="${esc(ev.titolo_stampa || '')}"></div></div>
     <div class="riga"><div><label>Luogo</label><input id="e_luogo" value="${esc(ev.luogo || '')}"></div>
       <div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
-      <div><label>Tipo</label><select id="e_tipo">${['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode'].map((t) => `<option ${ev.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
+      <div><label>Tipo</label><select id="e_tipo">${[...FAM_TIPI.gara, ...FAM_TIPI.corsi].map((t) => `<option ${ev.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
     <div class="riga"><div><label>N° corso su Gaia</label><input id="e_gaia" value="${esc(ev.codice_gaia || '')}"></div>
       <div><label>Corso di riferimento</label><select id="e_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato && x.id !== ev.id).map((x) => `<option value="${x.id}" ${x.id === ev.corso_id ? 'selected' : ''}>${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>
     <div class="riga"><div><label>Soglia di superamento (%) — vuota se non serve</label><input id="e_soglia" type="number" min="1" max="100" value="${esc(ev.soglia_pct ?? '')}"></div>
@@ -156,9 +161,9 @@ async function tEvento() {
     <input id="e_map" value="${esc(ev.mappa_url || '')}" placeholder="https://www.google.com/maps/d/embed?mid=…">
     <p class="nota">Crea la mappa su Google My Maps con i punti delle scene, poi Condividi → Incorpora mappa e incolla qui solo l'indirizzo (src). Gli indirizzi o le coordinate delle singole scene si inseriscono in Scene.</p>
     <p><button class="b" id="e_map_ok">Salva mappa</button></p></div>` : '') + `
-  <div class="card"><h3>Nuova gara</h3><div class="riga">
+  <div class="card"><h3>${fam === 'corsi' ? 'Nuovo evento' : 'Nuova gara'}</h3><div class="riga">
     <div><label>Nome</label><input id="n_nome" placeholder="GPSER 2027"></div><div><label>Codice (se vuoto, ricavato dal nome)</label><input id="n_cod" placeholder="GPSER-2027"></div>
-    <div><label>Tipo</label><select id="n_tipo"><option value="gara">gara</option><option value="olimpiadi">olimpiadi</option><option value="allenamento">allenamento</option><option value="corso">corso</option><option value="megacode">mega code (formativo)</option><option value="esame">esame (soglia 75%)</option></select></div>
+    <div><label>Tipo</label><select id="n_tipo">${fam === 'corsi' ? '<option value="corso">corso</option><option value="megacode">mega code (formativo)</option><option value="esame">esame (soglia 75%)</option>' : '<option value="gara">gara</option><option value="olimpiadi">olimpiadi</option><option value="allenamento">allenamento</option>'}</select></div>
     <div><label>Luogo</label><input id="n_luogo"></div><div><label>Data</label><input id="n_data" type="date"></div>
     <div><label>N° corso su Gaia (corsi)</label><input id="n_gaia" placeholder="es. 12345"></div>
     <div><label>Corso di riferimento (Mega Code, esami)</label><select id="n_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato).map((x) => `<option value="${x.id}">${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>
@@ -174,23 +179,43 @@ async function tEvento() {
   }
   $('#n_crea').onclick = () => fai(async () => {
     const e = await api('/eventi', { body: { codice: $('#n_cod').value.trim() || $('#n_nome').value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: $('#n_tipo').value, nome: $('#n_nome').value.trim(), titolo_stampa: $('#n_nome').value.trim(), luogo: $('#n_luogo').value, data: $('#n_data').value || null, codice_gaia: $('#n_gaia').value, corso_id: $('#n_corso').value || null } });
-    await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev', ev.id);
-  }, 'Gara creata');
+    await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_' + fam, ev.id);
+  }, fam === 'corsi' ? 'Evento creato' : 'Gara creata');
 }
 
 
 // ───────── MENU GESTIONE ─────────
-const ICONE = {"documenti": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M9 8h7M9 12h7"/></svg>', "risorse": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M15 14.5c3 0 6 1.5 6 5.5"/></svg>', "segreteria": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 13l2 2 4-4"/></svg>', "punteggi": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/><path d="M3 20h18"/></svg>', "ruoli": '<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z\"/><path d=\"M9 12l2 2 4-4\"/></svg>', "richieste": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="4"/><path d="M3 21c0-4 3-6.5 7-6.5M17 14v6M14 17h6"/></svg>', "evento": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 21V4m0 0h11l-2 4 2 4H5\"/></svg>", "scene": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M3 9h18M8 4v5M13 4v5M18 4v5\"/></svg>", "libreria": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h9l4 4v14H6z\"/><path d=\"M14 3v5h5M9 13h7M9 17h7\"/></svg>", "squadre": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"9\" cy=\"8\" r=\"3\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M3 20c0-3.5 3-6 6-6s6 2.5 6 6M15 15c3 0 6 1.5 6 5\"/></svg>", "news": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5h13v14H6a2 2 0 0 1-2-2z\"/><path d=\"M17 9h3v8a2 2 0 0 1-2 2M7 9h7M7 13h7\"/></svg>", "persone": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 21c0-4.5 3.5-7 8-7s8 2.5 8 7\"/></svg>", "classifiche": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3\"/></svg>", "stampa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 9V3h10v6M7 17H4v-7h16v7h-3\"/><rect x=\"7\" y=\"14\" width=\"10\" height=\"7\"/></svg>", "importa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v12m0 0l-4-4m4 4l4-4M4 19h16\"/></svg>", "utenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>"};
+const ICONE = {"corsi": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-4 9 4-9 4z"/><path d="M7 10v5c0 1.5 2.2 3 5 3s5-1.500 5-3v-5"/><path d="M21 8v6"/></svg>', "documenti": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M9 8h7M9 12h7"/></svg>', "risorse": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M15 14.5c3 0 6 1.5 6 5.5"/></svg>', "segreteria": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 13l2 2 4-4"/></svg>', "punteggi": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/><path d="M3 20h18"/></svg>', "ruoli": '<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z\"/><path d=\"M9 12l2 2 4-4\"/></svg>', "richieste": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="4"/><path d="M3 21c0-4 3-6.5 7-6.5M17 14v6M14 17h6"/></svg>', "evento": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 21V4m0 0h11l-2 4 2 4H5\"/></svg>", "scene": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M3 9h18M8 4v5M13 4v5M18 4v5\"/></svg>", "libreria": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h9l4 4v14H6z\"/><path d=\"M14 3v5h5M9 13h7M9 17h7\"/></svg>", "squadre": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"9\" cy=\"8\" r=\"3\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M3 20c0-3.5 3-6 6-6s6 2.5 6 6M15 15c3 0 6 1.5 6 5\"/></svg>", "news": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5h13v14H6a2 2 0 0 1-2-2z\"/><path d=\"M17 9h3v8a2 2 0 0 1-2 2M7 9h7M7 13h7\"/></svg>", "persone": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 21c0-4.5 3.5-7 8-7s8 2.5 8 7\"/></svg>", "classifiche": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3\"/></svg>", "stampa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 9V3h10v6M7 17H4v-7h16v7h-3\"/><rect x=\"7\" y=\"14\" width=\"10\" height=\"7\"/></svg>", "importa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v12m0 0l-4-4m4 4l4-4M4 19h16\"/></svg>", "utenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>"};
 function tMenu() {
   const tile = ([k, nome, desc, icona, figli]) => { const v = figli.filter(consentito); if (!v.length) return '';
     // un solo accesso (es. chi gestisce soltanto le notizie): il riquadro porta direttamente lì, con il nome della sezione
-    return v.length === 1 ? `<button class="hubb" data-t="${v[0]}"><i class="ico">${ICONE[v[0]] || ICONE[icona]}</i><b>${esc(nomeTab(v[0]))}</b><span>${esc(DESC[v[0]] || '')}</span></button>`
-      : `<button class="hubb" data-t="${v[0]}"><i class="ico">${ICONE[icona]}</i><b>${nome}</b><span>${desc}</span></button>`; };
-  $('#app').innerHTML = selettoreEvento() + `<div class="griglia hub">${GRUPPI.map(tile).join('')}</div>`;
-  legaSelettore();
-  document.querySelectorAll('.hubb').forEach((b) => { b.onclick = () => vai(b.dataset.t); });
+    return v.length === 1 ? `<button class="hubb" data-g="${k}" data-t="${v[0]}"><i class="ico">${ICONE[v[0]] || ICONE[icona]}</i><b>${esc(nomeTab(v[0]))}</b><span>${esc(DESC[v[0]] || '')}</span></button>`
+      : `<button class="hubb" data-g="${k}" data-t="${v[0]}"><i class="ico">${ICONE[icona]}</i><b>${nome}</b><span>${desc}</span></button>`; };
+  $('#app').innerHTML = `<div class="griglia hub">${GRUPPI.map(tile).join('')}</div>`;
+  document.querySelectorAll('.hubb').forEach((b) => { b.onclick = () => { impostaFam(b.dataset.g === 'corsi' ? 'corsi' : 'gara'); vai(b.dataset.t); }; });
 }
 
+
+// ───────── CORSI: corso (n. Gaia) con i suoi Mega Code ed esami ─────────
+async function tCorsi() {
+  const corsi = eventi.filter((e) => e.tipo === 'corso' && !e.archiviato);
+  const sess = await api('/esami/sessioni').catch(() => []);
+  const figli = (c) => eventi.filter((e) => e.corso_id === c.id && !e.archiviato);
+  $('#app').innerHTML = `<div class="card"><h3>Nuovo corso</h3><div class="riga">
+      <div><label>N° corso su Gaia</label><input id="c_gaia" placeholder="es. 12345"></div><div style="flex:2"><label>Nome</label><input id="c_nome" placeholder="Corso TSSA Modena autunno"></div>
+      <div><label>Luogo</label><input id="c_luogo"></div><div><label>Data</label><input id="c_data" type="date"></div><div class="stretto"><button class="b" id="c_ok">Crea corso</button></div></div></div>
+    ${corsi.map((c) => `<div class="card"><h3>${c.codice_gaia ? esc(c.codice_gaia) + ' · ' : ''}${esc(c.nome)}</h3><p><small>${esc(c.luogo || '')} ${esc(c.data || '')}</small></p>
+      <p><b>Mega Code</b> ${figli(c).filter((e) => e.tipo === 'megacode').map((e) => `<button class="s p apri" data-id="${e.id}">${esc(e.nome)}</button>`).join(' ') || '<small>nessuno</small>'} <button class="b p nmc" data-id="${c.id}">Nuovo Mega Code</button></p>
+      <p><b>Sessioni d'esame</b> ${sess.filter((x) => x.evento_id === c.id).map((x) => `<button class="s p" onclick="location.href='/esami.html#s/${x.id}'">${esc(x.nome)} (${x.prove})</button>`).join(' ') || '<small>nessuna</small>'} <button class="b p" onclick="location.href='/esami.html'">Apri Esami</button></p>
+      <p><button class="s p apri" data-id="${c.id}">Dati e squadre del corso</button></p></div>`).join('') || '<div class="card"><em>Nessun corso: creane uno qui sopra con il numero assegnato da Gaia.</em></div>'}`;
+  $('#c_ok').onclick = () => { const nome = $('#c_nome').value.trim(), g = $('#c_gaia').value.trim(); if (!nome) return alert('Scrivi il nome del corso');
+    fai(async () => { const e = await api('/eventi', { body: { codice: ('CORSO-' + (g || nome)).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: 'corso', nome, titolo_stampa: nome, luogo: $('#c_luogo').value, data: $('#c_data').value || null, codice_gaia: g } });
+      await caricaEventi(); }, 'Corso creato'); };
+  document.querySelectorAll('.nmc').forEach((b) => { b.onclick = () => { const c = eventi.find((e) => e.id === b.dataset.id), n = figli(c).filter((e) => e.tipo === 'megacode').length + 1;
+    fai(async () => { const e = await api('/eventi', { body: { codice: `${c.codice}-MC${n}`, tipo: 'megacode', nome: `Mega Code ${n} · ${c.nome}`, titolo_stampa: `Mega Code ${n}`, luogo: c.luogo, data: c.data, corso_id: c.id } });
+      await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_corsi', ev.id); }, 'Mega Code creato'); }; });
+  document.querySelectorAll('.apri').forEach((b) => { b.onclick = () => { ev = eventi.find((e) => e.id === b.dataset.id); localStorage.setItem('ev_corsi', ev.id); vai('evento'); }; });
+}
 
 // ───────── NOTIZIE ─────────
 async function tNews() {
@@ -882,11 +907,11 @@ async function tRuoli() {
 async function render() {
   if (!consentito(tab)) tab = 'menu';
   try {
-    if (tab === 'menu') tMenu(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
+    if (tab === 'menu') tMenu(); else if (tab === 'corsi') await tCorsi(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
     else if (tab === 'persone') await tPersone(); else if (tab === 'comitati') await tComitati(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   const g = gruppoDi(tab), nVis = g ? figliVisibili(g).length : 0;
-  const mezzo = g && nVis > 1 ? ` › <span>${esc(g[1])}</span>` : '';          // il contenitore compare solo se ha più sezioni
+  const mezzo = g && nVis > 1 && g[1] !== nomeTab(tab) ? ` › <span>${esc(g[1])}</span>` : '';          // il contenitore compare solo se ha più sezioni
   $('#app').insertAdjacentHTML('afterbegin', `<div class="dove"><a href="#" id="dv_g">Gestione</a>${mezzo}${tab !== 'menu' ? ` › <b>${esc(nomeTab(tab))}</b>` : ''}</div><div class="navbar">${tab !== 'menu' ? '<button id="nv_g">← Torna a Gestione</button>' : ''}<a href="/#">Torna alla Home</a></div>`);
   if ($('#nv_g')) $('#nv_g').onclick = () => vai('menu');
   $('#dv_g').onclick = (e) => { e.preventDefault(); vai('menu'); };
@@ -897,7 +922,7 @@ async function render() {
   if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata all\'organizzazione. <a href="/">Torna alle valutazioni</a></div></main>'; return; }
   try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch (e) { /* offline: resta il profilo salvato */ }
   if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata. <a href="/">Torna alla Home</a></div></main>'; return; }
-  $('#chi').textContent = me.nome; const h0 = location.hash.slice(1); tab = TABS.some(([k]) => k === h0) && consentito(h0) ? h0 : 'menu';
+  $('#chi').textContent = me.nome; const h0 = location.hash.slice(1); if (h0 === 'corsi') fam = 'corsi'; tab = TABS.some(([k]) => k === h0) && consentito(h0) ? h0 : 'menu';
   disegnaTabs(); await caricaEventi(); render();
 })();
 </script>

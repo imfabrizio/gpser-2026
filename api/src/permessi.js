@@ -14,7 +14,7 @@ export const ruoloEffettivo = (u) => u.admin ? 'admin' : gestione(u).length ? 'o
 const R = (m, rotta, aree) => [new RegExp(`^(${m})$`), new RegExp(`^${rotta}$`), aree];
 const REGOLE = [
   R('POST|DELETE', '/api/avvisi(/:id)?', ['notizie']),
-  R('POST|PATCH', '/api/eventi(/:id)?', ['gara']), R('POST', '/api/eventi/:id/attiva', ['gara']),
+  R('POST|PATCH', '/api/eventi(/:id)?', ['gara', 'esami']), R('POST', '/api/eventi/:id/attiva', ['gara']),
   R('POST', '/api/eventi/:id/squadre', ['squadre']), R('PATCH', '/api/squadre/:id', ['squadre']), R('GET|PUT', '/api/squadre/:id/membri', ['squadre', 'anagrafiche']),
   R('POST', '/api/eventi/:id/scene', ['scene']), R('POST', '/api/scene/:id/(duplica|schede)', ['scene']), R('PATCH|DELETE', '/api/scene/:id', ['scene']),
   R('PUT', '/api/schede/:id/voci/:ordine', ['scene']), R('PATCH|DELETE', '/api/schede/:id', ['scene']), R('PUT', '/api/schede/:id/assegnazioni', ['scene']),

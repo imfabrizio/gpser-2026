@@ -105,3 +105,6 @@ details.grp { border-radius:8px; }
 /* piè di pagina */
 footer.pie { background:#2B2F36; color:#D8DBE1; margin-top:36px; padding:22px 20px; border-top:6px solid var(--rosso); font-size:14px; text-align:center; }
 footer.pie a { color:#fff; }
+
+header a.home { display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px; padding:0; }
+header a.home svg { display:block; }
