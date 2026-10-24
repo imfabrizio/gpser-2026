@@ -7,12 +7,12 @@ const t = (v, max = 120) => { const s = String(v ?? '').trim(); return s ? s.sli
 const TABELLE = ['utente', 'partecipante', 'squadra', 'richiesta_accesso', 'patologia', 'candidato_esame'];
 
 export function registraComitati(app, pool, { soloOrg }) {
-  // ricerca per le prime lettere: nome, alias o provincia; con "provincia" si restringe
+  // ricerca per le prime lettere: nome, alias, regione o provincia; con "provincia" si restringe
   app.get('/api/comitati/cerca', async (req) => {
     const q = norm(req.query.q || ''), prov = String(req.query.provincia || '').trim().toUpperCase();
     const tutti = await elenco(pool);
-    return tutti.filter((c) => (!prov || (c.provincia || '').toUpperCase() === prov) && (!q || norm(c.nome).includes(q) || c.alias.some((a) => norm(a).includes(q)) || (c.provincia || '').toLowerCase() === q))
-      .sort((a, b) => (norm(a.nome).startsWith(q) ? 0 : 1) - (norm(b.nome).startsWith(q) ? 0 : 1) || a.nome.localeCompare(b.nome)).slice(0, 15)
+    return tutti.filter((c) => (!prov || (c.provincia || '').toUpperCase() === prov) && (!q || norm(c.nome).includes(q) || c.alias.some((a) => norm(a).includes(q)) || norm(c.regione || '').includes(q) || (c.provincia || '').toLowerCase() === q))
+      .sort((a, b) => (norm(a.nome).startsWith(q) ? 0 : 1) - (norm(b.nome).startsWith(q) ? 0 : 1) || a.nome.localeCompare(b.nome)).slice(0, 60)
       .map(({ nome, provincia, regione, unita }) => ({ nome, provincia, regione, unita: unita.length ? unita : [nome] }));
   });
   app.get('/api/comitati', { preHandler: soloOrg }, async () => elenco(pool));
