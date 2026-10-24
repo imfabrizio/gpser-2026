@@ -94,7 +94,7 @@ export function disegnaScheda(doc, ctx) {
 
   // blocco identificativo
   const sim = scheda.simulatore;
-  const codice = squadra.numero ? `${scena.codice}${String(squadra.numero).padStart(2, '0')}${sim}` : '';
+  const codice = `${scena.codice}${String(squadra.numero).padStart(2, '0')}${sim}`;
   rect(doc, X0, 173, 158, 43);
   testo(doc, codice, X0, 173, 158, 43, { size: 24, font: 'Courier' });
   rect(doc, 185, 173, 217, 22); rect(doc, 185, 195, 217, 21);
@@ -108,7 +108,7 @@ export function disegnaScheda(doc, ctx) {
   if (!vuota && compilazione?.giudice) testo(doc, compilazione.giudice, 567, 173, 316, 43, { size: 11, font: 'Sans-Bold' });
   rect(doc, X0, 216, 158, 21); rect(doc, 185, 216, 303, 21); rect(doc, 488, 216, 395, 21);
   testo(doc, 'Squadra', X0, 216, 158, 21, { size: 9.5 });
-  testo(doc, squadra.numero ? `${squadra.numero}-${squadra.nome}` : '', 185, 216, 303, 21, { size: 9.5, font: 'Sans-Bold' });
+  testo(doc, `${squadra.numero}-${squadra.nome}`, 185, 216, 303, 21, { size: 9.5, font: 'Sans-Bold' });
   rect(doc, X0, 237, 461, 44);
   testo(doc, scena.titolo, X0, 237, 461, 44, { size: 14, font: 'Sans-Bold' });
   rect(doc, 488, 237, 395, 44);
@@ -120,13 +120,13 @@ export function disegnaScheda(doc, ctx) {
   if (righe) testo(doc, righe, 488, 237, 395, 44, { size: 9.5, align: 'left', pad: 8, multi: true });
 
   // intestazione colonne
-  rect(doc, X0, 283, 461, 97);
-  testo(doc, scheda.titolo, X0, 283, 461, 97, { size: 14, font: 'Sans-Bold' });
+  rect(doc, X0, 281, 461, 99);
+  testo(doc, scheda.titolo, X0, 281, 461, 99, { size: 14, font: 'Sans-Bold' });
   LIVELLI.forEach((l, i) => {
     const x = XL + i * COLW;
-    rect(doc, x, 283, COLW, 70); rect(doc, x, 353, COLW, 27);
+    rect(doc, x, 281, COLW, 72); rect(doc, x, 353, COLW, 27);
     doc.save().font('Courier-Bold').fontSize(7.8).fillColor(l.colore);
-    const cx = p(x + COLW / 2), cy = p(283 + 35);
+    const cx = p(x + COLW / 2), cy = p(281 + 36);
     doc.translate(cx, cy).rotate(-90);
     l.etichetta.forEach((riga, j) => {
       const off = (j - (l.etichetta.length - 1) / 2) * 9;
@@ -183,7 +183,6 @@ export function disegnaScheda(doc, ctx) {
     y += h;
   });
   // riga vuota di chiusura + note + firma
-  rect(doc, X0, y, 461, 17); rect(doc, XL, y, COLW, 17); rect(doc, XL + COLW, y, COLW, 17);
   const yn = 1085;
   rect(doc, X0, yn, 620, 83); testo(doc, 'Note', X0, yn, 620, 20, { size: 9.5, align: 'left', pad: 3, valign: 'top' });
   rect(doc, 647, yn, 236, 20); rect(doc, 647, yn + 20, 236, 63);
