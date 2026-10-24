@@ -1,0 +1,608 @@
+## Lombardia
+Comitato Area Nord Milanese
+Comitato del Comprensorio Lecchese - ODV
+Comitato dell'Area Sud Milanese
+Comitato delle Alte Groane
+Comitato delle Groane
+Comitato dell'Insubria
+Comitato del Medio Verbano
+Comitato di Agrate Brianza
+Comitato di Asola
+Comitato di Basso Lario
+Comitato di Bergamo
+Comitato di Bergamo Hinterland
+Comitato di Bergamo Ovest e Valle Imagna
+Comitato di Brescia
+Comitato di Bresso
+Comitato di Brugherio
+Comitato di Buccinasco
+Comitato di Busto Arsizio
+Comitato di Calvisano
+Comitato di Cantù
+Comitato di Caravaggio
+Comitato di Casalmaggiore
+Comitato di Casatenovo
+Comitato di Casorate Primo
+Comitato di Casteggio
+Comitato di Castiglione delle Stiviere
+Comitato di Cellatica e Gussago
+Comitato di Cermenate
+Comitato di Cinisello Balsamo
+Comitato di Codogno
+Comitato di Colico
+Comitato di Como - ODV
+Comitato di Crema
+Comitato di Cremona
+Comitato di Desio
+Comitato di Gallarate
+Comitato di Gambolò
+Comitato di Gardone Val Trompia
+Comitato di Ghedi
+Comitato di Grandate
+Comitato di Lainate
+Comitato di Lecco
+Comitato di Legnano
+Comitato di Lentate sul Seveso
+Comitato di Lodi
+Comitato di Lomazzo
+Comitato di Luino e Valli
+Comitato di Lurate Caccivio
+Comitato di Mantova
+Comitato di Mede e Valle Lomellina
+Comitato di Menaggio
+Comitato di Merate
+Comitato di Milano
+Comitato di Milano Est
+Comitato di Montorfano
+Comitato di Monza
+Comitato di Morbegno
+Comitato di Mortara
+Comitato di Muggiò
+Comitato di Nova Milanese
+Comitato di Ostiglia
+Comitato di Paderno Dugnano
+Comitato di Palazzolo sull'Oglio
+Comitato di Pavia
+Comitato di Pieve Emanuele
+Comitato di Pizzighettone
+Comitato di Poggio-Sermide
+Comitato di San Donato Milanese
+Comitato di San Fermo della Battaglia
+Comitato di Saronno
+Comitato di Sesto San Giovanni
+Comitato di Settimo Milanese
+Comitato di Solferino
+Comitato di Sondrio
+Comitato di Stradella
+Comitato di Suzzara
+Comitato di Treviglio e Geradadda
+Comitato di Triangolo Lariano
+Comitato di Uggiate Trevano
+Comitato di Valceresio
+Comitato di Valle Camonica - ODV
+Comitato di Valmadrera
+Comitato di Varedo
+Comitato di Varese
+Comitato di Vigevano
+Comitato di Villasanta
+Comitato di Voghera
+Comitato Garda Bresciano
+Comitato Lodigiano Ovest
+Comitato Valle Intelvi
+## Veneto
+Comitato Basso Garda Veronese - ODV
+Comitato Basso Veronese
+Comitato di Bardolino Baldo Garda
+Comitato di Bassano Del Grappa
+Comitato di Belluno
+Comitato di Conegliano
+Comitato di Due Carrare
+Comitato di Feltre
+Comitato di Maserà di Padova
+Comitato di Mogliano Veneto - ODV
+Comitato di Padova
+Comitato di Padova Sud
+Comitato di Portogruaro
+Comitato di Rovigo
+Comitato di San Donà di Piave
+Comitato di Schio
+Comitato di Selvazzano Dentro
+Comitato di Terme Euganee
+Comitato di Thiene
+Comitato di Treviso
+Comitato di Valdagno
+Comitato di Valpolicella
+Comitato di Venezia
+Comitato di Verona
+Comitato di Vicenza
+Comitato di Vigodarzere
+Comitato Est Veronese
+## Piemonte
+Comitato di Acqui Terme
+Comitato di Agliè
+Comitato di Airasca
+Comitato di Alba
+Comitato di Alessandria
+Comitato di Arona e Lesa
+Comitato di Asti
+Comitato di Bardonecchia
+Comitato di Baveno
+Comitato di Beinasco
+Comitato di Biella
+Comitato di Borgomanero
+Comitato di Borgo San Dalmazzo
+Comitato di Borgosesia
+Comitato di Bra
+Comitato di Busca
+Comitato di Canelli
+Comitato di Cannobio
+Comitato di Caraglio
+Comitato di Carignano
+Comitato di Carmagnola
+Comitato di Casale Monferrato
+Comitato di Cassine
+Comitato di Castellamonte
+Comitato di Castelnuovo Don Bosco E Piovà Massaia
+Comitato di Cavaglià
+Comitato di Centallo
+Comitato di Chieri
+Comitato di Chivasso
+Comitato di Cocconato
+Comitato di Cossato
+Comitato di Crescentino
+Comitato di Cuneo
+Comitato di Cuorgnè
+Comitato di Domodossola
+Comitato di Dronero
+Comitato di Druento
+Comitato di Fiano Torinese
+Comitato di Galliate
+Comitato di Gassino Torinese
+Comitato di Gattinara
+Comitato di Gavi
+Comitato di Giaveno
+Comitato di Isola D'Asti
+Comitato di Ivrea
+Comitato di Lauriano
+Comitato di Leini
+Comitato di Limone Piemonte
+Comitato di Mappano
+Comitato di Melle
+Comitato di Moncalieri
+Comitato di Mondovì
+Comitato di Monesiglio
+Comitato di Montanaro
+Comitato di Montegrosso D'asti
+Comitato di Moretta
+Comitato di Nichelino
+Comitato di Novara
+Comitato di Novi Ligure
+Comitato di Oleggio
+Comitato di Peveragno
+Comitato di Piossasco
+Comitato di Poirino
+Comitato di Pont Canavese
+Comitato di Racconigi
+Comitato di Rivarolo Canavese
+Comitato di Rivoli
+Comitato di Sampeyre
+Comitato di San Damiano D'Asti
+Comitato di San Francesco Al Campo
+Comitato di San Giorgio Canavese
+Comitato di Santena
+Comitato di Savigliano
+Comitato di Serravalle Scrivia
+Comitato di Settimo Torinese
+Comitato di Settimo Vittone
+Comitato di Sommariva Del Bosco
+Comitato di Strambino
+Comitato di Stresa
+Comitato di Susa
+Comitato di Torino
+Comitato di Torre Pellice
+Comitato di Tortona
+Comitato di Trecate
+Comitato di Trofarello
+Comitato di Valle Stura
+Comitato di Valli di Lanzo
+Comitato di Verbania
+Comitato di Vercelli
+Comitato di Vignole Borbera
+Comitato di Vigone
+Comitato di Villanova D'Asti
+Comitato di Villar Dora
+Comitato Provincia Granda
+## Toscana
+Comitato Alto Casentino - ODV
+Comitato Costa d' Argento - ODV
+Comitato di Albiano Magra
+Comitato di Arezzo
+Comitato di Bagni di Lucca
+Comitato di Bagno A Ripoli
+Comitato di Bibbiena
+Comitato di Buggiano/Montecatini Terme
+Comitato di Capalbio
+Comitato di Casciana Terme
+Comitato di Castelfranco di Sotto
+Comitato di Castell'Azzara
+Comitato di Castiglione della Pescaia
+Comitato di Castiglion Fiorentino
+Comitato di Certaldo
+Comitato di Chiusi della Verna
+Comitato di Donoratico
+Comitato di Empoli - ODV
+Comitato di Fauglia
+Comitato di Firenze
+Comitato di Foiano della Chiana
+Comitato di Follonica
+Comitato di Fucecchio
+Comitato di Gavorrano
+Comitato di Greve In Chianti
+Comitato di Grosseto
+Comitato di Guardistallo - Casale Marittimo
+Comitato di Incisa Valdarno
+Comitato di Isola D'Elba
+Comitato di Livorno
+Comitato di Lucca
+Comitato di Massa Carrara
+Comitato di Monsummano Terme
+Comitato di Montecatini Val di Cecina
+Comitato di Montepulciano
+Comitato di Monterotondo Marittimo
+Comitato di Monte San Savino
+Comitato di Pescia
+Comitato di Piombino
+Comitato di Pisa
+Comitato di Pistoia
+Comitato di Pistoia-Cireglio
+Comitato di Pitigliano
+Comitato di Ponte A Egola
+Comitato di Pontedera ODV
+Comitato di Prato
+Comitato di Ravi
+Comitato di Ribolla
+Comitato di Rignano Sull' Arno
+Comitato di Rosignano Solvay
+Comitato di San Frediano A Settimo
+Comitato di San Giuliano Terme ODV Pontasserchio
+Comitato di San Godenzo
+Comitato di San Marcello Pistoiese
+Comitato di Sansepolcro
+Comitato di Santa Luce
+Comitato di San Vincenzo
+Comitato di Scandicci
+Comitato di Scarlino
+Comitato di Siena
+Comitato di Strada In Chianti
+Comitato di Suvereto
+Comitato di Uliveto Terme
+Comitato di Venturina
+Comitato di Vernio
+Comitato di Viareggio e Versilia - ODV
+Comitato di Volterra
+Comitato Piana Pistoiese
+## Lazio
+Comitato della Bassa Sabina
+Comitato di Acquapendente - ODV
+Comitato di Amatrice - ODV
+Comitato di Aprilia
+Comitato di Bagnoregio
+Comitato di Canino – ODV
+Comitato di Capranica
+Comitato di Carbognano
+Comitato di Cassino
+Comitato di Civita Castellana
+Comitato di Civitella D'agliano
+Comitato di Corchiano
+Comitato di Fondi
+Comitato di Frosinone
+Comitato di Itri
+Comitato di Latina
+Comitato di Monte Romano
+Comitato di Nepi
+Comitato di Orte
+Comitato di Paliano
+Comitato di Piedimonte San Germano - ODV
+Comitato di Piglio
+Comitato di Rieti
+Comitato di Ronciglione
+Comitato di Sora - ODV
+Comitato di Soriano Nel Cimino
+Comitato di Tarquinia
+Comitato di Vignanello
+Comitato di Viterbo
+Comitato Sud Pontino
+Comitato di Ciampino
+Comitato Municipio 10 di Roma
+Comitato Municipio 13-14 di Roma
+Comitato Municipio 2-3 di Roma
+Comitato Municipio 4 di Roma
+Comitato Municipio 5 di Roma
+Comitato Municipio 7 di Roma
+Comitato Municipio 8-11-12 di Roma
+Comitato Municipio 9 di Roma
+## Campania
+Comitato Alto Casertano e Matesino
+Comitato di Agro
+Comitato di Agropoli E Del Cilento
+Comitato di Ariano Irpino
+Comitato di Aurunco
+Comitato di Avellino
+Comitato di Benevento
+Comitato di Capaccio Paestum
+Comitato di Casal di Principe
+Comitato di Caserta
+Comitato di Cava De' Tirreni
+Comitato di Costa Amalfitana
+Comitato di Ercolano
+Comitato di Frattamaggiore
+Comitato di Giffoni Valle Piana
+Comitato di Maddaloni
+Comitato di Mondragone ODV
+Comitato di Napoli
+Comitato di Napoli Nord
+Comitato di Napoli Sud
+Comitato di Pompei
+Comitato di Portici
+Comitato di Salerno
+Comitato di San Lorenzello O.D.V.
+Comitato di Santa Maria Capua Vetere - Curti
+Comitato di Sapri
+Comitato di Sarno
+Comitato di Serre
+Comitato di Telese Terme - ODV
+Comitato di Vairano
+## Sicilia
+Comitato dei Monti Sicani - ODV
+Comitato del Tirreno-Nebrodi
+Comitato di Acireale
+Comitato di Agrigento
+Comitato di Alcamo
+Comitato di Avola
+Comitato di Barcellona Pozzo di Gotto
+Comitato di Caltagirone
+Comitato di Caltanissetta
+Comitato di Campofelice di Roccella
+Comitato di Castelvetrano
+Comitato di Catania
+Comitato di Enna
+Comitato di Fiumefreddo di Sicilia
+Comitato di Francofonte
+Comitato di Gela
+Comitato di Lampedusa e Linosa
+Comitato di Marsala
+Comitato di Mascalucia
+Comitato di Mazara Del Vallo
+Comitato di Messina
+Comitato di Milazzo - Isole Eolie
+Comitato di Mussomeli
+Comitato di Nicosia
+Comitato di Noto
+Comitato di Pachino / Portopalo
+Comitato di Palermo
+Comitato di Pantelleria
+Comitato di Ragusa
+Comitato di Roccalumera e Taormina
+Comitato di San Salvatore di Fitalia
+Comitato di Scordia
+Comitato di Siracusa
+Comitato di Trapani
+Comitato di Troina
+Comitato di Valle dell'Halaesa
+Comitato di Viagrande
+Comitato Floridia - ODV
+Comitato Jonico-etneo
+## Puglia
+Comitato della Bassa Murgia
+Comitato di Acquaviva Delle Fonti - ODV
+Comitato di Andria
+Comitato di Bari
+Comitato di Barletta
+Comitato di Bitonto
+Comitato di Brindisi
+Comitato di Carovigno
+Comitato di Casarano
+Comitato di Cerignola
+Comitato di Cisternino
+Comitato di Fasano
+Comitato di Foggia
+Comitato di Francavilla Fontana-Oria
+Comitato di Gioia Del Colle
+Comitato di Grottaglie - ODV
+Comitato di Lecce
+Comitato di Leverano
+Comitato di Manfredonia
+Comitato di Martina Franca
+Comitato di Molfetta
+Comitato di Monopoli
+Comitato di Ostuni
+Comitato di San Nicandro-Garganico
+Comitato di San Severo-Torremaggiore
+Comitato di Santeramo in Colle - ODV
+Comitato di Taranto
+Comitato di Valenzano
+## Liguria
+Comitato della Spezia
+Comitato di Alassio
+Comitato di Albenga
+Comitato di Ameglia
+Comitato di Arenzano
+Comitato di Bargagli
+Comitato di Bordighera
+Comitato di Campo Ligure
+Comitato di Campomorone
+Comitato di Cengio
+Comitato di Ceranesi
+Comitato di Ceriale
+Comitato di Chiavari
+Comitato di Cicagna
+Comitato di Cogoleto
+Comitato di Cogorno
+Comitato di Davagna
+Comitato di Diano Marina
+Comitato di Follo
+Comitato di Gattorna
+Comitato di Genova
+Comitato di Genova Ponente
+Comitato di Imperia
+Comitato di Lavagna
+Comitato di Levanto
+Comitato di Loano
+Comitato di Magliolo
+Comitato di Masone
+Comitato di Millesimo
+Comitato di Pieve di Teco
+Comitato di Pontedassio
+Comitato di Rezzoaglio
+Comitato di Ricco' Del Golfo
+Comitato di Riva Trigoso
+Comitato di Rossiglione
+Comitato di Sanremo
+Comitato di Santa Margherita Ligure
+Comitato di Santo Stefano D' Aveto
+Comitato di Sassello
+Comitato di Savona
+Comitato di Serra Ricco'
+Comitato di Sesta Godano
+Comitato di S. Olcese
+Comitato di Sori
+Comitato di Stella
+Comitato di Toirano
+Comitato di Torriglia
+Comitato di Urbe
+Comitato di Uscio
+Comitato di Vado Ligure - Quiliano
+Comitato di Vallescrivia
+Comitato di Varazze
+Comitato di Varese Ligure
+Comitato di Ventimiglia
+## Marche
+Comitato di Ancona
+Comitato di Ascoli Piceno
+Comitato di Cagli
+Comitato di Camerino
+Comitato di Castelplanio
+Comitato di Castignano - ODV
+Comitato di Cingoli
+Comitato di Fabriano
+Comitato di Fano
+Comitato di Fermignano
+Comitato di Fermo
+Comitato di Fossombrone
+Comitato di Jesi
+Comitato di Loreto
+Comitato di Macerata
+Comitato di Marotta - Mondolfo
+Comitato di Matelica
+Comitato di Montelabbate-Vallefoglia - ODV
+Comitato di Osimo
+Comitato di Pergola
+Comitato di Pesaro
+Comitato di Porto Potenza Picena
+Comitato di San Benedetto Del Tronto
+Comitato di San Severino Marche
+Comitato di Sant'Angelo In Vado
+Comitato di Sarnano
+Comitato di Sassoferrato
+Comitato di Senigallia
+Comitato di Sibillini
+Comitato di Tolentino
+Comitato di Urbino
+Comitato di Visso
+## Abruzzo
+Comitato di Avezzano
+Comitato di Carsoli
+Comitato di Cepagatti
+Comitato di Chieti
+Comitato di Giulianova
+Comitato di Lanciano
+Comitato di L'Aquila
+Comitato di Penne
+Comitato di Pescara
+Comitato di Roseto
+Comitato di Spoltore
+Comitato di Sulmona
+Comitato di Teramo
+Comitato di Vasto
+## Basilicata
+Comitato della Siritide - ODV
+Comitato Del Vulture
+Comitato di Lavello
+Comitato di Matera
+Comitato di Melandro ODV
+Comitato di Melfi
+Comitato di Noce
+Comitato di Potenza
+Comitato di Val D'Agri
+Comitato di Valle del Trono
+## Calabria
+Comitato Alto Ionio Cosentino
+Comitato Amantea - ODV
+Comitato Basso Ionio Catanzarese
+Comitato Costa Degli Dei - ODV
+Comitato dell' Alto Tirreno Cosentino
+Comitato della Vallata Del Gallico
+Comitato di Acri
+Comitato di Bagnara Calabra - ODV
+Comitato di Castrovillari
+Comitato di Catanzaro
+Comitato di Corigliano-Rossano ODV
+Comitato di Cosenza
+Comitato di Cotronei - ODV
+Comitato di Crotone
+Comitato di Delianuova
+Comitato di Gioia Tauro
+Comitato di Lamezia Terme
+Comitato di Mirto Crosia
+Comitato di Monasterace
+Comitato di Palmi
+Comitato di Paola e del Medio Tirreno Cosentino
+Comitato di Reggio Calabria
+Comitato di Riviera Dei Gelsomini
+Comitato di Rosarno
+Comitato di San Giovanni in Fiore ODV
+Comitato di Taurianova
+Comitato di Vibo Valentia
+## Friuli-Venezia Giulia
+Comitato Alto Friuli
+Comitato di Casarsa della Delizia
+Comitato di Gorizia
+Comitato di Maniago
+Comitato di Monfalcone
+Comitato di Palmanova
+Comitato di Pordenone
+Comitato di San Vito Al Tagliamento - Azzano Decimo
+Comitato di Trieste
+Comitato di Udine
+## Molise
+Comitato di Campobasso
+Comitato di Isernia
+Comitato di Termoli - ODV
+## Sardegna
+Comitato di Bosa
+Comitato di Cagliari
+Comitato di Gallura - ODV
+Comitato di Nuoro
+Comitato di Olbia
+Comitato di Oristano
+Comitato di Sassari
+## Umbria
+Comitato di Assisi
+Comitato di Avigliano Umbro
+Comitato di Bastia Umbra
+Comitato di Citta' di Castello
+Comitato di Corciano
+Comitato di Deruta Torgiano
+Comitato di Foligno
+Comitato di Gualdo Tadino
+Comitato di Guardea - Alviano
+Comitato di Gubbio
+Comitato di Massa Martana
+Comitato di Orvieto
+Comitato di Perugia
+Comitato di Spello
+Comitato di Spoleto
+Comitato di Terni
+Comitato di Todi
+Comitato di Valfabbrica
+Comitato di Valnestore
