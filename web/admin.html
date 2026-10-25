@@ -1113,8 +1113,8 @@ async function render() {
   if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata all\'organizzazione. <a href="/">Torna alle valutazioni</a></div></main>'; return; }
   try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch (e) { /* offline: resta il profilo salvato */ }
   if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata. <a href="/">Torna alla Home</a></div></main>'; return; }
-  $('#chi').textContent = me.nome; const h0 = location.hash.slice(1); tab = TABS.some(([k]) => k === h0) && consentito(h0) ? h0 : 'menu';
-  await caricaEventi(); if (tab !== 'menu' && tab !== 'hub') { const m = GRUPPI.find((g) => g[4].includes(tab)); if (m) impostaMondo(m[0]); }
+  $('#chi').textContent = me.nome; const h0 = location.hash.slice(1).replace(/^hub:(\w+)$/, (_, m) => { window.__mondo0 = m; return 'hub'; }); tab = TABS.some(([k]) => k === h0) && consentito(h0) ? h0 : 'menu';
+  await caricaEventi(); if (window.__mondo0 && GRUPPI.some((g) => g[0] === window.__mondo0)) impostaMondo(window.__mondo0); else if (tab !== 'menu' && tab !== 'hub') { const m = GRUPPI.find((g) => g[4].includes(tab)); if (m) impostaMondo(m[0]); }
   disegnaTabs(); render();
 })();
 </script>

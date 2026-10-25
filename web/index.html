@@ -251,7 +251,8 @@ async function vistaSicurezza() {
 
 // gara corrente: chi è legato a una gara resta in quella; organizzazione e admin scelgono dal menu
 async function garaCorrente() {
-  const eventi = await api('/eventi');
+  const tutti = await api('/eventi');
+  const eventi = org() ? tutti.filter((e) => ['gara', 'olimpiadi', 'allenamento', 'corso_giudici'].includes(e.tipo)) : tutti;   // la Home delle Gare non mostra corsi ed esami
   let ev = null;
   if (org()) ev = eventi.find((e) => e.id === localStorage.getItem('ev'));
   ev = ev || eventi.find((e) => e.id === me.evento_id) || eventi.find((e) => e.attivo) || eventi[0] || null;
@@ -275,23 +276,40 @@ async function vistaHome() {
       ${aree.includes('esami') ? tileF('/esami.html', 'esami', 'Esami', 'Sessioni d\'esame e valutazioni') : ''}
       ${aree.includes('formazione_esame') ? tileF('/admin.html#libreria', 'libreria', 'Schede d\'esame', 'Libreria delle schede e schede del comitato') : ''}
       ${tileF('#documenti', 'documenti', 'Documentazione', 'Regolamento, comunicazioni, manuali')}</div></div>`;
+  // due mondi: chi ha accesso a entrambi sceglie all'ingresso; ciascuno vede solo le proprie cose
+  const haForm = org() && (me.admin || aree.some((a) => ['esami', 'formazione_esame'].includes(a))), haGara = !soloFormazione;
+  let mondo = haGara && haForm ? localStorage.getItem('mondo') : (haForm ? 'formazione' : 'gara');
+  const cambia = haGara && haForm ? '<p><a href="#" id="cambia_area">← Cambia area</a></p>' : '';
+  const legaCambia = () => { if ($('#cambia_area')) $('#cambia_area').onclick = (e) => { e.preventDefault(); localStorage.removeItem('mondo'); vistaHome(); }; };
+  if (haGara && haForm && !['gara', 'formazione'].includes(mondo)) {
+    $('#app').innerHTML = `<div class="sezione-home"><div class="tiles">${tileF('#', 'gestione', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede e classifiche').replace('<a class="tile" href="#"', '<a class="tile" href="#" data-m="gara"')}
+      ${tileF('#', 'esami', 'Formazione', 'Corsi, Mega Code, esami e schede d\'esame').replace('<a class="tile" href="#"', '<a class="tile" href="#" data-m="formazione"')}</div></div>`;
+    document.querySelectorAll('[data-m]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); localStorage.setItem('mondo', a.dataset.m); vistaHome(); }; });
+    return;
+  }
+  if (mondo === 'formazione') {
+    const avvF = await api('/avvisi?ambito=formazione').catch(() => []);
+    $('#app').innerHTML = `${cambia}${formazione.replace('<h3>Formazione</h3><div class="tiles">', '<h3>Formazione</h3><div class="tiles">' + (org() ? tileF('/admin.html#hub:corsi', 'gestione', 'Gestione', 'Corsi, scene, squadre, notizie') : ''))}
+      <div class="card"><strong>Notizie per la Formazione</strong>${avvF.length ? avvF.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>`;
+    legaCambia(); return;
+  }
   if (soloFormazione) { $('#app').innerHTML = formazione; return; }
   const { ev, eventi } = await garaCorrente();
-  if (!ev) { $('#app').innerHTML = '<div class="card">Nessuna gara.' + (org() ? ' <a class="btn" href="/admin.html#menu">Vai a Gestione per crearne una</a>' : ' Chiedi all\'organizzazione di assegnartene una.') + '</div>' + formazione; return; }
+  if (!ev) { $('#app').innerHTML = '<div class="card">Nessuna gara.' + (org() ? ' <a class="btn" href="/admin.html#hub:gara">Vai a Gestione per crearne una</a>' : ' Chiedi all\'organizzazione di assegnartene una.') + '</div>' + cambia; legaCambia(); return; }
   const avvisi = await api(`/avvisi?evento=${ev.id}`).catch(() => []);
   const scene = await api(`/eventi/${ev.id}/scene`).catch(() => []);
   const tipoGara = TIPO_EV[ev.tipo] || 'Gara';
   const gestioneGara = org() && aree.some((a) => !['valutazione', 'esami', 'formazione_esame'].includes(a));
   const tileGara = (aree.includes('valutazione') ? tileF('#valutazione', 'valutazione', 'Valutazione', esc(ev.nome)) : '')
-    + (gestioneGara ? tileF('/admin.html#menu', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '')
+    + (gestioneGara ? tileF('/admin.html#hub:gara', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '')
     + (gestioneGara && aree.includes('classifiche') ? tileF('#monitor', 'monitor', 'Monitor', 'Avanzamento delle schede') : '');
-  $('#app').innerHTML = `<div class="banner"><small>${tipoGara} ${statoGara(ev)}</small><h2>${esc(ev.nome)}</h2>
+  $('#app').innerHTML = `${cambia}<div class="banner"><small>${tipoGara} ${statoGara(ev)}</small><h2>${esc(ev.nome)}</h2>
     <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
     ${org() ? `<label>Cambia gara</label>${menuGare(eventi, ev)}` : ''}</div>
     ${tileGara.trim() ? `<div class="sezione-home"><h3>Gara</h3><div class="tiles">${tileGara}</div></div>` : ''}
-    ${formazione}
     ${mappaHtml(ev, scene)}
     <div class="card"><strong>Avvisi e informazioni</strong>${avvisi.length ? avvisi.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessun avviso.</small></p>'}</div>`;
+  legaCambia();
   if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem('ev', $('#selgara').value); vistaHome(); };
   const cc = coda.conta();
   if (cc.inCoda || cc.rifiutate) {
