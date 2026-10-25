@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@fastify/static": "^10.1.6",
+    "codice-fiscale-js": "^2.4.0",
     "exceljs": "^4.4.0",
     "fastify": "^5.12.7",
     "jszip": "^3.10.2",

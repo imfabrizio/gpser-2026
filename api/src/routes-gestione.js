@@ -239,7 +239,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     return { ok: true };
   });
   app.get('/api/squadre/:id/membri', { preHandler: soloOrg }, async (req) => (await pool.query(
-    `select m.partecipante_id, m.ruolo, p.cognome, p.nome, p.comitato, p.provincia from squadra_membro m
+    `select m.partecipante_id, m.ruolo, p.cognome, p.nome, p.comitato, p.provincia, (select coalesce(array_agg(q.qualifica order by q.qualifica), '{}') from persona_qualifica q where q.partecipante_id = p.id) as qualifiche from squadra_membro m
        join partecipante p on p.id = m.partecipante_id where m.squadra_id=$1 order by p.cognome, p.nome`, [req.params.id])).rows);
   app.put('/api/squadre/:id/membri', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const lista = req.body?.membri;

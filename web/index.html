@@ -140,26 +140,39 @@ async function vistaRegistrazione() {
     <p><small>Account: ${esc(d.email)}. Se non viene approvata entro circa ${ore} ore, la richiesta viene cancellata: potrai ripresentarla accedendo di nuovo.</small></p>
     <button class="btn sec" id="modifica">Modifica la richiesta</button></div>`; $('#modifica').onclick = form; };
   const form = () => {
+    const tipi = Object.entries(d.tipi);
     $('#app').innerHTML = `<div class="card"><h2>Chiedi l'accesso</h2>
-      <p>Il tuo account (${esc(d.email)}) non è ancora abilitato. Compila i dati: l'organizzazione li controlla e ti assegna il ruolo.</p>
-      <label>Nome</label><input id="r_n" value="${esc(d.nome || '')}" autocomplete="given-name">
-      <label>Cognome</label><input id="r_c" value="${esc(d.cognome || '')}" autocomplete="family-name">
-      <label>Codice fiscale</label><input id="r_cf" maxlength="16" autocapitalize="characters" style="text-transform:uppercase" autocomplete="off">
-      <label>Comitato di appartenenza</label><input id="r_co" placeholder="es. Comitato di Modena">
-      <label>Provincia (sigla)</label><input id="r_p" maxlength="2" style="width:5em;text-transform:uppercase" placeholder="MO">
-      <label>Ruolo</label><select id="r_r"><option value="">— scegli —</option>${Object.entries(d.ruoli).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select>
-      <div id="r_sq" hidden><label>Squadra</label><select id="r_s"><option value="">— scegli la squadra —</option>${d.squadre.map((x) => `<option value="${x.id}">${esc(x.nome)}${x.comitato ? ' · ' + esc(x.comitato) : ''} (${esc(x.evento)})</option>`).join('')}</select>
-        ${d.squadre.length ? '' : '<p><small>Nessuna squadra disponibile al momento: riprova più avanti.</small></p>'}</div>
-      <label>Codice ruolo (se te l'hanno comunicato)</label><input id="r_k" maxlength="40" autocomplete="off">
+      <p>Il tuo account (${esc(d.email)}) non è ancora abilitato. Dicci chi sei: l'organizzazione controlla i dati e ti abilita.</p>
+      <label>Come ti registri?</label>
+      ${tipi.map(([k, v]) => `<label style="display:block;font-size:16px;color:inherit;margin:4px 0"><input type="radio" name="r_t" value="${k}"> ${esc(v)}</label>`).join('')}
+      <div id="r_campi" hidden>
+        <label>Nome</label><input id="r_n" value="${esc(d.nome || '')}" autocomplete="given-name">
+        <label>Cognome</label><input id="r_c" value="${esc(d.cognome || '')}" autocomplete="family-name">
+        <div id="r_sq" hidden><label>Squadra che segui</label><select id="r_s"><option value="">— scegli la squadra —</option>${d.squadre.map((x) => `<option value="${x.id}">${esc(x.nome)}${x.comitato ? ' · ' + esc(x.comitato) : ''} (${esc(x.evento)})</option>`).join('')}</select>
+          ${d.squadre.length ? '' : '<p><small>Nessuna squadra disponibile al momento: riprova più avanti.</small></p>'}</div>
+        <div id="r_co_b" hidden><label id="r_co_l">Comitato di appartenenza</label><input id="r_co" placeholder="es. Comitato di Modena"><input id="r_p" type="hidden"></div>
+        <div id="r_vol" hidden>
+          <label>Data di nascita</label><input id="r_dn" type="date" autocomplete="bday">
+          <label>Luogo di nascita (comune)</label><input id="r_ln" placeholder="es. Modena">
+          <label>Qualifiche CRI (se ne hai; puoi sceglierne più di una)</label>
+          <div>${d.qualifiche.map((q) => `<label style="font-size:15px;color:inherit;display:inline-block;margin:3px 12px 3px 0"><input type="checkbox" class="r_q" value="${esc(q.codice)}"> ${esc(q.nome)}</label>`).join('')}</div>
+          <p><small>Le qualifiche indicate sono una richiesta: valgono solo dopo la verifica dell'organizzazione.</small></p>
+          <label id="r_cf_l">Codice fiscale</label><input id="r_cf" maxlength="16" autocapitalize="characters" style="text-transform:uppercase" autocomplete="off">
+          <p id="r_cf_n"><small>Facoltativo, ma diventa obbligatorio se dichiari una qualifica: serve a verificarla.</small></p>
+        </div>
+      </div>
       <p class="err" id="r_e" hidden></p>
-      <button class="btn" id="r_go">Invia richiesta</button></div>`;
+      <button class="btn" id="r_go" hidden>Invia richiesta</button></div>`;
     legaComitato($('#r_co'), { provincia: $('#r_p') });
-    $('#r_r').onchange = () => { $('#r_sq').hidden = !d.con_squadra.includes($('#r_r').value); };
+    const tipo = () => (document.querySelector('input[name=r_t]:checked') || {}).value;
+    const aggiorna = () => { const t = tipo(); $('#r_campi').hidden = !t; $('#r_go').hidden = !t; $('#r_sq').hidden = t !== 'supporter'; $('#r_co_b').hidden = t === 'supporter' || !t; $('#r_vol').hidden = t !== 'volontario';
+      $('#r_co_l').textContent = t === 'aspirante' ? 'Comitato di riferimento (se ce l\'hai)' : 'Comitato di appartenenza'; };
+    document.querySelectorAll('input[name=r_t]').forEach((i) => { i.onchange = aggiorna; });
     $('#r_go').onclick = async () => {
       const e = $('#r_e'); e.hidden = true; $('#r_go').disabled = true;
       try {
-        await api('/registrazione', { body: { nome: $('#r_n').value, cognome: $('#r_c').value, codice_fiscale: $('#r_cf').value, comitato: $('#r_co').value, provincia: $('#r_p').value,
-          ruolo_gara: $('#r_r').value, squadra_id: $('#r_s').value || null, codice_ruolo: $('#r_k').value } });
+        await api('/registrazione', { body: { tipo: tipo(), nome: $('#r_n').value, cognome: $('#r_c').value, squadra_id: $('#r_s').value || null, comitato: $('#r_co').value, provincia: $('#r_p').value,
+          data_nascita: $('#r_dn').value || null, luogo_nascita: $('#r_ln').value, codice_fiscale: $('#r_cf').value, qualifiche: [...document.querySelectorAll('.r_q:checked')].map((i) => i.value) } });
         d.compilata = true; d.scade_il = new Date(Date.now() + 48 * 3600e3).toISOString(); return vistaRegistrazione();
       } catch (x) { e.textContent = x.message; e.hidden = false; $('#r_go').disabled = false; }
     };

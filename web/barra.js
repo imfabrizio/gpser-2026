@@ -18,6 +18,8 @@
   };
   const api = async (p, body) => { const t = localStorage.getItem('token'); const r = await fetch('/api' + p, { method: body ? 'POST' : 'GET', headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), Authorization: 'Bearer ' + t }, body: body ? JSON.stringify(body) : undefined }); if (!r.ok) throw new Error(r.status); return r.json(); };
   let sede = 'index', timer = null;
+  // «Home» riporta alla pagina d'ingresso con le tre aree: si dimentica l'area scelta
+  document.addEventListener('click', (e) => { if (e.target.closest('a[href="/"], a[href="/#"], a.home, #hhome, #homeb')) { try { localStorage.removeItem('mondo'); } catch { /* niente */ } } }, true);
   async function conta() {
     const b = document.getElementById('campana'); if (!b) return;
     try { const d = await api('/me/notifiche'); const n = d.non_lette; let nb = b.querySelector('.nb'); if (n && !nb) { nb = document.createElement('span'); nb.className = 'nb'; b.append(nb); } if (nb) { if (n) nb.textContent = n; else nb.remove(); } window.__notifiche = d.elenco; } catch { /* offline */ }
@@ -37,8 +39,9 @@
       sede = dove || sede; const me = leggi('me'), h = document.querySelector('header'); if (!h || !me || !localStorage.getItem('token') || me.in_attesa) { document.getElementById('aree')?.remove(); document.getElementById('campana')?.remove(); return; }
       const lista = aree(me);
       let s = document.getElementById('aree');
+      if (lista.length > 1 && sede !== 'admin' && !document.getElementById('homeb')) { const a = document.createElement('a'); a.id = 'homeb'; a.href = '/'; a.title = 'Home: scelta dell\'area'; a.textContent = 'Home'; (h.querySelector('h1') || h.firstChild).after(a); }
       if (lista.length > 1) {
-        if (!s) { s = document.createElement('select'); s.id = 'aree'; s.title = 'Cambia area'; s.setAttribute('aria-label', 'Area'); const h1 = h.querySelector('h1'); (h1 || h.firstChild).after(s);
+        if (!s) { s = document.createElement('select'); s.id = 'aree'; s.title = 'Cambia area'; s.setAttribute('aria-label', 'Area'); const h1 = h.querySelector('h1'); (document.getElementById('homeb') || h1 || h.firstChild).after(s);
           s.onchange = () => { const v = s.value; if (v === 'comune') { location.href = '/admin.html#hub:comune'; return; }
             if (sede === 'admin') { location.hash = '#hub:' + (v === 'formazione' ? 'corsi' : 'gara'); return; }
             localStorage.setItem('mondo', v); if (location.pathname === '/' && !location.hash) location.reload(); else location.href = '/'; }; }

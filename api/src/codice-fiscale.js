@@ -1,3 +1,5 @@
+import pkg from 'codice-fiscale-js';   // dati dei comuni: ISTAT, licenza CC BY-SA (pacchetto usato senza modifiche)
+const { CodiceFiscale } = pkg;
 // Controllo formale del codice fiscale italiano (16 caratteri): struttura, carattere di controllo e
 // coerenza con cognome e nome. Non prova che il codice appartenga a chi lo scrive: nessun controllo gratuito può farlo.
 const DISPARI = { 0: 1, 1: 0, 2: 5, 3: 7, 4: 9, 5: 13, 6: 15, 7: 17, 8: 19, 9: 21, A: 1, B: 0, C: 5, D: 7, E: 9, F: 13, G: 15, H: 17, I: 19, J: 21, K: 2, L: 4, M: 18, N: 20, O: 11, P: 3, Q: 6, R: 8, S: 12, T: 14, U: 16, V: 10, W: 22, X: 25, Y: 24, Z: 23 };
@@ -24,4 +26,15 @@ export function verificaCodiceFiscale(cf, cognome, nome) {
   if (carattereControllo(c.slice(0, 15)) !== c[15]) return { ok: false, errore: 'codice fiscale non valido: l\'ultima lettera non torna, controlla di averlo scritto bene', normalizzato: c };
   const coerente = c.slice(0, 3) === codiceCognome(cognome) && c.slice(3, 6) === codiceNome(nome);
   return { ok: true, coerente, normalizzato: c };
+}
+
+// Confronta un codice fiscale valido con i dati scritti dalla persona: elenco di differenze (vuoto = tutto coerente).
+const solo = (t) => lettere(String(t || '').replace(/\(.*?\)/g, ''));
+export function confrontaCf(cf, { nome, cognome, data_nascita, luogo_nascita }) {
+  const avvisi = []; let d;
+  try { d = new CodiceFiscale(cf).toJSON(); } catch { return ['il codice del comune di nascita non esiste']; }
+  if (cf.slice(0, 3) !== codiceCognome(cognome) || cf.slice(3, 6) !== codiceNome(nome)) avvisi.push('nome e cognome non coincidono con il codice fiscale');
+  if (data_nascita && d.birthday && String(d.birthday).slice(0, 10) !== String(data_nascita).slice(0, 10)) avvisi.push(`la data di nascita nel codice è ${String(d.birthday).slice(0, 10)}`);
+  if (luogo_nascita && d.birthplace && solo(d.birthplace) !== solo(luogo_nascita)) avvisi.push(`il luogo di nascita nel codice è ${d.birthplace}${d.birthplaceProvincia ? ' (' + d.birthplaceProvincia + ')' : ''}`);
+  return avvisi;
 }

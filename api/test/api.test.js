@@ -680,13 +680,15 @@ test('R-1 richieste di accesso: modulo, CF controllato e cifrato, approvazione c
   assert.equal((await a2.inject({ method: 'GET', url: '/api/richieste', headers: H(T) })).statusCode, 403);       // non può vedere altro
   const form = json(await a2.inject({ method: 'GET', url: '/api/registrazione', headers: H(T) }));
   assert.equal(form.nome, 'Mario'); assert.equal(form.compilata, false); assert.ok(form.squadre.length > 0);
-  const base = { nome: 'Mario', cognome: 'Rossi', codice_fiscale: 'RSSMRA85T10A562S', comitato: 'Modena', provincia: 'mo', ruolo_gara: 'giudice' };
+  const base = { tipo: 'volontario', nome: 'Mario', cognome: 'Rossi', codice_fiscale: 'RSSMRA85T10A562S', comitato: 'Modena', provincia: 'mo', data_nascita: '1985-12-10', luogo_nascita: 'San Giuliano Terme' };
   const invia = (b) => a2.inject({ method: 'POST', url: '/api/registrazione', payload: b, headers: H(T) });
   assert.equal((await invia({ ...base, codice_fiscale: 'RSSMRA85T10A562X' })).statusCode, 400);                    // carattere di controllo errato
   assert.equal((await invia({ ...base, comitato: '' })).statusCode, 400);
-  assert.equal((await invia({ ...base, ruolo_gara: 'allenatore' })).statusCode, 400);                              // squadra obbligatoria
-  assert.equal((await invia({ ...base, ruolo_gara: 'boh' })).statusCode, 400);
-  assert.equal((await invia({ ...base, ruolo_gara: 'allenatore', squadra_id: form.squadre[0].id })).statusCode, 200);
+  assert.equal((await invia({ tipo: 'supporter', nome: 'Mario', cognome: 'Rossi' })).statusCode, 400);            // il supporter indica la squadra
+  assert.equal((await invia({ ...base, tipo: 'boh' })).statusCode, 400);
+  assert.equal((await invia({ ...base, qualifiche: ['giudice'], codice_fiscale: '' })).statusCode, 400);          // con una qualifica il codice fiscale è obbligatorio
+  assert.equal((await invia({ ...base, data_nascita: null })).statusCode, 400);
+  assert.equal((await invia(base)).statusCode, 200);
   assert.equal(mail.length, 1); assert.match(mail[0].subject, /Mario Rossi/); assert.ok(!JSON.stringify(mail[0]).includes('RSSMRA85'));   // niente CF nell'email
   const grezzo = (await pool.query('select cf_cifrato, cf_coerente from richiesta_accesso')).rows[0];
   assert.ok(!grezzo.cf_cifrato.includes('RSSMRA')); assert.equal(grezzo.cf_coerente, true);                        // cifrato nel database
@@ -1406,7 +1408,7 @@ test('REG-1: registrazione con email, password e MFA, poi approvazione', async (
   assert.ok(r.token && r.utente.in_attesa);
   const H = { token: r.token };
   // senza MFA il modulo non si invia e l'accesso non c'è
-  const dati = { nome: 'Mario', cognome: 'Rossi', codice_fiscale: 'RSSMRA90E17F257I', comitato: 'Modena', provincia: 'mo', ruolo_gara: 'giudice' };
+  const dati = { tipo: 'volontario', nome: 'Mario', cognome: 'Rossi', codice_fiscale: 'RSSMRA90E17F257I', comitato: 'Modena', provincia: 'mo', data_nascita: '1990-05-17', luogo_nascita: 'Modena', qualifiche: ['giudice', 'trainer_ms'] };
   assert.equal((await chiama('POST', '/api/registrazione', { ...H, body: dati })).statusCode, 400);
   assert.equal((await chiama('GET', '/api/eventi', H)).statusCode, 403);
   const form = json(await chiama('GET', '/api/registrazione', H)); assert.ok(form.mfa.qr && form.mfa.segreto);
@@ -1416,7 +1418,9 @@ test('REG-1: registrazione con email, password e MFA, poi approvazione', async (
   assert.equal((await chiama('POST', '/api/registrazione', { ...H, body: dati })).statusCode, 200);
   assert.equal((await chiama('POST', '/api/login', { body: { email: 'nuovo@t.it', password: 'password-lunga-1' } })).statusCode, 401);   // non approvata: nessun accesso
   const rq = json(await chiama('GET', '/api/richieste', { token: adm })).find((x) => x.email === 'nuovo@t.it'); assert.ok(rq);
-  assert.equal((await chiama('POST', `/api/richieste/${rq.id}/approva`, { token: adm, body: { ruolo: 'giudice' } })).statusCode, 200);
+  assert.deepEqual(rq.qualifiche.sort(), ['giudice', 'trainer_ms']); assert.equal(rq.ruolo_proposto, 'giudice'); assert.deepEqual(rq.cf_avvisi, []);
+  assert.equal((await chiama('POST', `/api/richieste/${rq.id}/approva`, { token: adm, body: { ruolo: 'giudice', qualifiche: ['giudice'] } })).statusCode, 200);   // l'admin conferma solo il giudice
+  assert.deepEqual((await pool.query(`select pq.qualifica from persona_qualifica pq join partecipante p on p.id=pq.partecipante_id join utente u on u.id=p.utente_id where u.email='nuovo@t.it'`)).rows.map((x) => x.qualifica), ['giudice']);
   const lg = json(await chiama('POST', '/api/login', { body: { email: 'nuovo@t.it', password: 'password-lunga-1' } }));
   assert.equal(lg.mfa, true);                                                                                                       // la MFA scelta in registrazione è già attiva
   const ok = await chiama('POST', '/api/login/mfa', { body: { ticket: lg.ticket, codice: totp(form.mfa.segreto) } });
@@ -1433,7 +1437,7 @@ test('NOT-1: notifiche per utente ed email di esito (con Resend simulato)', asyn
     const { totp } = await import('../src/mfa.js');
     await chiama('POST', '/api/registrazione/mfa', { token: r.token, body: { codice: totp(form.mfa.segreto) } });
     const antes = json(await chiama('GET', '/api/me/notifiche', { token: adm })).non_lette;
-    assert.equal((await chiama('POST', '/api/registrazione', { token: r.token, body: { nome: 'Mario', cognome: 'Rossi', codice_fiscale: 'RSSMRA85T10A562S', comitato: 'Modena', provincia: 'mo', ruolo_gara: 'giudice' } })).statusCode, 200);
+    assert.equal((await chiama('POST', '/api/registrazione', { token: r.token, body: { tipo: 'volontario', nome: 'Mario', cognome: 'Rossi', codice_fiscale: 'RSSMRA85T10A562S', comitato: 'Modena', provincia: 'mo', data_nascita: '1985-12-10', luogo_nascita: 'San Giuliano Terme' } })).statusCode, 200);
     const dopo = json(await chiama('GET', '/api/me/notifiche', { token: adm }));
     assert.equal(dopo.non_lette, antes + 1); assert.ok(dopo.elenco[0].titolo.includes('Mario Rossi'));
     assert.ok(mail.some((m) => m.to[0] === 'notifica@t.it' && /ricevuta/.test(m.subject)));
@@ -1444,4 +1448,21 @@ test('NOT-1: notifiche per utente ed email di esito (con Resend simulato)', asyn
     assert.equal((await chiama('DELETE', `/api/richieste/${rq.id}`, { token: adm, body: { motivo: 'dati non corretti' } })).statusCode, 200);
     assert.ok(mail.some((m) => /non approvata/.test(m.subject) && /dati non corretti/.test(m.text)));
   } finally { globalThis.fetch = f0; delete process.env.RESEND_API_KEY; }
+});
+
+test('REG-2: supporter, aspirante e controllo del codice fiscale sui dati dichiarati', async () => {
+  const adm = tok['adm@t'];
+  const r = json(await chiama('POST', '/api/registrati/inizia', { body: { email: 'supporter@t.it', password: 'password-lunga-3' } }));
+  const { totp } = await import('../src/mfa.js');
+  const f = json(await chiama('GET', '/api/registrazione', { token: r.token }));
+  assert.ok(f.tipi.supporter && f.tipi.aspirante && f.tipi.volontario && f.qualifiche.some((q) => q.codice === 'operatore_tssa'));
+  await chiama('POST', '/api/registrazione/mfa', { token: r.token, body: { codice: totp(f.mfa.segreto) } });
+  assert.equal((await chiama('POST', '/api/registrazione', { token: r.token, body: { tipo: 'aspirante', nome: 'Gino', cognome: 'Neri', comitato: '' } })).statusCode, 200);   // l'aspirante non deve dichiarare nulla di più
+  let rq = json(await chiama('GET', '/api/richieste', { token: adm })).find((x) => x.email === 'supporter@t.it');
+  assert.equal(rq.tipo_registrazione, 'aspirante'); assert.equal(rq.codice_fiscale, null);
+  // volontario con data e luogo che non coincidono col codice: avvisi per l'admin, non blocco
+  assert.equal((await chiama('POST', '/api/registrazione', { token: r.token, body: { tipo: 'volontario', nome: 'Mario', cognome: 'Rossi', codice_fiscale: 'RSSMRA85T10A562S', comitato: 'Modena', data_nascita: '1985-12-11', luogo_nascita: 'Modena', qualifiche: ['operatore_tssa'] } })).statusCode, 200);
+  rq = json(await chiama('GET', '/api/richieste', { token: adm })).find((x) => x.email === 'supporter@t.it');
+  assert.equal(rq.cf_avvisi.length, 2); assert.ok(rq.cf_avvisi.some((a) => /data di nascita/.test(a)) && rq.cf_avvisi.some((a) => /luogo di nascita/.test(a)));
+  await chiama('DELETE', `/api/richieste/${rq.id}`, { token: adm, body: {} });
 });

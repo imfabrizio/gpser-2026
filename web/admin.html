@@ -372,23 +372,27 @@ async function tSquadre() {
   $('#ns_ok').onclick = () => { const n = $('#ns').value.trim(); if (n) fai(() => api(`/eventi/${ev.id}/squadre`, { body: { nome: n, comitato: $('#ns_c').value.trim() } }), 'Squadra aggiunta'); };
 }
 
+const RUOLI_SQUADRA = [['capo squadra', 'Team leader'], ['componente', 'Soccorritore'], ['accompagnatore', 'Accompagnatore'], ['fotografo', 'Fotografo']];
 async function apriComponenti(squadraId, nomeSquadra) {
-  const [membri, persone] = await Promise.all([api(`/squadre/${squadraId}/membri`), api('/persone')]);
-  let lista = membri.map((m) => ({ partecipante_id: m.partecipante_id, ruolo: m.ruolo || '', cognome: m.cognome, nome: m.nome, comitato: m.comitato, provincia: m.provincia }));
+  const [membri, quals] = await Promise.all([api(`/squadre/${squadraId}/membri`), api('/qualifiche').catch(() => [])]);
+  const trainer = new Set(quals.filter((q) => q.ambito).map((q) => q.codice));
+  const nomiQ = Object.fromEntries(quals.map((q) => [q.codice, q.nome]));
+  const avvisoTrainer = (qs) => { const t = (qs || []).filter((q) => trainer.has(q)); return t.length ? `<span class="tag no" title="Per regolamento i trainer non gareggiano">qualifica da trainer: ${t.map((x) => esc(nomiQ[x] || x)).join(', ')}</span>` : ''; };
+  let lista = membri.map((m) => ({ partecipante_id: m.partecipante_id, ruolo: m.ruolo || '', cognome: m.cognome, nome: m.nome, comitato: m.comitato, provincia: m.provincia, qualifiche: m.qualifiche || [] }));
+  let trovati = [], qtxt = '';
   const disegna = () => {
     $('#dlg').innerHTML = `<h3>Componenti · ${esc(nomeSquadra)}</h3>
-      <p class="nota">Le persone vengono dall'anagrafica (scheda «Persone»). I componenti possono appartenere a comitati diversi dalla squadra.</p>
-      <table>${lista.length ? lista.map((m, i) => `<tr><td>${esc(m.cognome)} ${esc(m.nome)}<br><small>${esc(m.comitato || '—')}${m.provincia ? ' (' + esc(m.provincia) + ')' : ''}</small></td>
-        <td><input class="mr" data-i="${i}" placeholder="ruolo (es. capo squadra)" value="${esc(m.ruolo)}"></td><td><button class="x p mx" data-i="${i}">✕</button></td></tr>`).join('') : '<tr><td><em>Nessun componente</em></td></tr>'}</table>
-      <div class="riga" style="margin-top:10px"><div style="flex:3"><label>Aggiungi persona</label><select id="mp"><option value="">— scegli —</option>
-        ${persone.filter((p) => !lista.some((m) => m.partecipante_id === p.id)).map((p) => `<option value="${p.id}">${esc(p.cognome)} ${esc(p.nome)} · ${esc(p.comitato || '—')}</option>`).join('')}</select></div>
-        <div class="stretto"><button class="s" id="mpa">Aggiungi</button></div></div>
+      <p class="nota">Cerca tra le persone già registrate (per cognome, nome, comitato o codice fiscale) e scegli il ruolo nella squadra. I componenti possono appartenere a comitati diversi.</p>
+      <table>${lista.length ? lista.map((m, i) => `<tr><td>${esc(m.cognome)} ${esc(m.nome)}<br><small>${esc(m.comitato || '—')}${m.provincia ? ' (' + esc(m.provincia) + ')' : ''}</small> ${avvisoTrainer(m.qualifiche)}</td>
+        <td><select class="mr" data-i="${i}">${RUOLI_SQUADRA.map(([v, t]) => `<option value="${v}" ${m.ruolo === v ? 'selected' : ''}>${t}</option>`).join('')}${m.ruolo && !RUOLI_SQUADRA.some(([v]) => v === m.ruolo) ? `<option selected>${esc(m.ruolo)}</option>` : ''}${m.ruolo ? '' : '<option value="" selected>— ruolo —</option>'}</select></td><td><button class="x p mx" data-i="${i}">✕</button></td></tr>`).join('') : '<tr><td><em>Nessun componente</em></td></tr>'}</table>
+      <div style="margin-top:10px"><label>Aggiungi persona</label><input id="mq" value="${esc(qtxt)}" placeholder="cognome, nome, comitato o codice fiscale" autocomplete="off">
+        <div id="mr_l">${trovati.filter((p) => !lista.some((m) => m.partecipante_id === p.id)).slice(0, 8).map((p) => `<button class="s p ma" data-id="${p.id}" style="display:block;width:100%;text-align:left;margin:3px 0">${esc(p.cognome)} ${esc(p.nome)} · ${esc(p.comitato || '—')} ${avvisoTrainer(p.qualifiche)}</button>`).join('') || (qtxt.trim().length >= 2 ? '<small>Nessuna persona trovata: deve prima registrarsi o essere inserita in anagrafica.</small>' : '')}</div></div>
       <p><button class="b" id="mps">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`;
-    document.querySelectorAll('#dlg .mr').forEach((i) => { i.oninput = () => { lista[i.dataset.i].ruolo = i.value; }; });
+    document.querySelectorAll('#dlg .mr').forEach((i) => { i.onchange = () => { lista[i.dataset.i].ruolo = i.value; }; });
     document.querySelectorAll('#dlg .mx').forEach((b) => { b.onclick = () => { lista.splice(Number(b.dataset.i), 1); disegna(); }; });
-    $('#mpa').onclick = () => { const p = persone.find((x) => x.id === $('#mp').value); if (!p) return;
-      lista.push({ partecipante_id: p.id, ruolo: '', cognome: p.cognome, nome: p.nome, comitato: p.comitato, provincia: p.provincia }); disegna(); };
-    $('#mps').onclick = () => { const body = { membri: lista.map((m) => ({ partecipante_id: m.partecipante_id, ruolo: m.ruolo.trim() || null })) }; chiudi();
+    document.querySelectorAll('#dlg .ma').forEach((b) => { b.onclick = () => { const p = trovati.find((x) => x.id === b.dataset.id); lista.push({ partecipante_id: p.id, ruolo: 'componente', cognome: p.cognome, nome: p.nome, comitato: p.comitato, provincia: p.provincia, qualifiche: p.qualifiche || [] }); trovati = []; qtxt = ''; disegna(); }; });
+    let t; $('#mq').oninput = (e) => { qtxt = e.target.value; clearTimeout(t); t = setTimeout(async () => { trovati = qtxt.trim().length >= 2 ? await api('/persone?q=' + encodeURIComponent(qtxt.trim())).catch(() => []) : []; const pos = $('#mq').selectionStart; disegna(); $('#mq').focus(); $('#mq').setSelectionRange(pos, pos); }, 300); };
+    $('#mps').onclick = () => { const body = { membri: lista.map((m) => ({ partecipante_id: m.partecipante_id, ruolo: (m.ruolo || '').trim() || null })) }; chiudi();
       fai(() => api(`/squadre/${squadraId}/membri`, { method: 'PUT', body }), 'Componenti salvati'); };
   };
   equipaggi($('#dlg')); $('#dlg').showModal(); disegna();
@@ -1046,17 +1050,20 @@ async function tDocumenti() {
 
 // ───────── RICHIESTE DI ACCESSO ─────────
 async function tRichieste() {
-  const [r, { ruoli }] = await Promise.all([api('/richieste'), api('/ruoli')]);
+  const [r, { ruoli }, quals] = await Promise.all([api('/richieste'), api('/ruoli'), api('/qualifiche')]);
   const ore = (d) => Math.max(0, Math.round((new Date(d) - Date.now()) / 3600e3));
-  $('#app').innerHTML = `<div class="card"><h3>Richieste di accesso</h3><p><small>Chi entra con Google o Microsoft senza essere registrato compila un modulo. Se non rispondi entro 48 ore la richiesta viene cancellata.</small></p>
-    ${r.length ? r.map((x) => `<div class="card" style="margin:8px 0"><b>${esc(x.nome)} ${esc(x.cognome)}</b> · <small>${esc(x.email)} (${esc(x.provider)})</small><br>
-      Cod. fiscale: <code>${esc(x.codice_fiscale || '')}</code> ${x.cf_coerente === false ? '<span class="tag no">non coincide con nome/cognome</span>' : '<span class="tag ok">coerente</span>'}<br>
-      Comitato: ${esc(x.comitato)} (${esc(x.provincia)}) · Chiede: <b>${esc(x.ruolo_gara_nome)}</b>${x.squadra ? ` · Squadra: ${esc(x.squadra)} <small>(${esc(x.evento)})</small>` : ''}${x.codice_ruolo ? ` · Codice ruolo: <code>${esc(x.codice_ruolo)}</code>` : ''}<br>
+  $('#app').innerHTML = `<div class="card"><h3>Richieste di accesso</h3><p><small>Chi si registra o entra con Google/Microsoft compila un modulo e resta in attesa: non ha alcun accesso finché non approvi. Le qualifiche indicate dalla persona sono solo proposte: diventano vere quando le confermi. Se non rispondi entro 48 ore la richiesta viene cancellata.</small></p>
+    ${r.length ? r.map((x) => `<div class="card" style="margin:8px 0"><b>${esc(x.nome)} ${esc(x.cognome)}</b> <span class="tag">${esc(x.tipo_nome || x.ruolo_gara_nome || '')}</span> · <small>${esc(x.email)} (${esc(x.provider === 'password' ? 'email e password' : x.provider)})</small><br>
+      ${x.data_nascita || x.luogo_nascita ? `Nato/a il ${esc(x.data_nascita || '?')} a ${esc(x.luogo_nascita || '?')}<br>` : ''}
+      ${x.codice_fiscale ? `Cod. fiscale: <code>${esc(x.codice_fiscale)}</code> ${(x.cf_avvisi || []).length || x.cf_coerente === false ? `<span class="tag no">da controllare</span>${(x.cf_avvisi || []).map((a) => `<br><small>⚠ ${esc(a)}</small>`).join('')}` : '<span class="tag ok">coerente con i dati scritti</span>'}<br>` : ''}
+      ${x.comitato ? `Comitato: ${esc(x.comitato)}${x.provincia ? ' (' + esc(x.provincia) + ')' : ''}` : ''}${x.squadra ? ` · Squadra seguita: ${esc(x.squadra)} <small>(${esc(x.evento)})</small>` : ''}${x.codice_ruolo ? ` · Codice ruolo: <code>${esc(x.codice_ruolo)}</code>` : ''}<br>
+      ${x.tipo_registrazione === 'volontario' ? `<div style="margin-top:6px"><label>Qualifiche (proposte dalla persona: conferma, togli o aggiungi)</label><div class="chips">${quals.map((q) => `<label style="font-size:14px;color:inherit;display:inline-block;margin:2px 10px 2px 0"><input type="checkbox" class="rq_q" data-id="${x.id}" value="${esc(q.codice)}" ${(x.qualifiche || []).includes(q.codice) ? 'checked' : ''}> ${esc(q.nome)}</label>`).join('')}</div></div>` : ''}
       <small>scade tra circa ${ore(x.scade_il)} ore</small>
-      <div class="riga" style="margin-top:6px"><div><label>Ruolo da assegnare</label><select class="rq_r" data-id="${x.id}">${ruoli.map((k) => `<option value="${k.codice}" ${k.codice === x.ruolo_proposto ? 'selected' : ''}>${esc(k.nome)}</option>`).join('')}</select></div>
+      <div class="riga" style="margin-top:6px"><div><label>Ruolo di accesso</label><select class="rq_r" data-id="${x.id}">${ruoli.map((k) => `<option value="${k.codice}" ${k.codice === x.ruolo_proposto ? 'selected' : ''}>${esc(k.nome)}</option>`).join('')}</select></div>
       <div class="stretto"><label>Admin</label><label style="font-size:14px;color:inherit"><input type="checkbox" class="rq_a" data-id="${x.id}"> anche amministratore</label></div>
       <div class="stretto"><button class="b rq_ok" data-id="${x.id}">Approva</button> <button class="x rq_no" data-id="${x.id}">Rifiuta</button></div></div></div>`).join('') : '<p>Nessuna richiesta in attesa.</p>'}</div>`;
-  document.querySelectorAll('.rq_ok').forEach((b) => { b.onclick = () => fai(() => api(`/richieste/${b.dataset.id}/approva`, { body: { ruolo: document.querySelector(`.rq_r[data-id="${b.dataset.id}"]`).value, admin: document.querySelector(`.rq_a[data-id="${b.dataset.id}"]`).checked } }), 'Utente creato e abilitato, e inserito in anagrafica'); });
+  document.querySelectorAll('.rq_ok').forEach((b) => { b.onclick = () => fai(() => api(`/richieste/${b.dataset.id}/approva`, { body: { ruolo: document.querySelector(`.rq_r[data-id="${b.dataset.id}"]`).value, admin: document.querySelector(`.rq_a[data-id="${b.dataset.id}"]`).checked,
+    qualifiche: [...document.querySelectorAll(`.rq_q[data-id="${b.dataset.id}"]:checked`)].map((i) => i.value) } }), 'Utente creato e abilitato, e inserito in anagrafica'); });
   document.querySelectorAll('.rq_no').forEach((b) => { b.onclick = () => { if (confirm('Rifiutare questa richiesta? La persona riceverà una mail.')) { const motivo = prompt('Motivo del rifiuto (facoltativo, va nella mail):', '') ?? ''; fai(() => api(`/richieste/${b.dataset.id}`, { method: 'DELETE', body: { motivo } }), 'Richiesta rifiutata'); } }; });
 }
 
