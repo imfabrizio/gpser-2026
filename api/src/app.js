@@ -336,6 +336,13 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (req.utente.per_evento && !req.utente.eventi_org.includes(String(eventoDestId).toLowerCase())) throw httpErr(403, 'gara non assegnata');
     return inTransazione(pool, (db) => duplicaScena(db, { scenaId: req.params.id, eventoDestId, nuovoCodice }));
   });
+  // collega ai canovacci le scene dell'evento che non ne hanno uno: stessa lettera, versione Gara oppure Olimpiadi in base al tipo di evento
+  app.post('/api/eventi/:id/collega-canovacci', { preHandler: soloOrg }, async (req) => {
+    const { rows: [e] } = await pool.query('select tipo from evento where id=$1', [req.params.id]); if (!e) throw httpErr(404, 'evento inesistente');
+    const ver = e.tipo === 'olimpiadi' ? 'olimpiadi' : 'gara';
+    const r = await pool.query(`update scena s set canovaccio_id = c.id from canovaccio c where s.evento_id=$1 and s.canovaccio_id is null and c.codice = s.codice and c.versione = $2 returning s.codice`, [req.params.id, ver]);
+    return { collegate: r.rows.map((x) => x.codice) };
+  });
   // ── canovacci: descrizione completa delle scene (briefing, pazienti, triage, logistica) ──
   app.post('/api/import/canovacci', { preHandler: soloOrg, bodyLimit: 12 * 1024 * 1024 }, async (req) => {
     const files = Array.isArray(req.body?.files) ? req.body.files : [];

@@ -1247,6 +1247,12 @@ test('CAN-1 canovaccio: import da .docx, lettura di pazienti/triage/logistica, P
   assert.equal(pdf.statusCode, 200); assert.equal(pdf.rawPayload.subarray(0, 4).toString(), '%PDF');
   // reimport = aggiornamento
   assert.equal(json(await chiama('POST', '/api/import/canovacci', { token: tok['org@t'], body: { files: [{ nome: 'ALFA_-_OLI_-_Prova.docx', dati }] } })).esiti[0].nuovo, false);
+  // collegamento automatico per lettera: la scena «A» dell'evento di prova prende il canovaccio A (versione gara)
+  await pool.query(`update canovaccio set versione='gara' where id=$1`, [ok.id]);
+  const { rows: [scA] } = await pool.query(`select s.id from scena s join evento e on e.id=s.evento_id where e.id=$1 limit 1`, [ev]);
+  await pool.query(`update scena set codice='A', canovaccio_id=null where id=$1`, [scA.id]);
+  assert.deepEqual(json(await chiama('POST', `/api/eventi/${ev}/collega-canovacci`, { token: tok['org@t'], body: {} })).collegate, ['A']);
+  assert.equal((await pool.query('select canovaccio_id from scena where id=$1', [scA.id])).rows[0].canovaccio_id, ok.id);
   // collegamento a una scena
   const { rows: [sc] } = await pool.query('select id from scena limit 1');
   assert.equal(json(await chiama('PATCH', `/api/scene/${sc.id}`, { token: tok['org@t'], body: { canovaccio_id: ok.id } })).canovaccio_id, ok.id);

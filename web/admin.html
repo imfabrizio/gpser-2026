@@ -468,7 +468,7 @@ async function tScene() {
   for (const s of scene) for (const k of s.schede || []) schede[k.id] = (await api(`/schede/${k.id}`));
   cache = { schede, giudici: null, macro };
   const nomiAss = (id) => ass.filter((a) => a.scheda_id === id).map((a) => esc(a.nome)).join(', ') || '<em>nessuno</em>';
-  $('#app').innerHTML = selettoreEvento() + scene.map((s) => `<div class="card"><h3>Scena ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
+  $('#app').innerHTML = selettoreEvento() + (canov.length && scene.some((x) => !x.canovaccio_id) ? `<div class="card"><p>Ci sono ${canov.filter((c) => c.versione === verEv).length} canovacci ${verEv === 'olimpiadi' ? 'delle Olimpiadi' : 'delle gare'} in libreria. <button class="b" id="cv_auto">Collega i canovacci alle scene (stessa lettera)</button></p></div>` : '') + (!canov.length ? `<div class="card"><p class="nota">Nessun canovaccio caricato: importali da <strong>Importa → Importa canovacci (.docx)</strong>, poi qui potrai collegarli alle scene.</p></div>` : '') + scene.map((s) => `<div class="card"><h3>Scena ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
     <p>Giudice master: <strong>${mas.filter((m) => m.scena_id === s.id).map((m) => esc(m.nome)).join(', ') || '<em>nessuno</em>'}</strong> <button class="s p mas-b" data-id="${s.id}">Giudice master…</button></p>
     <div class="riga"><div style="flex:3"><label>Indirizzo della scena (per la mappa)</label><input class="s_ind" data-id="${s.id}" value="${esc(s.indirizzo || '')}" placeholder="Via Roma 1, Piacenza"></div>
       <div><label>Latitudine</label><input class="s_lat" data-id="${s.id}" value="${s.lat ?? ''}" placeholder="45.0526"></div><div><label>Longitudine</label><input class="s_lng" data-id="${s.id}" value="${s.lng ?? ''}" placeholder="9.6930"></div>
@@ -497,6 +497,7 @@ async function tScene() {
     <div style="flex:3"><label>Titolo</label><input id="ns_tit"></div><div class="stretto"><button class="b" id="ns_ok">Crea</button></div></div></div>`;
   legaSelettore();
   document.querySelectorAll('.t_sc').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { titolo: i.value } }), 'Titolo aggiornato'); });
+  if ($('#cv_auto')) $('#cv_auto').onclick = () => fai(async () => { const r = await api(`/eventi/${ev.id}/collega-canovacci`, { body: {} }); flash(r.collegate.length ? 'Collegate le scene: ' + r.collegate.join(', ') : 'Nessuna scena con la stessa lettera di un canovaccio', r.collegate.length > 0); });
   document.querySelectorAll('.s_cv').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { canovaccio_id: i.value } }), 'Canovaccio collegato'); });
   document.querySelectorAll('.cv_apri').forEach((b) => { b.onclick = () => { const c = canov.find((x) => x.id === document.querySelector(`.s_cv[data-id="${b.dataset.id}"]`).value); if (c) anteprimaCanovaccio(c); }; });
   document.querySelectorAll('.prom').forEach((b) => { b.onclick = () => {

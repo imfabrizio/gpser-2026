@@ -16,7 +16,7 @@ const R = (m, rotta, aree) => [new RegExp(`^(${m})$`), new RegExp(`^${rotta}$`),
 const REGOLE = [
   R('POST|DELETE', '/api/avvisi(/:id)?', ['notizie']),
   R('POST|PATCH', '/api/eventi(/:id)?', ['gara', 'esami']), R('POST', '/api/eventi/:id/attiva', ['gara']), R('PUT', '/api/eventi/:id/(ente|data-fine)', ['gara', 'esami']), R('GET|POST', '/api/eventi/:id/(inviti|invitabili)', ['gara', 'esami']), R('DELETE', '/api/eventi/:id/inviti/:utente', ['gara', 'esami']),
-  R('POST', '/api/eventi/:id/squadre', ['squadre']), R('PATCH', '/api/squadre/:id', ['squadre']), R('GET|PUT', '/api/squadre/:id/membri', ['squadre', 'anagrafiche']),
+  R('POST', '/api/eventi/:id/squadre', ['squadre']), R('POST', '/api/eventi/:id/collega-canovacci', ['scene']), R('PATCH', '/api/squadre/:id', ['squadre']), R('GET|PUT', '/api/squadre/:id/membri', ['squadre', 'anagrafiche']),
   R('POST', '/api/eventi/:id/scene', ['scene']), R('POST', '/api/scene/:id/(duplica|schede|elenco-pazienti|promozione)', ['scene']), R('PATCH|DELETE', '/api/scene/:id', ['scene']),
   R('PUT', '/api/schede/:id/voci/:ordine', ['scene']), R('PATCH|DELETE', '/api/schede/:id', ['scene']), R('PUT', '/api/schede/:id/assegnazioni', ['scene']),
   R('GET', '/api/eventi/:id/(assegnazioni|master)', ['scene']), R('PUT', '/api/scene/:id/master', ['scene']), R('GET', '/api/giudici', ['scene']),
