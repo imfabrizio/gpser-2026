@@ -80,7 +80,7 @@ let token = localStorage.getItem('token'), me = JSON.parse(localStorage.getItem(
 let eventi = [], ev = null, tab = 'menu', cache = {};
 // due famiglie di eventi con aree di gestione separate: gare (gara, olimpiadi, allenamento) e corsi (corso, mega code, esame)
 let fam = 'gara';
-const FAM_TIPI = { gara: ['gara', 'olimpiadi', 'allenamento'], corsi: ['corso', 'megacode', 'esame'] };
+const FAM_TIPI = { gara: ['gara', 'olimpiadi', 'allenamento'], corsi: ['corso', 'megacode', 'esame'], comune: ['gara', 'olimpiadi', 'allenamento'] };
 const eventiFam = () => eventi.filter((e) => FAM_TIPI[fam].includes(e.tipo));
 const impostaFam = (f) => { fam = f; const s = localStorage.getItem('ev_' + fam), l = eventiFam(); ev = l.find((e) => e.id === s) || l.find((e) => e.attivo) || l[0] || null; };
 const LIV = ['mb', 'be', 'su', 'in', 'ne'];
@@ -104,33 +104,37 @@ window.chiudi = chiudi;
 
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
-const TABS = [['menu', 'Gestione'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
+const TABS = [['menu', 'Portale'], ['hub', 'Menu'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
   ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
 const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', segreteria: 'segreteria', evento: 'gara', scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: 'stampa', importa: 'importa' };
 const DESC = { corsi: 'Corsi, Mega Code ed esami', evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', squadre: 'Squadre, comitato e componenti',
   segreteria: 'Registra gli arrivi e stampa i badge', persone: 'Persone e requisiti', comitati: 'Elenco dei comitati, unità territoriali e nomi da correggere', importa: 'Carica le scene dai vecchi file Excel', libreria: 'Crea e modifica le schede, anche dei comitati', punteggi: 'Valore di MB, BE, SU, IN, NE per ogni scala',
   classifiche: 'Generale, SEP, BLSD, Master, DIU', monitor: 'Avanzamento delle schede', stampa: 'Schede vuote o compilate, per scena o squadra', news: 'Avvisi per i partecipanti e notizie pubbliche', documenti: 'Regolamento, comunicazioni e manuali',
   richieste: 'Chi ha chiesto l\'accesso: approva e assegna il ruolo', ruoli: 'Crea ruoli e scegli a quali aree possono accedere', utenti: 'Accessi, ruoli e gara assegnata' };
-// i contenitori della Gestione: il menu iniziale ne mostra cinque, le sottosezioni sono linguette dentro
-const GRUPPI = [['gara', 'Gara', 'Dati, scene, risorse e squadre', 'evento', ['evento', 'scene', 'risorse', 'squadre']],
-  ['corsi', 'Corsi', 'Corsi con Mega Code ed esami', 'corsi', ['corsi', 'evento', 'scene', 'risorse', 'squadre']],
-  ['segr', 'Segreteria', 'Arrivi e badge, anagrafiche, comitati, importa', 'segreteria', ['segreteria', 'persone', 'comitati', 'importa']],
-  ['sch', 'Schede', 'Libreria, punteggi, schede dei comitati', 'libreria', ['libreria', 'punteggi']],
-  ['ris', 'Risultati', 'Classifiche, monitor, stampa', 'classifiche', ['classifiche', 'monitor', 'stampa']],
-  ['amm', 'Amministrazione', 'Notizie, documenti, utenti, ruoli, richieste', 'utenti', ['news', 'documenti', 'richieste', 'ruoli', 'utenti']]];
+// tre mondi separati: si sceglie all'ingresso e dentro si vede solo ciò che li riguarda (il motore è lo stesso)
+const GRUPPI = [['gara', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede, squadre e classifiche', 'evento', ['evento', 'scene', 'risorse', 'squadre', 'segreteria', 'libreria', 'punteggi', 'classifiche', 'monitor', 'stampa', 'importa', 'news', 'documenti']],
+  ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['corsi', 'evento', 'scene', 'risorse', 'squadre', 'news']],
+  ['comune', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli', 'persone', ['persone', 'comitati', 'richieste', 'ruoli', 'utenti']]];
 const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli'];
 const admin = () => me.ruolo === 'admin';
-const consentito = (k) => k === 'menu' || (SOLO_ADMIN.includes(k) ? admin() : admin() || [].concat(AREA_TAB[k]).some((a) => (me.aree || []).includes(a)));
+const consentito = (k) => k === 'menu' || k === 'hub' || (SOLO_ADMIN.includes(k) ? admin() : admin() || [].concat(AREA_TAB[k]).some((a) => (me.aree || []).includes(a)));
+const mondoCorrente = () => GRUPPI.find((g) => g[0] === fam);
 const gruppoDi = (k) => { const c = GRUPPI.filter((g) => g[4].includes(k)); return c.find((g) => g[0] === fam) || c[0]; };
-const figliVisibili = (g) => g[4].filter(consentito);
-const nomeTab = (k) => k === 'evento' ? (fam === 'corsi' ? 'Dati dell\'evento' : 'Dati della gara') : (TABS.find(([x]) => x === k)?.[1] || '');
+const mondiVisibili = () => GRUPPI.filter((g) => figliVisibili(g).length);
+const impostaMondo = (f) => { if (f === 'comune') { impostaFam('gara'); fam = 'comune'; } else impostaFam(f); };
+const haArea = (a) => admin() || (me.aree || []).includes(a);
+// ogni mondo mostra solo le sezioni consentite: la Formazione richiede l'area Esami, i dati dell'evento l'area del proprio mondo
+const figliVisibili = (g) => g[4].filter((k) => k === 'evento' ? haArea(g[0] === 'corsi' ? 'esami' : 'gara') : g[0] === 'corsi' ? haArea('esami') && consentito(k) : consentito(k));
+const nomeTab = (k) => k === 'evento' ? (fam === 'corsi' ? 'Dati dell\'evento' : 'Gare e allenamenti') : (TABS.find(([x]) => x === k)?.[1] || '');
 let ELENCO_RUOLI = [];
-window.addEventListener('hashchange', () => { const h = location.hash.slice(1) || 'menu'; if (TABS.some(([k]) => k === h) && consentito(h) && h !== tab) { tab = h; if (h === 'corsi') impostaFam('corsi'); disegnaTabs(); render(); } });
-const vai = (t) => { if (t === 'monitor') { location.href = '/#monitor'; return; } if (t === 'corsi') impostaFam('corsi'); else if (['persone', 'comitati', 'classifiche', 'stampa', 'news', 'segreteria'].includes(t) && fam !== 'gara') impostaFam('gara'); tab = t; history.replaceState(null, '', t === 'menu' ? location.pathname : '#' + t); disegnaTabs(); render(); };
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1) || 'menu'; if (TABS.some(([k]) => k === h) && consentito(h) && h !== tab) { vai(h, true); } });
+const vai = (t, daHash) => { if (t === 'monitor') { location.href = '/#monitor'; return; }
+  if (t !== 'menu' && t !== 'hub') { const m = GRUPPI.find((g) => g[0] === fam && g[4].includes(t)) || GRUPPI.find((g) => g[4].includes(t)); if (m && m[0] !== fam) impostaMondo(m[0]); }
+  tab = t; if (!daHash) history.replaceState(null, '', t === 'menu' ? location.pathname : '#' + t); disegnaTabs(); render(); };
 function disegnaTabs() {
   if (!TABS.some(([k]) => k === tab)) tab = 'menu';
-  const g = gruppoDi(tab), vis = g ? figliVisibili(g) : [];
-  $('#tabs').hidden = vis.length < 2;               // le linguette servono solo dentro un contenitore con più sezioni
+  const g = tab === 'menu' ? null : mondoCorrente(), vis = g && tab !== 'hub' ? figliVisibili(g) : [];
+  $('#tabs').hidden = vis.length < 2;               // le linguette del mondo in cui si è entrati
   $('#tabs').innerHTML = vis.map((k) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${nomeTab(k)}</button>`).join('');
   $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) { vai(b.dataset.t); } };
 }
@@ -156,9 +160,9 @@ async function tEvento() {
     <div class="riga"><div><label>Luogo</label><input id="e_luogo" value="${esc(ev.luogo || '')}"></div>
       <div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
       <div><label>Ultimo giorno (se dura più giorni)</label><input id="e_dfine" type="date" value="${esc(ev.data_fine || '')}"></div>
-      <div><label>Tipo</label><select id="e_tipo">${[...FAM_TIPI.gara, ...FAM_TIPI.corsi].map((t) => `<option ${ev.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
-    <div class="riga"><div><label>N° corso su Gaia</label><input id="e_gaia" value="${esc(ev.codice_gaia || '')}"></div>
-      <div><label>Corso di riferimento</label><select id="e_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato && x.id !== ev.id).map((x) => `<option value="${x.id}" ${x.id === ev.corso_id ? 'selected' : ''}>${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>
+      <div><label>Tipo</label><select id="e_tipo">${FAM_TIPI[fam === 'corsi' ? 'corsi' : 'gara'].map((t) => `<option ${ev.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
+    ${fam === 'corsi' ? `<div class="riga"><div><label>N° corso su Gaia</label><input id="e_gaia" value="${esc(ev.codice_gaia || '')}"></div>
+      <div><label>Corso di riferimento</label><select id="e_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato && x.id !== ev.id).map((x) => `<option value="${x.id}" ${x.id === ev.corso_id ? 'selected' : ''}>${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>` : ''}
     <div class="riga"><div><label>Soglia di superamento (%) — vuota se non serve</label><input id="e_soglia" type="number" min="1" max="100" value="${esc(ev.soglia_pct ?? '')}"></div>
       <div><label style="display:block">Punteggi ai giudici</label><label style="font-size:15px;color:inherit"><input type="checkbox" id="e_mp" ${ev.mostra_punteggi ? 'checked' : ''}> mostra punti e percentuale mentre compilano (esami, corsi, allenamenti)</label></div></div>
     ${me.ruolo === 'admin' ? `<div class="riga"><div><label>Proprietario del materiale</label><select id="e_liv"><option value="">Nessuno (storico, visibile a tutto lo staff)</option>
@@ -176,8 +180,8 @@ async function tEvento() {
     <div><label>Nome</label><input id="n_nome" placeholder="GPSER 2027"></div><div><label>Codice (se vuoto, ricavato dal nome)</label><input id="n_cod" placeholder="GPSER-2027"></div>
     <div><label>Tipo</label><select id="n_tipo">${fam === 'corsi' ? '<option value="corso">corso</option><option value="megacode">mega code (formativo)</option><option value="esame">esame (soglia 75%)</option>' : '<option value="gara">gara</option><option value="olimpiadi">olimpiadi</option><option value="allenamento">allenamento</option>'}</select></div>
     <div><label>Luogo</label><input id="n_luogo"></div><div><label>Data</label><input id="n_data" type="date"></div>
-    <div><label>N° corso su Gaia (corsi)</label><input id="n_gaia" placeholder="es. 12345"></div>
-    <div><label>Corso di riferimento (Mega Code, esami)</label><select id="n_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato).map((x) => `<option value="${x.id}">${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>
+    ${fam === 'corsi' ? '<div><label>N° corso su Gaia</label><input id="n_gaia" placeholder="es. 12345"></div>' : ''}
+    ${fam !== 'corsi' ? '' : `<div><label>Corso di riferimento (Mega Code, esami)</label><select id="n_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato).map((x) => `<option value="${x.id}">${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div>`}</div>
     <p><button class="b" id="n_crea">Crea evento</button></p></div>`;
   if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});
   legaSelettore();
@@ -197,7 +201,7 @@ async function tEvento() {
   }
   if (ev) {
     $('#e_salva').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
-      luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia').value, mostra_punteggi: $('#e_mp').checked, codice_gaia: $('#e_gaia').value, corso_id: $('#e_corso').value || null } })
+      luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia').value, mostra_punteggi: $('#e_mp').checked, codice_gaia: $('#e_gaia')?.value ?? ev.codice_gaia, corso_id: $('#e_corso') ? $('#e_corso').value || null : ev.corso_id } })
       .then(() => api(`/eventi/${ev.id}/data-fine`, { method: 'PUT', body: { data_fine: $('#e_dfine').value || null } }))
       .then(() => (me.ruolo === 'admin' ? api(`/eventi/${ev.id}/ente`, { method: 'PUT', body: { livello: $('#e_liv').value, comitato: $('#e_comp').value.trim(), regione: $('#e_reg').value } }) : null)).then(caricaEventi), 'Salvato');
     $('#e_attiva').onclick = () => fai(() => api(`/eventi/${ev.id}/attiva`, { method: 'POST', body: {} }).then(caricaEventi), 'Evento attivato');
@@ -205,7 +209,7 @@ async function tEvento() {
     $('#e_map_ok').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { mappa_url: $('#e_map').value.trim() } }).then(caricaEventi), 'Mappa salvata');
   }
   $('#n_crea').onclick = () => fai(async () => {
-    const e = await api('/eventi', { body: { codice: $('#n_cod').value.trim() || $('#n_nome').value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: $('#n_tipo').value, nome: $('#n_nome').value.trim(), titolo_stampa: $('#n_nome').value.trim(), luogo: $('#n_luogo').value, data: $('#n_data').value || null, codice_gaia: $('#n_gaia').value, corso_id: $('#n_corso').value || null } });
+    const e = await api('/eventi', { body: { codice: $('#n_cod').value.trim() || $('#n_nome').value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: $('#n_tipo').value, nome: $('#n_nome').value.trim(), titolo_stampa: $('#n_nome').value.trim(), luogo: $('#n_luogo').value, data: $('#n_data').value || null, codice_gaia: $('#n_gaia')?.value || null, corso_id: $('#n_corso')?.value || null } });
     await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_' + fam, ev.id);
   }, fam === 'corsi' ? 'Evento creato' : 'Gara creata');
 }
@@ -213,15 +217,20 @@ async function tEvento() {
 
 // ───────── MENU GESTIONE ─────────
 const ICONE = {"corsi": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-4 9 4-9 4z"/><path d="M7 10v5c0 1.5 2.2 3 5 3s5-1.500 5-3v-5"/><path d="M21 8v6"/></svg>', "documenti": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/><path d="M9 8h7M9 12h7"/></svg>', "risorse": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M15 14.5c3 0 6 1.5 6 5.5"/></svg>', "segreteria": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 13l2 2 4-4"/></svg>', "punteggi": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V10M12 20V4M19 20v-7"/><path d="M3 20h18"/></svg>', "ruoli": '<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z\"/><path d=\"M9 12l2 2 4-4\"/></svg>', "richieste": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="4"/><path d="M3 21c0-4 3-6.5 7-6.5M17 14v6M14 17h6"/></svg>', "evento": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 21V4m0 0h11l-2 4 2 4H5\"/></svg>", "scene": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M3 9h18M8 4v5M13 4v5M18 4v5\"/></svg>", "libreria": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h9l4 4v14H6z\"/><path d=\"M14 3v5h5M9 13h7M9 17h7\"/></svg>", "squadre": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"9\" cy=\"8\" r=\"3\"/><circle cx=\"17\" cy=\"9\" r=\"2.5\"/><path d=\"M3 20c0-3.5 3-6 6-6s6 2.5 6 6M15 15c3 0 6 1.5 6 5\"/></svg>", "news": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5h13v14H6a2 2 0 0 1-2-2z\"/><path d=\"M17 9h3v8a2 2 0 0 1-2 2M7 9h7M7 13h7\"/></svg>", "persone": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 21c0-4.5 3.5-7 8-7s8 2.5 8 7\"/></svg>", "classifiche": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3\"/></svg>", "stampa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 9V3h10v6M7 17H4v-7h16v7h-3\"/><rect x=\"7\" y=\"14\" width=\"10\" height=\"7\"/></svg>", "importa": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3v12m0 0l-4-4m4 4l4-4M4 19h16\"/></svg>", "utenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>"};
+const iconaMondo = (g) => ICONE[g[3]] || '';
 function tMenu() {
-  const tile = ([k, nome, desc, icona, figli]) => { const v = figli.filter(consentito); if (!v.length) return '';
-    // un solo accesso (es. chi gestisce soltanto le notizie): il riquadro porta direttamente lì, con il nome della sezione
-    return v.length === 1 ? `<button class="hubb" data-g="${k}" data-t="${v[0]}"><i class="ico">${ICONE[v[0]] || ICONE[icona]}</i><b>${esc(nomeTab(v[0]))}</b><span>${esc(DESC[v[0]] || '')}</span></button>`
-      : `<button class="hubb" data-g="${k}" data-t="${v[0]}"><i class="ico">${ICONE[icona]}</i><b>${nome}</b><span>${desc}</span></button>`; };
-  $('#app').innerHTML = `<div class="griglia hub">${GRUPPI.map(tile).join('')}</div>`;
-  document.querySelectorAll('.hubb').forEach((b) => { b.onclick = () => { impostaFam(b.dataset.g === 'corsi' ? 'corsi' : 'gara'); vai(b.dataset.t); }; });
+  const m = mondiVisibili();
+  if (m.length === 1) { impostaMondo(m[0][0]); tab = 'hub'; disegnaTabs(); return tHub(); }   // un solo mondo: si entra direttamente
+  $('#app').innerHTML = `<div class="griglia hub">${m.map((g) => `<button class="hubb" data-g="${g[0]}"><i class="ico">${iconaMondo(g)}</i><b>${esc(g[1])}</b><span>${esc(g[2])}</span></button>`).join('')}</div>`;
+  document.querySelectorAll('.hubb').forEach((b) => { b.onclick = () => { impostaMondo(b.dataset.g); vai('hub'); }; });
 }
-
+function tHub() {
+  const g = mondoCorrente() || mondiVisibili()[0]; if (!g) { $('#app').innerHTML = '<div class="card">Nessuna area disponibile per il tuo ruolo.</div>'; return; }
+  const v = figliVisibili(g);
+  $('#app').innerHTML = `<h2 style="margin:4px 0 12px">${esc(g[1])}</h2><div class="griglia hub">${v.map((k) => `<button class="hubb" data-t="${k}"><i class="ico">${ICONE[k] || iconaMondo(g)}</i><b>${esc(nomeTab(k))}</b><span>${esc(DESC[k] || '')}</span></button>`).join('')}</div>`;
+  document.querySelectorAll('.hubb').forEach((b) => { b.onclick = () => vai(b.dataset.t); });
+  if (g[0] === 'comune' || g[0] === 'gara') if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});
+}
 
 // anteprima di una scheda della libreria, stampabile (la stampa isola il solo contenuto dell'anteprima)
 async function anteprimaScheda(p) {
@@ -1087,14 +1096,15 @@ async function tRuoli() {
 async function render() {
   if (!consentito(tab)) tab = 'menu';
   try {
-    if (tab === 'menu') tMenu(); else if (tab === 'corsi') await tCorsi(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
+    if (tab === 'menu') tMenu(); else if (tab === 'hub') tHub(); else if (tab === 'corsi') await tCorsi(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'scene') await tScene();
     else if (tab === 'persone') await tPersone(); else if (tab === 'comitati') await tComitati(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
-  const g = gruppoDi(tab), nVis = g ? figliVisibili(g).length : 0;
-  const mezzo = g && nVis > 1 && g[1] !== nomeTab(tab) ? ` › <span>${esc(g[1])}</span>` : '';          // il contenitore compare solo se ha più sezioni
-  $('#app').insertAdjacentHTML('afterbegin', `<div class="dove"><a href="#" id="dv_g">Gestione</a>${mezzo}${tab !== 'menu' ? ` › <b>${esc(nomeTab(tab))}</b>` : ''}</div><div class="navbar">${tab !== 'menu' ? '<button id="nv_g">← Torna a Gestione</button>' : ''}<a href="/#">Torna alla Home</a></div>`);
-  if ($('#nv_g')) $('#nv_g').onclick = () => vai('menu');
-  $('#dv_g').onclick = (e) => { e.preventDefault(); vai('menu'); };
+  const mo = mondoCorrente(), molti = mondiVisibili().length > 1;
+  const briciole = tab === 'menu' ? '' : `<a href="#" id="dv_g">${molti ? 'Portale' : esc(mo[1])}</a>${molti && mo ? ` › <a href="#" id="dv_m">${esc(mo[1])}</a>` : ''}${tab !== 'hub' ? ` › <b>${esc(nomeTab(tab))}</b>` : ''}`;
+  if (tab !== 'menu') $('#app').insertAdjacentHTML('afterbegin', `<div class="dove">${briciole}</div><div class="navbar"><button id="nv_g">← ${tab === 'hub' ? (molti ? 'Portale' : 'Menu') : 'Torna a ' + esc(mo[1])}</button><a href="/#">Torna alla Home</a></div>`);
+  if ($('#nv_g')) $('#nv_g').onclick = () => vai(tab === 'hub' && molti ? 'menu' : 'hub');
+  if ($('#dv_g')) $('#dv_g').onclick = (e) => { e.preventDefault(); vai(molti ? 'menu' : 'hub'); };
+  if ($('#dv_m')) $('#dv_m').onclick = (e) => { e.preventDefault(); vai('hub'); };
   window.scrollTo(0, 0);
 }
 (async () => {
@@ -1102,8 +1112,9 @@ async function render() {
   if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata all\'organizzazione. <a href="/">Torna alle valutazioni</a></div></main>'; return; }
   try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch (e) { /* offline: resta il profilo salvato */ }
   if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata. <a href="/">Torna alla Home</a></div></main>'; return; }
-  $('#chi').textContent = me.nome; const h0 = location.hash.slice(1); if (h0 === 'corsi') fam = 'corsi'; tab = TABS.some(([k]) => k === h0) && consentito(h0) ? h0 : 'menu';
-  disegnaTabs(); await caricaEventi(); render();
+  $('#chi').textContent = me.nome; const h0 = location.hash.slice(1); tab = TABS.some(([k]) => k === h0) && consentito(h0) ? h0 : 'menu';
+  await caricaEventi(); if (tab !== 'menu' && tab !== 'hub') { const m = GRUPPI.find((g) => g[4].includes(tab)); if (m) impostaMondo(m[0]); }
+  disegnaTabs(); render();
 })();
 </script>
 </body>
