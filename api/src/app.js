@@ -7,7 +7,8 @@ import { sincronizza, riapri, httpErr } from './services/compilazioni.js';
 import { generaPdfSchede } from './services/stampa.js';
 import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
-import { proponi, approva, rifiuta } from './services/promozioni.js';
+import { enteUtente, regioneDelComitato, puoVedereEvento, èApprovatore } from './enti.js';
+import { proponi, approva, rifiuta, tutteLeRegioni, impostaCondivisione } from './services/promozioni.js';
 import { importaCanovaccio } from './services/canovaccio.js';
 import { creaCanovaccio } from './pdf/canovaccio.js';
 import { aggiungiSchedaDaPatologia, CODICE_SCENA, creaScena, duplicaScena, aggiornaElencoPazienti } from './services/scene.js';
@@ -85,6 +86,10 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       if (ev && !req.utente.eventi_org.includes(ev)) throw httpErr(403, 'gara non assegnata');
       if (rotta === '/api/eventi' && req.method === 'POST') throw httpErr(403, 'non puoi creare eventi: chiedi a un admin');
     }
+    if (req.utente.ruolo === 'organizzazione' && !u.per_evento) {      // eventi di un comitato o di una regione: li vede solo chi appartiene a quell'ente
+      const idEv = await eventoDellaRotta(rotta, req.params);
+      if (idEv) { const { rows: [e] } = await pool.query('select id, livello, comitato, regione from evento where id=$1', [idEv]); if (e && !(await puoVedereEvento(pool, req.utente, e))) throw httpErr(403, 'evento di un altro ente'); }
+    }
     if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/me/') || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta))))
       throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
     if (!RUOLI_ORG.includes(req.utente.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
@@ -159,14 +164,46 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
     const org = RUOLI_ORG.includes(req.utente.ruolo);
     const righe = (await pool.query(
-      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, comitato
+      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, to_char(data_fine,'YYYY-MM-DD') as data_fine, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, comitato, livello, regione
          from evento where ($1 or id = $2 or id = any($3::uuid[]) or ($2::uuid is null and not cardinality($3::uuid[]) > 0 and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id, req.utente.eventi_ammessi])).rows;
     if (req.utente.ruolo === 'organizzazione' && req.utente.per_evento) return righe.filter((e) => req.utente.eventi_org.includes(e.id));
+    if (req.utente.ruolo === 'organizzazione') { const v = []; for (const e of righe) if (await puoVedereEvento(pool, req.utente, e)) v.push(e); righe.splice(0, righe.length, ...v); }
     if (!soloFormazione(req.utente)) return righe;                                // chi gestisce solo i corsi vede i corsi del suo ambito
     const prof = await profiloFormativo(pool, req.utente.id), out = [];
     for (const e of righe) if (await puoGestireEvento(pool, req.utente, e, prof)) out.push(e);
     return out;
+  });
+  // proprietario di un nuovo evento: chi non è admin crea per il proprio comitato (o, se approvatore, per la propria regione); l'admin sceglie
+  const decidiEnte = async (req, b, tipo, comitatoGia) => {
+    const TIPI_ENTE = ['comitato', 'regione', 'nazionale'];
+    const mio = await enteUtente(pool, req.utente);
+    if (req.utente.admin) {
+      if (!b.livello) return { livello: null, comitato: null, regione: null };
+      if (!TIPI_ENTE.includes(b.livello)) throw httpErr(400, 'proprietario non valido');
+      const com = b.livello === 'comitato' ? (await canonico(pool, String(b.comitato || ''))).nome : null;
+      if (b.livello === 'comitato' && !com) throw httpErr(400, 'indica il comitato proprietario');
+      const reg = b.livello === 'regione' ? String(b.regione || '').trim() : (com ? await regioneDelComitato(pool, com) : null);
+      if (b.livello === 'regione' && !reg) throw httpErr(400, 'indica la regione proprietaria');
+      return { livello: b.livello, comitato: com, regione: reg };
+    }
+    if (soloFormazione(req.utente) || !mio.comitato) return { livello: null, comitato: null, regione: null };
+    if (b.livello === 'regione' && èApprovatore(req.utente) && mio.regione) return { livello: 'regione', comitato: null, regione: mio.regione };
+    return { livello: 'comitato', comitato: mio.comitato, regione: mio.regione };
+  };
+  app.put('/api/eventi/:id/ente', { preHandler: soloOrg }, async (req) => {
+    const b = req.body || {};
+    if (!req.utente.admin) throw httpErr(403, 'il proprietario lo cambia solo un amministratore');
+    const ente = await decidiEnte(req, { livello: b.livello || null, comitato: b.comitato, regione: b.regione }, null, null);
+    if (b.data_fine !== undefined && b.data_fine && Number.isNaN(Date.parse(b.data_fine))) throw httpErr(400, 'data di fine non valida');
+    const { rows: [e] } = await pool.query(`update evento set livello=$2::text, comitato=case when $2::text is not null then $3::text else comitato end, regione=$4::text, data_fine=case when $5::boolean then nullif($6::text,'')::date else data_fine end, updated_at=now() where id=$1 returning *`,
+      [req.params.id, ente.livello, ente.comitato, ente.regione, 'data_fine' in b, b.data_fine ?? '']);
+    if (!e) throw httpErr(404, 'evento inesistente'); return e;
+  });
+  app.put('/api/eventi/:id/data-fine', { preHandler: soloOrg }, async (req) => {
+    const d = req.body?.data_fine || null; if (d && Number.isNaN(Date.parse(d))) throw httpErr(400, 'data di fine non valida');
+    const { rows: [e] } = await pool.query(`update evento set data_fine=$2::date, updated_at=now() where id=$1 returning id, to_char(data_fine,'YYYY-MM-DD') as data_fine`, [req.params.id, d]);
+    if (!e) throw httpErr(404, 'evento inesistente'); return e;
   });
   app.post('/api/eventi', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
@@ -183,9 +220,10 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       if (b.corso_id) { const { rows: [c] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [b.corso_id]); if (!c || !(await puoGestireEvento(pool, req.utente, c, prof))) throw httpErr(403, 'corso non nel tuo ambito'); }
     }
     const didattico = ['allenamento', 'corso', 'esame', 'megacode'].includes(tipo);
+    const ente = await decidiEnte(req, b, tipo, comitato);
     return (await pool.query(
-      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato) values ($1,$2,$3,$4,$5,$6,$7,$8,nullif(trim($9),''),$10,$11) returning *`,
-      [b.codice, b.nome, tipo, b.titolo_stampa, b.luogo, b.data, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, comitato])).rows[0];
+      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, data_fine, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato, livello, regione) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,nullif(trim($10),''),$11,$12,$13,$14) returning *`,
+      [b.codice, b.nome, tipo, b.titolo_stampa, b.luogo, b.data, b.data_fine || null, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, ente.comitato ?? comitato, ente.livello, ente.regione])).rows[0];
   });
   // un solo evento attivo alla volta (nel vecchio sistema se ne potevano attivare due)
   app.post('/api/eventi/:id/attiva', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
@@ -223,24 +261,60 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       [req.params.id, req.utente.ruolo, req.utente.id]);
     return rows;
   });
-  // ── promozione di scene e schede alla libreria regionale/nazionale ──
-  app.post('/api/scene/:id/promozione', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => proponi(db, req.utente, req.params.id, req.body || {})));
-  app.get('/api/promozioni', { preHandler: soloOrg }, async (req) => (await pool.query(
-    `select p.id, p.tipo, p.livello, p.stato, p.automatica, p.nota, p.motivo, p.esito, p.created_at, p.deciso_il, s.codice as scena, s.titolo as scena_titolo, e.nome as evento, e.tipo as evento_tipo, e.comitato,
-            u.nome as proponente, d.nome as deciso_da, (select count(*)::int from scena_scheda k where k.scena_id=s.id and not k.is_master) as schede
-       from promozione p join scena s on s.id=p.scena_id join evento e on e.id=s.evento_id left join utente u on u.id=p.proposta_da left join utente d on d.id=p.deciso_da
-      where ($1::boolean or p.proposta_da=$2::uuid) and (p.stato='in_attesa' or p.created_at > now() - interval '90 days') order by (p.stato='in_attesa') desc, p.created_at desc limit 100`,
-    [haSchede(req.utente), req.utente.id])).rows);
-  app.post('/api/promozioni/:id/approva', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => approva(db, req.params.id, req.utente.id)));
-  app.post('/api/promozioni/:id/rifiuta', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => rifiuta(db, req.params.id, req.utente.id, req.body?.motivo)));
-  app.get('/api/scene-condivise', { preHandler: soloOrg }, async () => (await pool.query(
-    `select s.id, s.codice, s.titolo, s.condivisa, e.nome as evento, e.comitato, (select count(*)::int from scena_scheda k where k.scena_id=s.id) as schede
-       from scena s join evento e on e.id=s.evento_id where s.condivisa is not null order by s.titolo`)).rows);
+  // ── dal comitato alla regione: proposte, approvazione, catalogo e condivisione ──
+  const regioneMia = async (req) => (await enteUtente(pool, req.utente)).regione;
+  const soloApprovatore = async (req) => { if (!èApprovatore(req.utente)) throw httpErr(403, 'serve il ruolo di approvatore'); };
+  app.post('/api/scene/:id/promozione', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => proponi(db, req.utente, { scenaId: req.params.id }, req.body || {})));
+  app.post('/api/libreria/patologie/:id/proponi', { preHandler: soloOrg }, async (req) => { await controllaScheda(pool, req.utente, req.params.id, { modifica: true });
+    return inTransazione(pool, (db) => proponi(db, req.utente, { patologiaId: req.params.id }, req.body || {})); });
+  app.get('/api/promozioni', { preHandler: soloOrg }, async (req) => {
+    const appr = èApprovatore(req.utente), reg = await regioneMia(req);
+    return (await pool.query(
+      `select p.id, p.tipo, p.livello, p.stato, p.automatica, p.nota, p.motivo, p.esito, p.controllo, p.regione, p.comitato, p.created_at, p.deciso_il, s.codice as scena, s.titolo as scena_titolo, e.nome as evento, pt.nome as scheda,
+              u.nome as proponente, d.nome as deciso_da, (select count(*)::int from scena_scheda k where k.scena_id=s.id and not k.is_master) as schede
+         from promozione p left join scena s on s.id=p.scena_id left join evento e on e.id=s.evento_id left join patologia pt on pt.id=p.patologia_id left join utente u on u.id=p.proposta_da left join utente d on d.id=p.deciso_da
+        where ($1::boolean and ($2::boolean or p.regione = $3::text) or p.proposta_da=$4::uuid) and (p.stato='in_attesa' or p.created_at > now() - interval '90 days') order by (p.stato='in_attesa') desc, p.created_at desc limit 100`,
+      [appr, !!req.utente.admin, reg, req.utente.id])).rows;
+  });
+  app.post('/api/promozioni/:id/approva', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => approva(db, req.params.id, req.utente, req.body || {})));
+  app.post('/api/promozioni/:id/rifiuta', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => rifiuta(db, req.params.id, req.utente, req.body?.motivo)));
+  app.get('/api/regioni', { preHandler: soloOrg }, async () => tutteLeRegioni(pool));
+  // catalogo della mia regione e materiale ricevuto da altre regioni (l'approvatore vede tutto, gli altri solo ciò che è reso disponibile ai comitati)
+  app.get('/api/catalogo', { preHandler: soloOrg }, async (req) => {
+    const reg = await regioneMia(req), appr = èApprovatore(req.utente), adm = !!req.utente.admin;
+    const { rows } = await pool.query(
+      `select c.tipo, c.risorsa_id as id, coalesce(p.nome, s.titolo) as nome, coalesce(p.regione, s.regione) as proprietaria, c.regione as per, c.comitati, c.origine,
+              (select coalesce(array_agg(x.regione order by x.regione), '{}') from condivisione x where x.tipo=c.tipo and x.risorsa_id=c.risorsa_id and not x.origine) as con_regioni
+         from condivisione c left join patologia p on c.tipo='patologia' and p.id=c.risorsa_id left join scena s on c.tipo='scena' and s.id=c.risorsa_id
+        where ($1::boolean or (c.regione = $2::text and ($3::boolean or c.comitati))) and coalesce(p.id, s.id) is not null order by nome`, [adm, reg, appr]);
+    return { regione: reg, approvatore: appr, voci: rows };
+  });
+  const regioneProprietaria = async (tipo, id) => (await pool.query(tipo === 'scena' ? 'select regione from scena where id=$1' : 'select regione from patologia where id=$1', [id])).rows[0]?.regione ?? null;
+  app.put('/api/condivisione/:tipo/:id', { preHandler: [soloOrg, soloApprovatore] }, async (req) => {
+    const { tipo, id } = req.params; if (!['scena', 'patologia'].includes(tipo)) throw httpErr(400, 'tipo non valido');
+    const prop = await regioneProprietaria(tipo, id); if (!prop) throw httpErr(404, 'non è materiale di una regione');
+    if (!req.utente.admin && prop !== await regioneMia(req)) throw httpErr(403, 'è materiale di un\'altra regione');
+    const b = req.body || {}; if (b.regioni && b.regioni !== 'tutte' && !Array.isArray(b.regioni)) throw httpErr(400, 'elenco regioni non valido');
+    await inTransazione(pool, (db) => impostaCondivisione(db, tipo, id, prop, { comitati: b.comitati, regioni: b.regioni }));
+    return { ok: true };
+  });
+  app.put('/api/condivisione/:tipo/:id/ricevuta', { preHandler: [soloOrg, soloApprovatore] }, async (req) => {   // la regione ricevente lo rende disponibile ai propri comitati
+    const reg = await regioneMia(req); if (!reg) throw httpErr(400, 'la tua regione non è nota');
+    const { rowCount } = await pool.query('update condivisione set comitati=$4 where tipo=$1 and risorsa_id=$2 and regione=$3 and not origine', [req.params.tipo, req.params.id, reg, !!req.body?.comitati]);
+    if (!rowCount) throw httpErr(404, 'non è stato condiviso con la tua regione'); return { ok: true };
+  });
+  app.get('/api/scene-condivise', { preHandler: soloOrg }, async (req) => {
+    const reg = await regioneMia(req), appr = èApprovatore(req.utente), adm = !!req.utente.admin;
+    return (await pool.query(
+      `select s.id, s.codice, s.titolo, s.regione as condivisa, e.nome as evento, (select count(*)::int from scena_scheda k where k.scena_id=s.id) as schede
+         from scena s join evento e on e.id=s.evento_id where s.regione is not null and ($1::boolean or exists (select 1 from condivisione c where c.tipo='scena' and c.risorsa_id=s.id and c.regione=$2::text and ($3::boolean or c.comitati))) order by s.titolo`, [adm, reg, appr])).rows;
+  });
   app.post('/api/scene-condivise/:id/copia', { preHandler: soloOrg }, async (req) => {
     const { eventoDestId, nuovoCodice } = req.body || {};
     if (!eventoDestId || !CODICE_SCENA.test(nuovoCodice || '')) throw httpErr(400, 'scegli l\'evento e un codice scena (1-3 caratteri maiuscoli o cifre)');
-    const { rows: [s] } = await pool.query('select condivisa from scena where id=$1', [req.params.id]);
-    if (!s?.condivisa) throw httpErr(404, 'scena non condivisa');
+    const reg = await regioneMia(req), appr = èApprovatore(req.utente);
+    const { rows: [s] } = await pool.query(`select s.id from scena s where s.id=$1 and s.regione is not null and ($2::boolean or exists (select 1 from condivisione c where c.tipo='scena' and c.risorsa_id=s.id and c.regione=$3::text and ($4::boolean or c.comitati)))`, [req.params.id, !!req.utente.admin, reg, appr]);
+    if (!s) throw httpErr(404, 'scena non disponibile');
     if (req.utente.per_evento && !req.utente.eventi_org.includes(String(eventoDestId).toLowerCase())) throw httpErr(403, 'gara non assegnata');
     return inTransazione(pool, (db) => duplicaScena(db, { scenaId: req.params.id, eventoDestId, nuovoCodice }));
   });
@@ -361,7 +435,9 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     `select p.*, (select count(*) from patologia_voce where patologia_id=p.id) as voci,
        (select coalesce(jsonb_agg(jsonb_build_object('evento', x.nome, 'codice', x.codice, 'luogo', x.luogo, 'data', to_char(x.data, 'YYYY-MM-DD')) order by x.data desc nulls last), '[]'::jsonb)
           from (select distinct e.id, e.nome, e.codice, e.luogo, e.data from scena_scheda ss join scena s on s.id = ss.scena_id join evento e on e.id = s.evento_id where ss.patologia_id = p.id) x) as usi
-       from patologia p where (p.comitato is null or $1::boolean or lower(trim(p.comitato)) = lower(trim($2::text))) and (not p.bozza or p.creata_da = $3::uuid) order by nome`, [tutte, mio, req.utente.id])).rows;
+       from patologia p where (p.comitato is null or $1::boolean or lower(trim(p.comitato)) = lower(trim($2::text))) and (not p.bozza or p.creata_da = $3::uuid)
+         and (p.regione is null or $4::boolean or exists (select 1 from condivisione c where c.tipo='patologia' and c.risorsa_id=p.id and c.regione=$5::text and ($6::boolean or c.comitati))) order by nome`,
+      [tutte, mio, req.utente.id, !!req.utente.admin, (await enteUtente(pool, req.utente)).regione, èApprovatore(req.utente)])).rows;
   });
   app.get('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => { await controllaScheda(pool, req.utente, req.params.id, { modifica: false }); return (await pool.query(
     `select pv.ordine, pv.sezione, v.testo, sp.codice as scala, pv.is_sep from patologia_voce pv

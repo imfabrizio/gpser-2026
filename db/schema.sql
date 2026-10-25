@@ -2659,7 +2659,29 @@ create table if not exists promozione (
 );
 create index if not exists promozione_stato_idx on promozione (stato, created_at);
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql'), ('022-comitati-gaia-ufficiale.sql'), ('023-qualifiche-ruoli-multipli.sql'), ('024-qualifiche-corsi.sql'), ('025-eventi-ambito.sql'), ('026-organizzazione-per-evento.sql'), ('027-schede-ai.sql'), ('028-categorie-gravita.sql'), ('029-canovacci.sql'), ('030-promozioni.sql');   -- lo schema qui sopra le include già tutte
+-- Proprietà del materiale (comitato / regione / nazionale), condivisione tra regioni, ruolo Approvatore
+alter table evento add column if not exists data_fine date;                                                  -- ultimo giorno (gare su più giorni)
+alter table evento add column if not exists livello text check (livello in ('comitato','regione','nazionale')); -- null = evento storico, visibile a tutto lo staff
+alter table evento add column if not exists regione text;                                                    -- ente regionale proprietario (livello «regione»)
+alter table patologia add column if not exists regione text;                                                 -- scheda del catalogo di una regione
+alter table scena add column if not exists regione text;                                                     -- scena del catalogo di una regione
+create table if not exists condivisione (
+  tipo       text not null check (tipo in ('scena','patologia')),
+  risorsa_id uuid not null,
+  regione    text not null,                      -- ente regionale che può vederla
+  comitati   boolean not null default false,     -- la regione la rende disponibile ai propri comitati
+  origine    boolean not null default false,     -- riga della regione proprietaria
+  created_at timestamptz not null default now(),
+  primary key (tipo, risorsa_id, regione)
+);
+alter table promozione alter column scena_id drop not null;                                                 -- si può proporre anche una scheda della libreria (skill, Mega Code)
+alter table promozione add column if not exists patologia_id uuid references patologia(id) on delete cascade;
+alter table promozione add column if not exists regione text;                                                -- regione che deve decidere
+alter table promozione add column if not exists comitato text;                                               -- comitato proponente
+alter table promozione add column if not exists controllo jsonb;                                             -- confronto con il catalogo: identica / simile / nuova
+insert into ruolo (codice, nome, sistema, aree) values ('approvatore', 'Approvatore', true, '{approvazione,scene,formazione_esame}') on conflict (codice) do nothing;
+
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql'), ('022-comitati-gaia-ufficiale.sql'), ('023-qualifiche-ruoli-multipli.sql'), ('024-qualifiche-corsi.sql'), ('025-eventi-ambito.sql'), ('026-organizzazione-per-evento.sql'), ('027-schede-ai.sql'), ('028-categorie-gravita.sql'), ('029-canovacci.sql'), ('030-promozioni.sql'), ('031-enti-visibilita.sql');   -- lo schema qui sopra le include già tutte
 
 -- schede d'esame TSSA (stesso contenuto della migrazione 015)
 insert into scala_punteggio (codice, mb, su, ne) values ('Esame 0-1-2', 2, 1, 0) on conflict (codice) do nothing;

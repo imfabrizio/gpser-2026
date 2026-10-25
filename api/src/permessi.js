@@ -1,7 +1,7 @@
 // Ruoli e aree della Gestione. Un utente ha un ruolo (con le sue aree) e, se serve, la spunta "admin" che dà accesso a tutto.
 export const AREE = {
   gara: 'Gara', scene: 'Scene', schede: 'Schede', squadre: 'Squadre', notizie: 'Notizie', anagrafiche: 'Anagrafiche',
-  classifiche: 'Classifiche', stampa: 'Stampa', importa: 'Importa', segreteria: 'Segreteria', valutazione: 'Valutazione', documentazione: 'Documentazione', formazione_esame: 'Formazione d\'esame', esami: 'Esami',
+  classifiche: 'Classifiche', stampa: 'Stampa', importa: 'Importa', approvazione: 'Approvazione', segreteria: 'Segreteria', valutazione: 'Valutazione', documentazione: 'Documentazione', formazione_esame: 'Formazione d\'esame', esami: 'Esami',
 };   // Utenti, Ruoli e Richieste restano riservati agli admin
 
 // ruolo "efficace" usato dai controlli: admin > staff (ruolo con almeno un'area) > giudice / giudice master > partecipante (nessun potere)
@@ -15,7 +15,7 @@ export const ruoloEffettivo = (u) => u.admin ? 'admin' : gestione(u).length ? 'o
 const R = (m, rotta, aree) => [new RegExp(`^(${m})$`), new RegExp(`^${rotta}$`), aree];
 const REGOLE = [
   R('POST|DELETE', '/api/avvisi(/:id)?', ['notizie']),
-  R('POST|PATCH', '/api/eventi(/:id)?', ['gara', 'esami']), R('POST', '/api/eventi/:id/attiva', ['gara']), R('GET|POST', '/api/eventi/:id/(inviti|invitabili)', ['gara', 'esami']), R('DELETE', '/api/eventi/:id/inviti/:utente', ['gara', 'esami']),
+  R('POST|PATCH', '/api/eventi(/:id)?', ['gara', 'esami']), R('POST', '/api/eventi/:id/attiva', ['gara']), R('PUT', '/api/eventi/:id/(ente|data-fine)', ['gara', 'esami']), R('GET|POST', '/api/eventi/:id/(inviti|invitabili)', ['gara', 'esami']), R('DELETE', '/api/eventi/:id/inviti/:utente', ['gara', 'esami']),
   R('POST', '/api/eventi/:id/squadre', ['squadre']), R('PATCH', '/api/squadre/:id', ['squadre']), R('GET|PUT', '/api/squadre/:id/membri', ['squadre', 'anagrafiche']),
   R('POST', '/api/eventi/:id/scene', ['scene']), R('POST', '/api/scene/:id/(duplica|schede|elenco-pazienti|promozione)', ['scene']), R('PATCH|DELETE', '/api/scene/:id', ['scene']),
   R('PUT', '/api/schede/:id/voci/:ordine', ['scene']), R('PATCH|DELETE', '/api/schede/:id', ['scene']), R('PUT', '/api/schede/:id/assegnazioni', ['scene']),
@@ -32,7 +32,8 @@ const REGOLE = [
   R('GET', '/api/eventi/:id/badge.pdf', ['segreteria']), R('PUT', '/api/eventi/:id/formato-badge', ['segreteria']), R('GET', '/api/segreteria/persone', ['segreteria']),
   R('GET|POST|DELETE', '/api/badge/formati(/:id)?', ['segreteria']),
   R('GET|POST|PATCH|DELETE', '/api/comitati(/:id|/importa|/da-ricondurre|/ricondurre)?', ['anagrafiche']),
-  R('GET', '/api/promozioni', ['scene', 'schede']), R('POST', '/api/promozioni/:id/(approva|rifiuta)', ['schede']), R('GET', '/api/scene-condivise', ['scene']), R('POST', '/api/scene-condivise/:id/copia', ['scene']),
+  R('GET', '/api/(promozioni|catalogo|regioni)', ['scene', 'schede', 'formazione_esame', 'approvazione']), R('POST', '/api/promozioni/:id/(approva|rifiuta)', ['approvazione']), R('PUT', '/api/condivisione/:tipo/:id(/ricevuta)?', ['approvazione']),
+  R('POST', '/api/libreria/patologie/:id/proponi', ['schede', 'formazione_esame']), R('GET', '/api/scene-condivise', ['scene', 'approvazione']), R('POST', '/api/scene-condivise/:id/copia', ['scene']),
   R('POST', '/api/import/(excel|canovacci)', ['importa']), R('DELETE', '/api/canovacci/:id', ['importa']), R('GET', '/api/canovacci(/:id(/canovaccio.pdf)?)?', ['scene', 'schede', 'formazione_esame', 'importa']), R('GET|POST|PATCH|DELETE', '/api/persone(/:id)?', ['anagrafiche']),
 ];
 // null = rotta non vincolata a un'area (la decidono i controlli della rotta stessa)

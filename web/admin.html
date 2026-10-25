@@ -145,17 +145,24 @@ const legaSelettore = () => { const s = $('#selev'); if (s) s.onchange = () => {
 
 // ───────── EVENTO ─────────
 async function tEvento() {
+  const regioni = me.ruolo === 'admin' ? await api('/regioni').catch(() => []) : [];
   $('#app').innerHTML = selettoreEvento() + (ev ? `
   <div class="card"><h3>${fam === 'corsi' ? 'Dati dell\'evento' : 'Dati della gara'} ${ev.attivo ? '<span class="tag ok">attivo</span>' : ''}</h3>
     <div class="riga"><div><label>Codice</label><input id="e_cod" value="${esc(ev.codice)}"></div><div><label>Nome</label><input id="e_nome" value="${esc(ev.nome)}"></div>
       <div><label>Titolo in stampa</label><input id="e_tit" value="${esc(ev.titolo_stampa || '')}"></div></div>
     <div class="riga"><div><label>Luogo</label><input id="e_luogo" value="${esc(ev.luogo || '')}"></div>
       <div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
+      <div><label>Ultimo giorno (se dura più giorni)</label><input id="e_dfine" type="date" value="${esc(ev.data_fine || '')}"></div>
       <div><label>Tipo</label><select id="e_tipo">${[...FAM_TIPI.gara, ...FAM_TIPI.corsi].map((t) => `<option ${ev.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
     <div class="riga"><div><label>N° corso su Gaia</label><input id="e_gaia" value="${esc(ev.codice_gaia || '')}"></div>
       <div><label>Corso di riferimento</label><select id="e_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato && x.id !== ev.id).map((x) => `<option value="${x.id}" ${x.id === ev.corso_id ? 'selected' : ''}>${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>
     <div class="riga"><div><label>Soglia di superamento (%) — vuota se non serve</label><input id="e_soglia" type="number" min="1" max="100" value="${esc(ev.soglia_pct ?? '')}"></div>
       <div><label style="display:block">Punteggi ai giudici</label><label style="font-size:15px;color:inherit"><input type="checkbox" id="e_mp" ${ev.mostra_punteggi ? 'checked' : ''}> mostra punti e percentuale mentre compilano (esami, corsi, allenamenti)</label></div></div>
+    ${me.ruolo === 'admin' ? `<div class="riga"><div><label>Proprietario del materiale</label><select id="e_liv"><option value="">Nessuno (storico, visibile a tutto lo staff)</option>
+        ${[['comitato', 'Un comitato'], ['regione', 'Una regione'], ['nazionale', 'Nazionale']].map(([v, t]) => `<option value="${v}" ${ev.livello === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div><label>Comitato (se proprietario è un comitato)</label><input id="e_comp" value="${esc(ev.livello === 'comitato' ? ev.comitato || '' : '')}" placeholder="Prignano sulla Secchia"></div>
+      <div><label>Regione (se proprietaria è una regione)</label><select id="e_reg"><option value="">—</option>${regioni.map((r) => `<option ${ev.regione === r && ev.livello === 'regione' ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></div></div>`
+      : (ev.livello ? `<p class="nota">Materiale ${ev.livello === 'comitato' ? 'del comitato ' + esc(ev.comitato || '') : ev.livello === 'regione' ? 'della regione ' + esc(ev.regione || '') : 'nazionale'}: lo vedono solo i membri di quell'ente.</p>` : '')}
     <p><button class="b" id="e_salva">Salva</button> <button class="s" id="e_attiva" ${ev.attivo ? 'disabled' : ''}>Rendi attivo</button>
     <button class="x" id="e_arch">Archivia</button></p></div>
   <div class="card"><h3>Mappa del percorso</h3><label>Incorporamento Google My Maps (facoltativo)</label>
@@ -173,7 +180,9 @@ async function tEvento() {
   legaSelettore();
   if (ev) {
     $('#e_salva').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
-      luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia').value, mostra_punteggi: $('#e_mp').checked, codice_gaia: $('#e_gaia').value, corso_id: $('#e_corso').value || null } }).then(caricaEventi), 'Salvato');
+      luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia').value, mostra_punteggi: $('#e_mp').checked, codice_gaia: $('#e_gaia').value, corso_id: $('#e_corso').value || null } })
+      .then(() => api(`/eventi/${ev.id}/data-fine`, { method: 'PUT', body: { data_fine: $('#e_dfine').value || null } }))
+      .then(() => (me.ruolo === 'admin' ? api(`/eventi/${ev.id}/ente`, { method: 'PUT', body: { livello: $('#e_liv').value, comitato: $('#e_comp').value.trim(), regione: $('#e_reg').value } }) : null)).then(caricaEventi), 'Salvato');
     $('#e_attiva').onclick = () => fai(() => api(`/eventi/${ev.id}/attiva`, { method: 'POST', body: {} }).then(caricaEventi), 'Evento attivato');
     $('#e_arch').onclick = () => { if (confirm('Archiviare questo evento? Sparisce dagli elenchi ma i dati restano.')) fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { archiviato: true } }).then(caricaEventi), 'Archiviato'); };
     $('#e_map_ok').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { mappa_url: $('#e_map').value.trim() } }).then(caricaEventi), 'Mappa salvata');
@@ -201,7 +210,8 @@ function tMenu() {
 async function anteprimaScheda(p) {
   dlg(`<h3>${esc(p.nome)} <span class="tag">${esc(p.sigla)}</span> ${p.bozza ? '<span class="tag no">Bozza</span>' : ''}</h3>
     <iframe id="an_if" title="Anteprima scheda" style="width:100%;height:68vh;border:1px solid #ccc;background:#eee"></iframe>
-    <p><button class="b" id="an_st">Stampa</button> <button class="s" onclick="chiudi()">Chiudi</button></p>`);
+    <p><button class="b" id="an_st">Stampa</button> ${p.comitato && !p.bozza ? '<button class="s" id="an_pr" title="Proponi la scheda al catalogo della tua regione">Proponi alla regione</button> ' : ''}<button class="s" onclick="chiudi()">Chiudi</button></p>`);
+  if ($('#an_pr')) $('#an_pr').onclick = async () => { try { const r = await api(`/libreria/patologie/${p.id}/proponi`, { body: {} }); chiudi(); flash(r.stato === 'approvata' ? 'Catalogata nella tua regione' : 'Proposta inviata all\'approvatore'); } catch (e) { flash(e.message, false); } };
   try { $('#an_if').src = await pdfUrl(`/libreria/patologie/${p.id}/anteprima.pdf`); }
   catch (e) { $('#an_if').srcdoc = `<p style="font-family:sans-serif;color:#b00;padding:12px">${esc(e.message)}</p>`; }
   $('#an_st').onclick = () => { const f = $('#an_if').contentWindow; f.focus(); f.print(); };
@@ -473,14 +483,14 @@ async function tScene() {
   document.querySelectorAll('.s_cv').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { canovaccio_id: i.value } }), 'Canovaccio collegato'); });
   document.querySelectorAll('.cv_apri').forEach((b) => { b.onclick = () => { const c = canov.find((x) => x.id === document.querySelector(`.s_cv[data-id="${b.dataset.id}"]`).value); if (c) anteprimaCanovaccio(c); }; });
   document.querySelectorAll('.prom').forEach((b) => { b.onclick = () => {
-    const dir = admin() || (me.aree || []).includes('schede');
-    dlg(`<h3>Proponi alla libreria</h3><p class="nota">${dir ? 'Hai il ruolo che approva: la promozione è immediata e resta subito disponibile a tutti.' : 'La proposta va a chi ha il ruolo di approvare le schede: finché non è accettata, la scena e le schede restano private.'}</p>
-      <label>Cosa promuovere</label><select id="pr_t"><option value="scena">Tutta la scena (schede, ordine e gravità: diventa un modello da copiare)</option><option value="schede">Solo le schede</option></select>
-      <label>Livello</label><select id="pr_l"><option value="regionale">Regionale</option><option value="nazionale">Nazionale</option></select>
-      <label>Nota per chi approva (facoltativa)</label><textarea id="pr_n" rows="3" placeholder="es. testata all'allenamento del 12 ottobre con 5 squadre"></textarea>
-      <p><button class="b" id="pr_ok">${dir ? 'Promuovi ora' : 'Invia la proposta'}</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
-    $('#pr_ok').onclick = async () => { try { const r = await api(`/scene/${b.dataset.id}/promozione`, { body: { tipo: $('#pr_t').value, livello: $('#pr_l').value, nota: $('#pr_n').value } }); chiudi();
-      flash(r.stato === 'approvata' ? 'Promossa: ora è nella libreria ' + r.livello : 'Proposta inviata'); } catch (e) { flash(e.message, false); } }; }; });
+    const appr = admin() || (me.aree || []).includes('approvazione');
+    dlg(`<h3>Proponi alla regione</h3><p class="nota">${appr ? 'Sei approvatore: la promozione è immediata.' : 'La proposta va all\'approvatore della tua regione: finché non la accetta, la scena resta solo tua.'} Le scene di gare e allenamenti si condividono solo dopo la data dell'evento.</p>
+      <label>Cosa proporre</label><select id="pr_t"><option value="scena">Tutta la scena (schede e scena: diventa un modello da copiare)</option><option value="schede">Solo le schede</option></select>
+      <label>Nota per l'approvatore (facoltativa)</label><textarea id="pr_n" rows="3" placeholder="es. testata all'allenamento del 12 ottobre con 5 squadre"></textarea>
+      ${admin() ? '<label style="font-size:14px;color:inherit"><input type="checkbox" id="pr_sb"> Sblocca prima della data dell\'evento (solo admin)</label>' : ''}
+      <p><button class="b" id="pr_ok">${appr ? 'Promuovi ora' : 'Invia la proposta'}</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+    $('#pr_ok').onclick = async () => { try { const r = await api(`/scene/${b.dataset.id}/promozione`, { body: { tipo: $('#pr_t').value, nota: $('#pr_n').value, sblocca: !!$('#pr_sb')?.checked } }); chiudi();
+      flash(r.stato === 'approvata' ? 'Promossa: ora è nel catalogo della regione' : 'Proposta inviata all\'approvatore'); } catch (e) { flash(e.message, false); } }; }; });
   document.querySelectorAll('.s_pos').forEach((b) => { b.onclick = () => { const id = b.dataset.id, g = (c) => document.querySelector(`.${c}[data-id="${id}"]`).value.trim();
     fai(() => api(`/scene/${id}`, { method: 'PATCH', body: { indirizzo: g('s_ind'), lat: g('s_lat'), lng: g('s_lng') } }), 'Posizione salvata'); }; });
   document.querySelectorAll('.pp').forEach((i) => { i.onchange = () => { const d = cache.schede[i.dataset.id]; const p = { ...(d.parametri || {}) };
@@ -588,7 +598,7 @@ async function tLibreria() {
       ${direzione ? `<label style="display:inline-flex;gap:6px;align-items:center;font-size:15px;color:inherit;margin-left:10px"><input type="checkbox" id="vcom" ${conComitati ? 'checked' : ''}> Vedi anche schede dei comitati</label>` : ''}</p>
     <input id="pf" placeholder="Cerca (es. Ictus, frattura, Olimpiadi, Gara D)" style="margin-bottom:8px">
     ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:430px"></colgroup>${l.map((p) => `<tr class="pr" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + usiTesto(p)).toLowerCase())}"><td>${puntoGrav(p.gravita)}<strong>${esc(p.nome)}</strong>${p._sec ? ' <span class="tag">secondaria</span>' : ''} <span class="tag">${esc(p.sigla)}</span>
-      ${p.categoria2 ? `<span class="tag">+ ${esc(p.categoria2)}</span>` : ''}${p.livello ? `<span class="tag">${p.livello}</span>` : ''}${p.bozza ? '<span class="tag no">Bozza' + (p.generata_ai ? ' AI' : '') + '</span>' : ''}${p.is_bls ? '<span class="tag">BLSD</span>' : ''}${p.is_diu ? '<span class="tag">DIU</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}${p.comitato ? `<span class="tag no">Privata · ${esc(p.comitato)}</span>` : ''}
+      ${p.categoria2 ? `<span class="tag">+ ${esc(p.categoria2)}</span>` : ''}${p.regione ? `<span class="tag">${esc(p.regione)}</span>` : ''}${p.bozza ? '<span class="tag no">Bozza' + (p.generata_ai ? ' AI' : '') + '</span>' : ''}${p.is_bls ? '<span class="tag">BLSD</span>' : ''}${p.is_diu ? '<span class="tag">DIU</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}${p.comitato ? `<span class="tag no">Privata · ${esc(p.comitato)}</span>` : ''}
 </td><td>${p.voci} voci</td>
       <td><div class="azioni">${p.bozza ? `<button class="b p pub" data-id="${p.id}">Pubblica</button>` : '<span></span>'}<button class="s p an" data-id="${p.id}">Anteprima</button>${modificabile(p) ? `<button class="s p ed" data-id="${p.id}">Modifica</button>` : `<button class="s p ed" data-id="${p.id}">Apri</button>`}<button class="s p cp" data-id="${p.id}">Copia</button>${modificabile(p) ? `<button class="x p del" data-id="${p.id}">Elimina</button>` : ''}</div></td></tr>`).join('')}</table></details>`).join('')}
     <p class="nota">Modificare una patologia non cambia le scene già create: ognuna ne conserva una copia.</p></div>
@@ -613,17 +623,41 @@ async function tLibreria() {
       <td>${c.scene ? c.scene + ' scene' : '–'}</td><td><button class="s p cv_pdf" data-id="${c.id}">Apri</button> ${admin() || (me.aree || []).includes('importa') ? `<button class="x p cv_del" data-id="${c.id}">Elimina</button>` : ''}</td></tr>`).join('')}</table>`
       : '<p class="nota">Nessun canovaccio. Si caricano da <strong>Importa</strong> (file .docx).</p>'}
     <p class="nota">Il canovaccio si collega a una scena dal tab Scene. Simulatori, manichini e truccatori sono calcolati dalla logistica del file.</p></div>`);
-  const dirPr = admin() || (me.aree || []).includes('schede');
-  const [prom, cond] = await Promise.all([api('/promozioni').catch(() => []), api('/scene-condivise').catch(() => [])]);
+  const [prom, cond, cat, regioniTutte] = await Promise.all([api('/promozioni').catch(() => []), api('/scene-condivise').catch(() => []), api('/catalogo').catch(() => ({ voci: [] })), api('/regioni').catch(() => [])]);
+  const appr = cat.approvatore || admin();
   const stPr = { in_attesa: '<span class="tag">in attesa</span>', approvata: '<span class="tag ok">approvata</span>', rifiutata: '<span class="tag no">rifiutata</span>' };
-  if (prom.length || cond.length) $('#app').insertAdjacentHTML('beforeend', `${prom.length ? `<div class="card"><h3>Proposte di promozione${prom.filter((x) => x.stato === 'in_attesa').length ? ` (${prom.filter((x) => x.stato === 'in_attesa').length} da decidere)` : ''}</h3>
-    <table><tr><th>Scena</th><th>Cosa</th><th>Da</th><th>Stato</th><th></th></tr>${prom.map((x) => `<tr><td><strong>${esc(x.scena)}</strong> · ${esc(x.scena_titolo)}<br><small>${esc(x.evento)}${x.comitato ? ' · ' + esc(x.comitato) : ''}</small></td>
-      <td>${x.tipo === 'scena' ? 'Scena intera' : 'Solo schede'} (${x.schede}) → ${x.livello}${x.nota ? `<br><small>${esc(x.nota)}</small>` : ''}</td><td>${esc(x.proponente || '')}${x.automatica ? '<br><small>automatica</small>' : ''}</td>
+  const sceltaRegioni = (sel, escludi) => `<div class="regioni" style="columns:2;font-size:14px">${regioniTutte.filter((r) => r !== escludi).map((r) => `<label style="display:block;color:inherit;font-size:14px"><input type="checkbox" class="rg" value="${esc(r)}" ${sel.includes(r) ? 'checked' : ''}> ${esc(r)}</label>`).join('')}</div>`;
+  const prop = (x) => x.tipo === 'scena' ? `Scena ${esc(x.scena)} · ${esc(x.scena_titolo)}<br><small>${esc(x.evento || '')}</small>` : `Scheda «${esc(x.scheda)}»`;
+  if (prom.length) $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Proposte alla regione${prom.filter((x) => x.stato === 'in_attesa').length ? ` (${prom.filter((x) => x.stato === 'in_attesa').length} in attesa)` : ''}</h3>
+    <table><tr><th>Cosa</th><th>Da</th><th>Controllo catalogo</th><th>Stato</th><th></th></tr>${prom.map((x) => `<tr><td>${prop(x)}<br><small>${x.tipo === 'scena' ? 'scena intera' : 'solo schede'}${x.nota ? ' · ' + esc(x.nota) : ''}</small></td>
+      <td>${esc(x.comitato || '')}<br><small>${esc(x.proponente || '')} → ${esc(x.regione || '')}${x.automatica ? ' · automatica' : ''}</small></td>
+      <td>${(x.controllo || []).map((c) => `<span class="tag ${c.stato === 'nuova' ? 'ok' : c.stato === 'identica' ? 'no' : ''}">${c.stato}</span> <small>${esc(c.titolo)}${c.con ? ' ≈ ' + esc(c.con.nome) : ''}</small>`).join('<br>')}</td>
       <td>${stPr[x.stato]}${x.motivo ? `<br><small>${esc(x.motivo)}</small>` : ''}</td>
-      <td>${x.stato === 'in_attesa' && dirPr ? `<button class="b p pr_ok" data-id="${x.id}">Approva</button> <button class="x p pr_no" data-id="${x.id}">Rifiuta</button>` : ''}</td></tr>`).join('')}</table></div>` : ''}
-    ${cond.length ? `<div class="card"><h3>Scene condivise (${cond.length})</h3><table><tr><th>Scena</th><th>Livello</th><th>Schede</th><th></th></tr>${cond.map((x) => `<tr><td><strong>${esc(x.codice)}</strong> · ${esc(x.titolo)}<br><small>${esc(x.evento)}</small></td><td>${x.condivisa}</td><td>${x.schede}</td>
-      <td><button class="s p co_cp" data-id="${x.id}" data-t="${esc(x.titolo)}">Copia in un evento…</button></td></tr>`).join('')}</table></div>` : ''}`);
-  document.querySelectorAll('.pr_ok').forEach((b) => { b.onclick = () => fai(() => api(`/promozioni/${b.dataset.id}/approva`, { body: {} }), 'Promossa'); });
+      <td>${x.stato === 'in_attesa' && appr ? `<button class="b p pr_ok" data-id="${x.id}">Approva…</button> <button class="x p pr_no" data-id="${x.id}">Rifiuta</button>` : ''}</td></tr>`).join('')}</table></div>`);
+  if (cat.voci.length) $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Catalogo ${cat.regione ? 'di ' + esc(cat.regione) : ''}</h3>
+    <p class="nota">${appr ? 'Decidi a chi rendere disponibile ogni elemento: ai comitati della tua regione e/o ad altre regioni. Il materiale ricevuto da altre regioni diventa visibile ai tuoi comitati solo se lo spunti tu.' : 'Materiale reso disponibile dalla tua regione.'}</p>
+    <table><tr><th>Elemento</th><th>Regione</th><th>${appr ? 'Disponibile ai comitati' : ''}</th><th>${appr ? 'Condiviso con' : ''}</th></tr>${cat.voci.map((v) => { const mia = v.proprietaria === cat.regione || (admin() && v.origine);
+      return `<tr><td>${v.tipo === 'scena' ? 'Scena' : 'Scheda'} · ${esc(v.nome)}</td><td>${esc(v.proprietaria || '')}</td>
+      <td>${appr ? `<input type="checkbox" class="cg_com" data-t="${v.tipo}" data-id="${v.id}" data-mia="${mia ? 1 : 0}" ${v.comitati ? 'checked' : ''}>` : ''}</td>
+      <td>${appr && mia ? `${v.con_regioni.length ? v.con_regioni.length + ' regioni' : 'nessuna'} <button class="s p cg_reg" data-t="${v.tipo}" data-id="${v.id}">Scegli…</button>` : ''}</td></tr>`; }).join('')}</table></div>`);
+  if (cond.length) $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Scene del catalogo (${cond.length})</h3><table><tr><th>Scena</th><th>Regione</th><th>Schede</th><th></th></tr>${cond.map((x) => `<tr><td><strong>${esc(x.codice)}</strong> · ${esc(x.titolo)}</td><td>${esc(x.condivisa)}</td><td>${x.schede}</td>
+      <td><button class="s p co_cp" data-id="${x.id}" data-t="${esc(x.titolo)}">Copia in un evento…</button></td></tr>`).join('')}</table></div>`);
+  document.querySelectorAll('.cg_com').forEach((i) => { i.onchange = () => fai(() => api(`/condivisione/${i.dataset.t}/${i.dataset.id}${i.dataset.mia === '1' ? '' : '/ricevuta'}`, { method: 'PUT', body: { comitati: i.checked } }), i.checked ? 'Disponibile ai comitati' : 'Non più disponibile ai comitati'); });
+  document.querySelectorAll('.cg_reg').forEach((b) => { b.onclick = () => { const v = cat.voci.find((x) => x.id === b.dataset.id && x.tipo === b.dataset.t);
+    dlg(`<h3>Condividi con altre regioni</h3><p class="nota">Le regioni spuntate vedono questo elemento (gli approvatori); sta a loro renderlo disponibile ai propri comitati.</p>
+      <p><button class="s p" id="rg_t">Tutte</button> <button class="s p" id="rg_n">Nessuna</button></p>${sceltaRegioni(v.con_regioni, cat.regione)}
+      <p><button class="b" id="rg_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+    $('#rg_t').onclick = () => document.querySelectorAll('.rg').forEach((c) => { c.checked = true; }); $('#rg_n').onclick = () => document.querySelectorAll('.rg').forEach((c) => { c.checked = false; });
+    $('#rg_ok').onclick = () => { const r = [...document.querySelectorAll('.rg:checked')].map((c) => c.value); chiudi(); fai(() => api(`/condivisione/${b.dataset.t}/${b.dataset.id}`, { method: 'PUT', body: { regioni: r } }), 'Condivisione aggiornata'); }; }; });
+  document.querySelectorAll('.pr_ok').forEach((b) => { b.onclick = () => { const x = prom.find((q) => q.id === b.dataset.id);
+    dlg(`<h3>Approva: ${x.tipo === 'scena' ? 'scena ' + esc(x.scena_titolo) : esc(x.scheda)}</h3><p class="nota">Proposta di ${esc(x.comitato || '')}. Confronto con il catalogo:</p>
+      ${(x.controllo || []).map((c, i) => `<p><span class="tag ${c.stato === 'nuova' ? 'ok' : c.stato === 'identica' ? 'no' : ''}">${c.stato}</span> <strong>${esc(c.titolo)}</strong>${c.con ? ` ≈ «${esc(c.con.nome)}» (${Math.round(c.somiglianza * 100)}%)` : ''}
+        ${c.stato === 'simile' ? `<br><label style="font-size:14px;color:inherit"><input type="checkbox" class="pe" value="${esc(c.titolo)}"> non aggiungerla: usa quella esistente (altrimenti entra come variante)</label>` : ''}
+        ${c.stato === 'identica' ? '<br><small>Non verrà creata: è già in catalogo.</small>' : ''}</p>`).join('')}
+      <label style="font-size:14px;color:inherit"><input type="checkbox" id="ap_com"> Rendi subito disponibile ai comitati della regione</label>
+      <label style="margin-top:8px">Condividi con altre regioni</label><select id="ap_rg"><option value="">Nessuna per ora</option><option value="tutte">Tutte le regioni</option></select>
+      <p><button class="b" id="ap_ok">Approva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+    $('#ap_ok').onclick = () => { const body = { comitati: $('#ap_com').checked, escludi: [...document.querySelectorAll('.pe:checked')].map((c) => c.value) }; if ($('#ap_rg').value) body.regioni = $('#ap_rg').value; chiudi(); fai(() => api(`/promozioni/${x.id}/approva`, { body }), 'Approvata e catalogata'); }; }; });
   document.querySelectorAll('.pr_no').forEach((b) => { b.onclick = () => { const m = prompt('Motivo del rifiuto (facoltativo)'); if (m === null) return; fai(() => api(`/promozioni/${b.dataset.id}/rifiuta`, { body: { motivo: m } }), 'Proposta rifiutata'); }; });
   document.querySelectorAll('.co_cp').forEach((b) => { b.onclick = () => {
     dlg(`<h3>Copia «${esc(b.dataset.t)}» in un evento</h3><label>Evento</label><select id="cc_e">${eventi.filter((e) => !e.archiviato).map((e) => `<option value="${e.id}">${esc(e.codice)} – ${esc(e.nome)}</option>`).join('')}</select>
