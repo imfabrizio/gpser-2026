@@ -121,7 +121,7 @@ async function vistaPubblica() {
   const riga = (e) => `<div class="notizia"><b>${esc(e.nome)}</b>${e.attivo ? ' · <span class="ok">in corso</span>' : ''}<br><small>${TIPO_EV[e.tipo] || 'Gara'} · ${esc(e.luogo || '')} ${esc(e.data || '')}</small></div>`;
   const inCorso = d.eventi.find((e) => e.attivo) || prossime[0] || d.eventi.find((e) => e.mappa_url || e.scene.length);
   $('#app').innerHTML = `<div class="card pub" style="text-align:center"><img src="/logo-cri.jpg" alt="Croce Rossa Italiana" style="height:90px">
-      <h2>Gare di primo soccorso</h2><p>Notizie, edizioni e percorso gara.</p><a class="btn" href="#login">Accedi</a></div>
+      <h2>Gare di primo soccorso</h2><p>Notizie, edizioni e percorso gara.</p><a class="btn" href="#login">Accedi</a> <a class="btn sec" href="#registrati">Registrati</a></div>
     <div class="card pub"><h2>Prossime edizioni</h2>${prossime.length ? prossime.map(riga).join('') : '<p><small>Nessuna edizione in programma.</small></p>'}</div>
     <div class="card pub"><h2>Notizie</h2>${d.avvisi.length ? d.avvisi.map((a) => `<div class="notizia"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>
     ${inCorso ? mappaHtml(inCorso, inCorso.scene) : ''}
@@ -163,7 +163,42 @@ async function vistaRegistrazione() {
       } catch (x) { e.textContent = x.message; e.hidden = false; $('#r_go').disabled = false; }
     };
   };
-  return d.compilata ? attesa() : form();
+  const passoMfa = () => {
+    $('#app').innerHTML = `<div class="card"><h2>Verifica in due passaggi</h2>
+      <p>1. Scansiona il codice QR con un'app di autenticazione (Microsoft Authenticator, Google Authenticator…).</p><img src="${d.mfa.qr}" alt="QR code" width="220" height="220">
+      <p><small>Non riesci a scansionare? Inserisci a mano questa chiave: <code>${esc(d.mfa.segreto)}</code></small></p>
+      <p>2. Scrivi il codice a 6 cifre che mostra l'app.</p><input id="rm_c" inputmode="numeric" autocomplete="one-time-code" placeholder="123456">
+      <p class="err" id="rm_e" hidden></p><button class="btn" id="rm_go">Conferma</button></div>`;
+    $('#rm_go').onclick = async () => {
+      try {
+        const c = await api('/registrazione/mfa', { body: { codice: $('#rm_c').value } });
+        $('#app').innerHTML = `<div class="card"><h2>Verifica attivata</h2><p><strong>Salva questi codici di recupero.</strong> Servono se perdi il telefono; ognuno vale una sola volta e non verranno più mostrati.</p>
+          <pre style="font-size:18px;line-height:1.7">${c.codici_recupero.join('\n')}</pre><button class="btn" id="rm_ok">Li ho salvati, continua</button></div>`;
+        $('#rm_ok').onclick = () => { vistaRegistrazione(); };
+      } catch (x) { $('#rm_e').textContent = x.message; $('#rm_e').hidden = false; }
+    };
+  };
+  return d.mfa ? passoMfa() : d.compilata ? attesa() : form();
+}
+
+// ── registrazione con email e password: crea la richiesta con password e secondo fattore, poi si compila lo stesso modulo del primo accesso con Google ──
+async function vistaRegistrati(msg = '') {
+  $('#esci').hidden = true; $('#hhome').hidden = false; $('#hsic').hidden = true; $('#titolo').textContent = 'Registrati';
+  const cfg = await api('/auth/config').catch(() => ({}));
+  $('#app').innerHTML = `<div class="card"><h2>Registrati</h2>
+    <p>Crea il tuo account in tre passi: email e password, verifica in due passaggi, dati personali. L'accesso si attiva quando l'organizzazione approva la richiesta.</p>
+    ${cfg.google || cfg.microsoft ? `<p><small>Preferisci Google o Microsoft? <a href="#login">Accedi con il tuo account</a>: al primo accesso trovi lo stesso modulo.</small></p>` : ''}
+    <label>Email</label><input id="rg_e" type="email" autocomplete="username">
+    <label>Password (almeno 8 caratteri)</label><input id="rg_p" type="password" autocomplete="new-password">
+    <label>Ripeti la password</label><input id="rg_p2" type="password" autocomplete="new-password">
+    <p class="err" id="rg_m">${esc(msg)}</p><button class="btn" id="rg_go">Continua</button>
+    <p><small>Hai già un account? <a href="#login">Accedi</a> · <a href="/privacy.html">Privacy</a></small></p></div>`;
+  $('#rg_go').onclick = async () => {
+    if ($('#rg_p').value !== $('#rg_p2').value) { $('#rg_m').textContent = 'Le due password non coincidono'; return; }
+    $('#rg_go').disabled = true;
+    try { await avviaSessione(await api('/registrati/inizia', { body: { email: $('#rg_e').value, password: $('#rg_p').value } })); }
+    catch (e) { $('#rg_m').textContent = e.message; $('#rg_go').disabled = false; }
+  };
 }
 
 const ERR_SSO = { non_autorizzato: 'Questo account non è abilitato: chiedi all\'organizzazione di registrare la tua email.', email_non_verificata: 'Email del provider non verificata.', sessione: 'Sessione di accesso scaduta: riprova.', provider: 'Il provider non ha risposto: riprova.', token: 'Risposta del provider non valida.', tenant: 'Account di un\'altra organizzazione.', non_configurato: 'Accesso non configurato.' };
@@ -182,6 +217,7 @@ async function vistaLogin(msg = '') {
     <div id="passo1"><label>Email</label><input id="em" type="email" autocomplete="username">
     <label>Password</label><input id="pw" type="password" autocomplete="current-password">
     <button class="btn" id="go">Entra</button></div>
+    <p><small>Non hai ancora un account? <a href="#registrati"><strong>Registrati</strong></a></small></p>
     <p><small><a href="/privacy.html">Privacy</a> · <a href="/termini.html">Termini di utilizzo</a></small></p>
     <div id="passo2" hidden><p>Inserisci il codice a 6 cifre dell'app di autenticazione (o un codice di recupero).</p>
     <input id="cod" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"><button class="btn" id="go2">Conferma</button></div>
@@ -488,7 +524,7 @@ async function route() {
   }
   if (location.hash.startsWith('#sso-errore=')) { const c = location.hash.slice(12); history.replaceState(null, '', location.pathname + '#login'); return vistaLogin(ERR_SSO[c] || 'Accesso non riuscito.'); }
   $('#hsic').hidden = !token || !!(me && me.in_attesa); if (me && me.nome) $('#hsic').textContent = me.nome;
-  if (!token) { return location.hash === '#login' ? vistaLogin() : vistaPubblica(); }
+  if (!token) { return location.hash === '#login' ? vistaLogin() : location.hash === '#registrati' ? vistaRegistrati() : vistaPubblica(); }
   if (!window.__meOk) { window.__meOk = true; try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch { /* offline: resta il profilo salvato */ } }
   if (me.in_attesa) { try { return await vistaRegistrazione(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
   if (me.mfa_da_configurare) return vistaSicurezza();

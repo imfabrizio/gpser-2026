@@ -1392,3 +1392,33 @@ test('NEWS-1: notizie per ambito, corso giudici', async () => {
   assert.equal(e.statusCode, 200);
   assert.equal(json(e).tipo, 'corso_giudici');
 });
+
+test('REG-1: registrazione con email, password e MFA, poi approvazione', async () => {
+  const { totp, decifra: dec } = await import('../src/mfa.js');
+  const { decifra } = await import('../src/mfa.js');
+  const adm = tok['adm@t'];
+  const ini = (b) => chiama('POST', '/api/registrati/inizia', { body: b });
+  assert.equal((await ini({ email: 'non-una-mail', password: 'abcdefgh1' })).statusCode, 400);
+  assert.equal((await ini({ email: 'nuovo@t.it', password: 'corta' })).statusCode, 400);
+  assert.equal((await ini({ email: 'org@t', password: 'abcdefgh1' })).statusCode, 400);      // non è una mail valida
+  assert.equal((await ini({ email: 'adm@t.it', password: 'abcdefgh1' })).statusCode, 200);
+  const r = json(await ini({ email: 'nuovo@t.it', password: 'password-lunga-1' }));
+  assert.ok(r.token && r.utente.in_attesa);
+  const H = { token: r.token };
+  // senza MFA il modulo non si invia e l'accesso non c'è
+  const dati = { nome: 'Mario', cognome: 'Rossi', codice_fiscale: 'RSSMRA90E17F257I', comitato: 'Modena', provincia: 'mo', ruolo_gara: 'giudice' };
+  assert.equal((await chiama('POST', '/api/registrazione', { ...H, body: dati })).statusCode, 400);
+  assert.equal((await chiama('GET', '/api/eventi', H)).statusCode, 403);
+  const form = json(await chiama('GET', '/api/registrazione', H)); assert.ok(form.mfa.qr && form.mfa.segreto);
+  assert.equal((await chiama('POST', '/api/registrazione/mfa', { ...H, body: { codice: '000000' } })).statusCode, 400);
+  const c = json(await chiama('POST', '/api/registrazione/mfa', { ...H, body: { codice: totp(form.mfa.segreto) } })); assert.equal(c.codici_recupero.length, 8);
+  assert.equal(json(await chiama('GET', '/api/registrazione', H)).mfa, null);
+  assert.equal((await chiama('POST', '/api/registrazione', { ...H, body: dati })).statusCode, 200);
+  assert.equal((await chiama('POST', '/api/login', { body: { email: 'nuovo@t.it', password: 'password-lunga-1' } })).statusCode, 401);   // non approvata: nessun accesso
+  const rq = json(await chiama('GET', '/api/richieste', { token: adm })).find((x) => x.email === 'nuovo@t.it'); assert.ok(rq);
+  assert.equal((await chiama('POST', `/api/richieste/${rq.id}/approva`, { token: adm, body: { ruolo: 'giudice' } })).statusCode, 200);
+  const lg = json(await chiama('POST', '/api/login', { body: { email: 'nuovo@t.it', password: 'password-lunga-1' } }));
+  assert.equal(lg.mfa, true);                                                                                                       // la MFA scelta in registrazione è già attiva
+  const ok = await chiama('POST', '/api/login/mfa', { body: { ticket: lg.ticket, codice: totp(form.mfa.segreto) } });
+  assert.equal(ok.statusCode, 200);
+});

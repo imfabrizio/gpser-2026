@@ -64,13 +64,13 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const rotta = req.routeOptions?.url || '';
     let decodificato; try { decodificato = decodeURIComponent(req.url.split('?')[0]); } catch { throw httpErr(400, 'URL non valido'); }
     const api = rotta.startsWith('/api/') || decodificato.startsWith('/api/');
-    if (!api || ['/api/login', '/api/login/mfa', '/api/pubblico'].includes(rotta) || rotta.startsWith('/api/auth/')) return;
+    if (!api || ['/api/login', '/api/login/mfa', '/api/pubblico', '/api/registrati/inizia'].includes(rotta) || rotta.startsWith('/api/auth/')) return;
     const t = leggiToken((req.headers.authorization || '').replace(/^Bearer /, ''));
     if (!t) throw httpErr(401, 'non autenticato');
     if (t.rid) {                                   // sessione di chi non è ancora registrato: solo il modulo di richiesta
       const { rows: [r] } = await pool.query('select * from richiesta_accesso where id=$1 and scade_il > now()', [t.rid]);
       if (!r) throw httpErr(401, 'richiesta scaduta: accedi di nuovo per ripresentarla');
-      if (!['/api/me', '/api/registrazione', '/api/comitati/cerca'].includes(rotta)) throw httpErr(403, 'accesso in attesa di approvazione');
+      if (!['/api/me', '/api/registrazione', '/api/registrazione/mfa', '/api/comitati/cerca'].includes(rotta)) throw httpErr(403, 'accesso in attesa di approvazione');
       req.richiesta = r; return;
     }
     const { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.id=$1 and u.attivo', [t.id]);

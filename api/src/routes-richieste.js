@@ -2,8 +2,9 @@ import { canonico } from './comitati.js';
 import crypto from 'node:crypto';
 // Registrazione con approvazione: chi entra con Google/Microsoft senza essere registrato compila un modulo;
 // l'amministratore lo approva (scegliendo il ruolo) o lo rifiuta. Senza risposta entro 48 ore la richiesta sparisce.
-import { hashPassword } from './auth.js';
-import { cifra, decifra } from './mfa.js';
+import { hashPassword, firmaToken, troppiTentativi, registraFallimento } from './auth.js';
+import { cifra, decifra, nuovoSegreto, verificaTotp, otpauth, nuoviCodiciRecupero } from './mfa.js';
+import QRCode from 'qrcode';
 import { verificaCodiceFiscale } from './codice-fiscale.js';
 import { hashCf } from './anagrafica.js';
 import { inTransazione } from './db.js';
@@ -39,17 +40,49 @@ export function registraRichieste(app, pool, { soloAdmin, fetchImpl = fetch }) {
     return req.richiesta;
   };
 
+  // ── registrazione con email e password: la richiesta nasce già con password e secondo fattore, ma non dà alcun accesso finché l'admin non approva ──
+  app.post('/api/registrati/inizia', async (req) => {
+    const { email, password } = req.body || {};
+    const chiave = `reg|${req.ip}`; if (troppiTentativi(chiave)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
+    registraFallimento(chiave);                                 // conta ogni richiesta: pochi tentativi per indirizzo
+    const mail = String(email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail) || mail.length > 160) throw httpErr(400, 'inserisci un indirizzo email valido');
+    if (typeof password !== 'string' || password.length < 8) throw httpErr(400, 'la password deve avere almeno 8 caratteri');
+    if ((await pool.query('select 1 from utente where lower(email)=$1', [mail])).rowCount) throw httpErr(409, 'esiste già un account con questa email: accedi con le tue credenziali');
+    await eliminaRichiesteScadute(pool);
+    const segreto = nuovoSegreto();
+    const { rows: [r] } = await pool.query(
+      `insert into richiesta_accesso (provider, sub, email, password_hash, mfa_secret) values ('password',$1,$1,$2,$3)
+       on conflict (provider, sub) do update set password_hash=excluded.password_hash, mfa_secret=excluded.mfa_secret, mfa_ok=false, mfa_recupero='{}', scade_il=now() + interval '48 hours'
+         where not richiesta_accesso.compilata returning id`, [mail, hashPassword(password), cifra(segreto)]);
+    if (!r) throw httpErr(409, 'esiste già una richiesta in attesa per questa email');
+    return { token: firmaToken({ rid: r.id, via: 'pwd' }, 48), utente: { in_attesa: true } };
+  });
+  app.post('/api/registrazione/mfa', { preHandler: rich }, async (req) => {
+    const r = req.richiesta;
+    if (r.provider !== 'password' || !r.mfa_secret) throw httpErr(400, 'questa richiesta non richiede la verifica in due passaggi');
+    if (r.mfa_ok) throw httpErr(409, 'verifica già completata');
+    const chiave = `regmfa|${req.ip}|${r.id}`; if (troppiTentativi(chiave)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
+    if (!verificaTotp(decifra(r.mfa_secret), req.body?.codice)) { registraFallimento(chiave); throw httpErr(400, 'codice non valido: controlla l\'ora del telefono e riprova'); }
+    const { chiari, hash } = nuoviCodiciRecupero();
+    await pool.query('update richiesta_accesso set mfa_ok=true, mfa_recupero=$2 where id=$1', [r.id, hash]);
+    return { codici_recupero: chiari };
+  });
+
   app.get('/api/registrazione', { preHandler: rich }, async (req) => {
     const r = req.richiesta;
     const { rows: squadre } = await pool.query(
       `select s.id, s.nome, s.comitato, e.nome as evento from squadra s join evento e on e.id=s.evento_id
         where s.attiva and (e.attivo or e.data >= current_date) order by e.data, s.numero`);
-    return { email: r.email, nome: r.nome, cognome: r.cognome, compilata: r.compilata, scade_il: r.scade_il, squadre, ruoli: RUOLI_GARA, con_squadra: CON_SQUADRA };
+    let mfa = null;
+    if (r.provider === 'password' && !r.mfa_ok && r.mfa_secret) { const seg = decifra(r.mfa_secret); mfa = { segreto: seg, qr: await QRCode.toDataURL(otpauth(seg, r.email), { margin: 1, width: 220 }) }; }
+    return { email: r.email, nome: r.nome, cognome: r.cognome, compilata: r.compilata, scade_il: r.scade_il, mfa, squadre, ruoli: RUOLI_GARA, con_squadra: CON_SQUADRA };
   });
 
   app.post('/api/registrazione', { preHandler: rich }, async (req) => {
     const b = req.body || {}, r = req.richiesta;
     const nome = pulisci(b.nome), cognome = pulisci(b.cognome), comitato = (await canonico(pool, pulisci(b.comitato, 120))).nome ?? '', provincia = pulisci(b.provincia, 40).toUpperCase();
+    if (r.provider === 'password' && !r.mfa_ok) throw httpErr(400, 'completa prima la verifica in due passaggi');
     const ruolo = String(b.ruolo_gara || '');
     if (!nome || !cognome || !comitato || !provincia) throw httpErr(400, 'nome, cognome, comitato e provincia sono obbligatori');
     if (!RUOLI_GARA[ruolo]) throw httpErr(400, 'scegli un ruolo');
@@ -92,9 +125,10 @@ export function registraRichieste(app, pool, { soloAdmin, fetchImpl = fetch }) {
       const { rows: [dup] } = await db.query('select 1 from utente where lower(email)=lower($1)', [r.email]);
       if (dup) throw httpErr(409, 'esiste già un utente con questa email');
       const { rows: [u] } = await db.query(
-        `insert into utente (email, nome, ruolo, admin, password_hash, ruolo_gara, squadra_id, comitato, provincia, evento_id)
-         values (lower($1),$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id, email, nome, ruolo, admin`,
-        [r.email, `${r.nome} ${r.cognome}`, ruolo, req.body?.admin === true, hashPassword(crypto.randomBytes(24).toString('base64url')), r.ruolo_gara, r.squadra_id, r.comitato, r.provincia, req.body?.evento_id || null]);
+        `insert into utente (email, nome, ruolo, admin, password_hash, ruolo_gara, squadra_id, comitato, provincia, evento_id, mfa_secret, mfa_attiva, mfa_recupero)
+         values (lower($1),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id, email, nome, ruolo, admin`,
+        [r.email, `${r.nome} ${r.cognome}`, ruolo, req.body?.admin === true, r.password_hash || hashPassword(crypto.randomBytes(24).toString('base64url')), r.ruolo_gara, r.squadra_id, r.comitato, r.provincia, req.body?.evento_id || null,
+         r.provider === 'password' ? r.mfa_secret : null, r.provider === 'password' && r.mfa_ok, r.provider === 'password' ? r.mfa_recupero : []]);
       // anagrafica: la persona c'è già (stesso codice fiscale o stessa email) → si collega e si aggiorna, altrimenti si crea
       const cf = decifra(r.cf_cifrato), h = hashCf(cf);
       let { rows: [p] } = await db.query('select id, utente_id from partecipante where cf_hash=$1', [h]);
@@ -106,7 +140,7 @@ export function registraRichieste(app, pool, { soloAdmin, fetchImpl = fetch }) {
         [r.cognome, r.nome, r.email, r.comitato, r.provincia, r.cf_cifrato, h, r.ruolo_gara, u.id]));
       if (r.squadra_id && ['partecipante_leader', 'partecipante_membro'].includes(r.ruolo_gara))     // chi gareggia entra nella squadra scelta
         await db.query('insert into squadra_membro (squadra_id, partecipante_id, ruolo) values ($1,$2,$3) on conflict do nothing', [r.squadra_id, p.id, r.ruolo_gara === 'partecipante_leader' ? 'capo squadra' : 'componente']);
-      await db.query('insert into utente_identita (provider, sub, utente_id, email) values ($1,$2,$3,$4) on conflict do nothing', [r.provider, r.sub, u.id, r.email]);
+      if (r.provider !== 'password') await db.query('insert into utente_identita (provider, sub, utente_id, email) values ($1,$2,$3,$4) on conflict do nothing', [r.provider, r.sub, u.id, r.email]);
       await db.query(`insert into audit_log (utente_id, azione, entita, entita_id) values ($1::uuid,'richiesta_approvata','utente',$2::text)`, [req.utente.id, u.id]);
       await db.query('delete from richiesta_accesso where id=$1', [r.id]);
       return u;
