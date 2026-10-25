@@ -9,6 +9,8 @@ import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
 import { aggiungiSchedaDaPatologia, creaScena, duplicaScena } from './services/scene.js';
 import { importaExcel } from './services/import-excel.js';
+import { èAllInOne, importaAllInOne } from './services/import-allinone.js';
+import ExcelJS from 'exceljs';
 import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
 import { registraSegreteria } from './routes-segreteria.js';
@@ -426,9 +428,18 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const tipoEvento = b.tipo === 'olimpiadi' ? 'olimpiadi' : 'gara';
     if (!b.evento_id && (!b.evento?.codice?.trim() || !b.evento?.nome?.trim())) throw httpErr(400, 'indica un evento esistente oppure codice e nome del nuovo evento');
     const e = b.evento || {};
-    return inTransazione(pool, (db) => importaExcel(db, buf, {
-      eventoId: b.evento_id || undefined, eventoCodice: e.codice?.trim(), nomeEvento: e.nome?.trim(), titoloStampa: e.titolo_stampa?.trim() || e.nome?.trim(),
-      luogo: e.luogo?.trim() || null, data: e.data || null, tipoEvento, attiva: false, sostituisci: b.sostituisci === true }));
+    const opz = { eventoId: b.evento_id || undefined, eventoCodice: e.codice?.trim(), nomeEvento: e.nome?.trim(), titoloStampa: e.titolo_stampa?.trim() || e.nome?.trim(),
+      luogo: e.luogo?.trim() || null, data: e.data || null, tipoEvento, attiva: false, sostituisci: b.sostituisci === true };
+    const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf);
+    return inTransazione(pool, async (db) => {
+      const rep = èAllInOne(wb) ? await importaAllInOne(db, wb, opz) : await importaExcel(db, buf, opz);
+      // squadre indicate a mano («1-Carpineti», una per riga) e archiviazione dell'evento come storico
+      const sq = String(e.squadre || '').split(/\r?\n/).map((x) => x.trim().match(/^(\d{1,3})\s*[-–:.]\s*(.+)$/)).filter(Boolean);
+      for (const [, n, nome] of sq) await db.query(`insert into squadra (evento_id, numero, nome, attiva) values ($1,$2,$3,true) on conflict (evento_id, numero) do nothing`, [rep.eventoId, Number(n), nome.trim()]);
+      if (sq.length) rep.squadre = Math.max(rep.squadre || 0, sq.length);
+      if (e.storico === true && !b.evento_id) await db.query('update evento set archiviato=true, attivo=false where id=$1', [rep.eventoId]);
+      return rep;
+    });
   });
 
   registraGestione(app, pool, { soloOrg, soloAdmin });

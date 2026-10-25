@@ -622,7 +622,7 @@ function editorPatologia(p, voci, nuova = false) {
 const aBase64 = (file) => new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = () => ko(new Error('file illeggibile')); r.readAsDataURL(file); });
 async function tImporta() {
   $('#app').innerHTML = `<div class="card"><h3>Importa scene da Excel</h3>
-    <p class="nota">Carica i file Excel delle scene (formato GareCRI). I file con «OLI» nel nome sono considerati Olimpiadi, gli altri gare. Ogni file diventa una scena dell'evento scelto,
+    <p class="nota">Carica i file Excel delle scene (formato GareCRI, oppure il vecchio «All in one» con i fogli Calcolo: lo riconosco da solo). I file con «OLI» nel nome sono considerati Olimpiadi, gli altri gare. Ogni file diventa una scena dell'evento scelto,
       con schede e valutazioni già inserite; le schede entrano anche nella <strong>libreria</strong> come «Tipo · Gara/Olimpiadi Scena». L'evento attivo non viene cambiato.
       Una scena già presente nell'evento non viene sovrascritta, a meno che tu spunti «Sostituisci».</p>
     <input type="file" id="im_f" accept=".xlsx" multiple><div id="im_cfg"></div><div id="im_ris"></div></div>`;
@@ -634,7 +634,9 @@ async function tImporta() {
       <div class="riga"><div><label>Evento</label><select class="ic_ev"><option value="">➕ Nuovo evento…</option>${ex.map((e) => `<option value="${e.id}" selected>${esc(e.codice)} – ${esc(e.nome)}</option>`).join('')}</select></div></div>
       <div class="riga ic_nuovo" ${ex.length ? 'hidden' : ''}><div><label>Codice</label><input class="ic_cod" value="${tipo === 'gara' ? '' : 'OLI-' + new Date().getFullYear()}" placeholder="${tipo === 'gara' ? 'GPSER-2027' : 'OLI-2026'}"></div>
         <div><label>Nome</label><input class="ic_nome" value="${tipo === 'gara' ? '' : 'Olimpiadi di primo soccorso'}"></div>
-        <div><label>Luogo</label><input class="ic_luogo"></div><div><label>Data</label><input class="ic_data" type="date"></div></div></div>`;
+        <div><label>Luogo</label><input class="ic_luogo"></div><div><label>Data</label><input class="ic_data" type="date"></div></div>
+      <div class="riga ic_nuovo" ${ex.length ? 'hidden' : ''}><div style="flex:2"><label>Squadre (facoltative, una per riga: 1-Carpineti)</label><textarea class="ic_sq" rows="3"></textarea></div>
+        <div><label>Storico</label><label style="font-size:14px;color:inherit"><input type="checkbox" class="ic_sto"> archivia la gara (solo consultazione)</label></div></div></div>`;
   };
   const disegna = () => {
     const tipi = [...new Set(files.map((f) => f.tipo))];
@@ -644,7 +646,7 @@ async function tImporta() {
       <p><label style="font-size:14px;color:inherit"><input type="checkbox" id="im_sost"> <strong>Sostituisci</strong> le scene già presenti: cancella le loro valutazioni e le reimporta dal file</label></p>
       <p><button class="b" id="im_go">Importa ${files.length} file</button></p>` : '';
     document.querySelectorAll('.im_t').forEach((sel) => { sel.onchange = () => { files[sel.dataset.i].tipo = sel.value; disegna(); }; });
-    document.querySelectorAll('.ic_ev').forEach((sel) => { sel.onchange = () => { sel.closest('.scheda').querySelector('.ic_nuovo').hidden = sel.value !== ''; }; });
+    document.querySelectorAll('.ic_ev').forEach((sel) => { sel.onchange = () => { sel.closest('.scheda').querySelectorAll('.ic_nuovo').forEach((x) => { x.hidden = sel.value !== ''; }); }; });
     if ($('#im_go')) $('#im_go').onclick = vai;
   };
   const vai = async () => {
@@ -652,7 +654,8 @@ async function tImporta() {
     for (const blocco of document.querySelectorAll('#im_cfg .scheda')) {
       const t = blocco.dataset.tipo, id = blocco.querySelector('.ic_ev').value;
       dest[t] = id ? { evento_id: id } : { evento: { codice: blocco.querySelector('.ic_cod').value.trim(), nome: blocco.querySelector('.ic_nome').value.trim(),
-        luogo: blocco.querySelector('.ic_luogo').value.trim(), data: blocco.querySelector('.ic_data').value || null } };
+        luogo: blocco.querySelector('.ic_luogo').value.trim(), data: blocco.querySelector('.ic_data').value || null,
+        squadre: blocco.querySelector('.ic_sq').value, storico: blocco.querySelector('.ic_sto').checked } };
       if (!id && (!dest[t].evento.codice || !dest[t].evento.nome)) return flash('Per un nuovo evento servono codice e nome', false);
     }
     const sostituisci = $('#im_sost').checked;

@@ -121,7 +121,7 @@ export function disegnaScheda(doc, ctx) {
       const x = XL + (i + 1) * COLW;
       rect(doc, x, 216, COLW, 21); rect(doc, x, 237, COLW, 44);
       testo(doc, n, x, 216, COLW, 21, { size: 9.5 });
-      testo(doc, v == null ? '' : String(v), x, 237, COLW, 44, { size: 9.5, multi: true });
+      testo(doc, v == null ? '' : String(v), x, 237, COLW, 44, { size: String(v ?? '').length > 14 ? 7.5 : 9.5, multi: true });
     });
   } else { rect(doc, XL, 216, X1 - XL, 21); rect(doc, XL, 237, X1 - XL, 44); }
 

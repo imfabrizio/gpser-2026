@@ -1148,3 +1148,25 @@ test('ANT-1 anteprima di una scheda della libreria: PDF con lo stesso template d
   assert.match(r.headers['content-type'], /pdf/);
   assert.equal(r.rawPayload.subarray(0, 4).toString(), '%PDF');
 });
+
+test('AIO-1 import del vecchio formato «All in one»: scene, schede e punteggi per livello, squadre e storico', async () => {
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  const d = wb.addWorksheet('DATI');
+  d.getRow(1).values = ['SCENA', 'SQUADRA', 'TITOLO SCENA']; d.getRow(2).values = ['Z', 4, 'Scena di prova'];
+  d.getRow(9).values = ['RUOLO', 'Simulatore', 'Patologia', 'Coscienza', 'FR', 'FC', 'CUTE', 'Codice Scheda', 'Punteggio Massimo'];
+  d.getRow(10).values = ['Master', 'M', 'Master', null, null, null, null, 'Z04M', 8];
+  d.getRow(11).values = ['Giudice 1', 1, 'Ferita', 'V', 20, 90, 'Pallida', 'Z0401', 13];
+  const calc = (nome, righe) => { const w = wb.addWorksheet(nome); righe.forEach((r, i) => { const row = w.getRow(i + 2); row.getCell(2).value = r[0]; if (r[1]) r[1].forEach((v, k) => { if (v !== null) row.getCell([4, 7, 10, 13, 16][k]).value = v; }); if (r[2]) row.getCell(1).value = 'SEP'; }); };
+  calc('Calcolo Master', [['SICUREZZA'], ['si guarda attorno', [3, null, 1, null, 0]], ['indossa i d.p.i.', [5, 4, 2, 1, 0], true], ['Item 5'], ['Tot']]);
+  calc('Calcolo Ferita', [['SCENA'], ['valuta i rischi', [5, 4, 2, 1, 0]], ['chiama entro 2 minuti', [0, null, null, null, -20]], ['ferma l\'emorragia', [8, null, null, null, 0]]]);
+  const buf = Buffer.from(await wb.xlsx.writeBuffer());
+  const r = await chiama('POST', '/api/import/excel', { token: tok['org@t'], body: { dati: buf.toString('base64'), tipo: 'gara',
+    evento: { codice: 'STORICO-T', nome: 'Gara storica di prova', squadre: '1-Alfa\n2-Beta', storico: true } } });
+  assert.equal(r.statusCode, 200, r.payload);
+  const o = json(r);
+  assert.equal(o.formato, 'all-in-one'); assert.equal(o.schede, 2); assert.equal(o.squadre, 2); assert.equal(o.voci, 5);
+  assert.equal(o.avvisi.length, 0);   // i massimi dichiarati in DATI coincidono con quelli calcolati dalle voci
+  const { rows: [e] } = await pool.query(`select archiviato from evento where codice='STORICO-T'`);
+  assert.equal(e.archiviato, true);
+});
