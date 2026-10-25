@@ -1378,3 +1378,17 @@ test('DOP-1 doppioni in libreria: si individuano, si uniscono spostando le scene
   assert.equal((await chiama('POST', '/api/libreria/doppioni/ignora', { token: tok['adm@t'], body: { a: D.id, b: E.id } })).statusCode, 200);
   l = json(await chiama('GET', '/api/libreria/doppioni', { token: tok['adm@t'] })); assert.ok(!coppia(D.id, E.id)); assert.ok(!coppia(A.id, B.id));
 });
+
+test('NEWS-1: notizie per ambito, corso giudici', async () => {
+  const org = tok['org@t'];
+  await chiama('POST', '/api/avvisi', { token: org, body: { titolo: 'Per le gare', pubblico: true } });
+  await chiama('POST', '/api/avvisi', { token: org, body: { titolo: 'Per la formazione', pubblico: true, ambito: 'formazione' } });
+  const g = json(await chiama('GET', '/api/avvisi?ambito=gare', { token: org })), f = json(await chiama('GET', '/api/avvisi?ambito=formazione', { token: org }));
+  assert.ok(g.some((a) => a.titolo === 'Per le gare') && !g.some((a) => a.titolo === 'Per la formazione'));
+  assert.ok(f.some((a) => a.titolo === 'Per la formazione' && a.pubblico === false) && !f.some((a) => a.titolo === 'Per le gare'));
+  const pub = json(await chiama('GET', '/api/pubblico'));
+  assert.ok(pub.avvisi.some((a) => a.titolo === 'Per le gare') && !pub.avvisi.some((a) => a.titolo === 'Per la formazione'));
+  const e = await chiama('POST', '/api/eventi', { token: tok['adm@t'], body: { codice: 'CG-1', nome: 'Corso giudici', tipo: 'corso_giudici' } });
+  assert.equal(e.statusCode, 200);
+  assert.equal(json(e).tipo, 'corso_giudici');
+});

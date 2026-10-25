@@ -80,7 +80,8 @@ let token = localStorage.getItem('token'), me = JSON.parse(localStorage.getItem(
 let eventi = [], ev = null, tab = 'menu', cache = {};
 // due famiglie di eventi con aree di gestione separate: gare (gara, olimpiadi, allenamento) e corsi (corso, mega code, esame)
 let fam = 'gara';
-const FAM_TIPI = { gara: ['gara', 'olimpiadi', 'allenamento'], corsi: ['corso', 'megacode', 'esame'], comune: ['gara', 'olimpiadi', 'allenamento'] };
+const FAM_TIPI = { gara: ['gara', 'olimpiadi', 'allenamento', 'corso_giudici'], corsi: ['corso', 'megacode', 'esame'], comune: ['gara', 'olimpiadi', 'allenamento', 'corso_giudici'] };
+const NOME_TIPO = { corso_giudici: 'corso giudici', megacode: 'mega code' };
 const eventiFam = () => eventi.filter((e) => FAM_TIPI[fam].includes(e.tipo));
 const impostaFam = (f) => { fam = f; const s = localStorage.getItem('ev_' + fam), l = eventiFam(); ev = l.find((e) => e.id === s) || l.find((e) => e.attivo) || l[0] || null; };
 const LIV = ['mb', 'be', 'su', 'in', 'ne'];
@@ -160,7 +161,7 @@ async function tEvento() {
     <div class="riga"><div><label>Luogo</label><input id="e_luogo" value="${esc(ev.luogo || '')}"></div>
       <div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
       <div><label>Ultimo giorno (se dura più giorni)</label><input id="e_dfine" type="date" value="${esc(ev.data_fine || '')}"></div>
-      <div><label>Tipo</label><select id="e_tipo">${FAM_TIPI[fam === 'corsi' ? 'corsi' : 'gara'].map((t) => `<option ${ev.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
+      <div><label>Tipo</label><select id="e_tipo">${FAM_TIPI[fam === 'corsi' ? 'corsi' : 'gara'].map((t) => `<option value="${t}" ${ev.tipo === t ? 'selected' : ''}>${NOME_TIPO[t] || t}</option>`).join('')}</select></div></div>
     ${fam === 'corsi' ? `<div class="riga"><div><label>N° corso su Gaia</label><input id="e_gaia" value="${esc(ev.codice_gaia || '')}"></div>
       <div><label>Corso di riferimento</label><select id="e_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato && x.id !== ev.id).map((x) => `<option value="${x.id}" ${x.id === ev.corso_id ? 'selected' : ''}>${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>` : ''}
     <div class="riga"><div><label>Soglia di superamento (%) — vuota se non serve</label><input id="e_soglia" type="number" min="1" max="100" value="${esc(ev.soglia_pct ?? '')}"></div>
@@ -178,7 +179,7 @@ async function tEvento() {
     <p><button class="b" id="e_map_ok">Salva mappa</button></p></div>` : '') + `
   <div class="card"><h3>${fam === 'corsi' ? 'Nuovo evento' : 'Nuova gara'}</h3><div class="riga">
     <div><label>Nome</label><input id="n_nome" placeholder="GPSER 2027"></div><div><label>Codice (se vuoto, ricavato dal nome)</label><input id="n_cod" placeholder="GPSER-2027"></div>
-    <div><label>Tipo</label><select id="n_tipo">${fam === 'corsi' ? '<option value="corso">corso</option><option value="megacode">mega code (formativo)</option><option value="esame">esame (soglia 75%)</option>' : '<option value="gara">gara</option><option value="olimpiadi">olimpiadi</option><option value="allenamento">allenamento</option>'}</select></div>
+    <div><label>Tipo</label><select id="n_tipo">${fam === 'corsi' ? '<option value="corso">corso</option><option value="megacode">mega code (formativo)</option><option value="esame">esame (soglia 75%)</option>' : '<option value="gara">gara</option><option value="olimpiadi">olimpiadi</option><option value="allenamento">allenamento</option><option value="corso_giudici">corso giudici</option>'}</select></div>
     <div><label>Luogo</label><input id="n_luogo"></div><div><label>Data</label><input id="n_data" type="date"></div>
     ${fam === 'corsi' ? '<div><label>N° corso su Gaia</label><input id="n_gaia" placeholder="es. 12345"></div>' : ''}
     ${fam !== 'corsi' ? '' : `<div><label>Corso di riferimento (Mega Code, esami)</label><select id="n_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato).map((x) => `<option value="${x.id}">${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div>`}</div>
@@ -280,17 +281,17 @@ async function tCorsi() {
 
 // ───────── NOTIZIE ─────────
 async function tNews() {
-  const l = ev ? await api(`/avvisi?evento=${ev.id}`) : [];
-  $('#app').innerHTML = selettoreEvento() + `<div class="card"><h3>Nuova notizia</h3>
+  const amb = fam === 'corsi' ? 'formazione' : 'gare', l = await api(`/avvisi?ambito=${amb}${ev ? '&evento=' + ev.id : ''}`);
+  $('#app').innerHTML = selettoreEvento() + `<div class="card"><h3>Nuova notizia ${amb === 'formazione' ? 'per la Formazione' : 'per le Gare e Olimpiadi'}</h3>
     <div class="riga"><div style="flex:2"><label>Titolo</label><input id="av_t"></div><div style="flex:3"><label>Testo</label><input id="av_x"></div></div>
-    <div class="riga"><div><label>Visibile a</label><select id="av_d"><option value="ev">solo chi partecipa a questa gara</option><option value="tutti">tutti gli utenti</option></select></div>
-    <div><label>Home pubblica</label><label style="font-size:15px;color:inherit"><input type="checkbox" id="av_p"> mostra anche senza login</label></div>
+    <div class="riga"><div><label>Visibile a</label><select id="av_d"><option value="ev">solo chi partecipa a questo evento</option><option value="tutti">${amb === 'formazione' ? 'tutta la Formazione' : 'tutti gli utenti'}</option></select></div>
+    ${amb === 'formazione' ? '<div><p class="nota">Le notizie della Formazione sono interne: non compaiono mai nella Home pubblica.</p></div>' : '<div><label>Home pubblica</label><label style="font-size:15px;color:inherit"><input type="checkbox" id="av_p"> mostra anche senza login</label></div>'}
     <div class="stretto"><button class="b" id="av_ok">Pubblica</button></div></div></div>
-    <div class="card"><h3>Notizie pubblicate</h3>${l.length ? `<table>${l.map((x) => `<tr><td><b>${esc(x.titolo)}</b> ${x.pubblico ? '<span class="tag ok">pubblica</span>' : ''}<span class="tag">${x.evento_id ? 'questa gara' : 'tutti'}</span><br><small>${esc(x.testo || '')} · ${esc(String(x.created_at).slice(0, 10))}</small></td>
+    <div class="card"><h3>Notizie pubblicate</h3>${l.length ? `<table>${l.map((x) => `<tr><td><b>${esc(x.titolo)}</b> ${x.pubblico ? '<span class="tag ok">pubblica</span>' : ''}<span class="tag">${x.evento_id ? 'questo evento' : 'tutti'}</span><br><small>${esc(x.testo || '')} · ${esc(String(x.created_at).slice(0, 10))}</small></td>
       <td style="width:90px"><button class="x p dav" data-id="${x.id}">Elimina</button></td></tr>`).join('')}</table>` : '<p class="nota">Nessuna notizia.</p>'}</div>`;
   legaSelettore();
   document.querySelectorAll('.dav').forEach((b) => { b.onclick = () => fai(() => api(`/avvisi/${b.dataset.id}`, { method: 'DELETE' }), 'Notizia eliminata'); });
-  $('#av_ok').onclick = () => { const t = $('#av_t').value.trim(); if (t) fai(() => api('/avvisi', { body: { evento_id: $('#av_d').value === 'ev' && ev ? ev.id : null, titolo: t, testo: $('#av_x').value.trim(), pubblico: $('#av_p').checked } }), 'Notizia pubblicata'); };
+  $('#av_ok').onclick = () => { const t = $('#av_t').value.trim(); if (t) fai(() => api('/avvisi', { body: { evento_id: $('#av_d').value === 'ev' && ev ? ev.id : null, titolo: t, testo: $('#av_x').value.trim(), pubblico: !!$('#av_p')?.checked, ambito: amb } }), 'Notizia pubblicata'); };
 }
 
 // ───────── CLASSIFICHE ─────────

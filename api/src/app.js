@@ -32,7 +32,7 @@ import { haSchede, comitatoDi, controllaScheda } from './libreria-ambito.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
-const TIPI_EVENTO = ['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode'];
+const TIPI_EVENTO = ['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode', 'corso_giudici'];
 
 export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   const app = Fastify({ logger, trustProxy: process.env.TRUST_PROXY === '1' });   // TRUST_PROXY=1 solo dietro a un proxy fidato (es. hosting con HTTPS)
@@ -138,27 +138,27 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
 
   // ── pagina pubblica (senza login): notizie, gare, percorso ──
   app.get('/api/pubblico', async () => {
-    const { rows: avvisi } = await pool.query(`select id, titolo, testo, created_at from avviso where pubblico order by created_at desc limit 20`);
+    const { rows: avvisi } = await pool.query(`select id, titolo, testo, created_at from avviso where pubblico and ambito='gare' order by created_at desc limit 20`);
     const { rows: eventi } = await pool.query(
-      `select id, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, mappa_url from evento where not archiviato and tipo <> 'allenamento' and (livello is null or (livello <> 'comitato' and attivo)) order by data desc nulls last limit 20`);
+      `select id, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, mappa_url from evento where not archiviato and tipo not in ('allenamento','corso_giudici') and (livello is null or (livello <> 'comitato' and attivo)) order by data desc nulls last limit 20`);
     const { rows: scene } = await pool.query(
       `select s.evento_id, s.codice, s.titolo, s.indirizzo, s.lat, s.lng from scena s join evento e on e.id=s.evento_id
-        where not e.archiviato and e.tipo <> 'allenamento' and (e.livello is null or (e.livello <> 'comitato' and e.attivo)) and (s.indirizzo is not null or s.lat is not null) order by s.ordine, s.codice`);
+        where not e.archiviato and e.tipo not in ('allenamento','corso_giudici') and (e.livello is null or (e.livello <> 'comitato' and e.attivo)) and (s.indirizzo is not null or s.lat is not null) order by s.ordine, s.codice`);
     return { avvisi, eventi: eventi.map((e) => ({ ...e, scene: scene.filter((s) => s.evento_id === e.id) })) };
   });
 
   // ── bacheca avvisi della Home ──
   app.get('/api/avvisi', async (req) => {
-    const ev = req.query.evento || null;
+    const ev = req.query.evento || null, amb = ['gare', 'formazione'].includes(req.query.ambito) ? req.query.ambito : 'gare';
     return (await pool.query(
-      `select id, evento_id, titolo, testo, pubblico, created_at from avviso
-        where evento_id is null or evento_id = $1::uuid order by created_at desc limit 20`, [ev])).rows;
+      `select id, evento_id, titolo, testo, pubblico, ambito, created_at from avviso
+        where ambito = $2 and (evento_id is null or evento_id = $1::uuid) order by created_at desc limit 20`, [ev, amb])).rows;
   });
   app.post('/api/avvisi', { preHandler: soloOrg }, async (req) => {
-    const b = req.body || {};
+    const b = req.body || {}, amb = b.ambito === 'formazione' ? 'formazione' : 'gare';
     if (!b.titolo || !String(b.titolo).trim()) throw httpErr(400, 'titolo obbligatorio');
-    return (await pool.query('insert into avviso (evento_id, titolo, testo, pubblico) values ($1,$2,$3,$4) returning *',
-      [b.evento_id || null, String(b.titolo).trim(), b.testo || null, b.pubblico === true])).rows[0];
+    return (await pool.query('insert into avviso (evento_id, titolo, testo, pubblico, ambito) values ($1,$2,$3,$4,$5) returning *',
+      [b.evento_id || null, String(b.titolo).trim(), b.testo || null, b.pubblico === true && amb === 'gare', amb])).rows[0];
   });
   app.delete('/api/avvisi/:id', { preHandler: soloOrg }, async (req) => { await pool.query('delete from avviso where id=$1', [req.params.id]); return { ok: true }; });
 
@@ -221,9 +221,9 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       else comitato = comitato || prof.comitato;
       if (b.corso_id) { const { rows: [c] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [b.corso_id]); if (!c || !(await puoGestireEvento(pool, req.utente, c, prof))) throw httpErr(403, 'corso non nel tuo ambito'); }
     }
-    const didattico = ['allenamento', 'corso', 'esame', 'megacode'].includes(tipo);
+    const didattico = ['allenamento', 'corso', 'esame', 'megacode', 'corso_giudici'].includes(tipo);
     const ente = await decidiEnte(req, b, tipo, comitato);
-    if (ente.livello === 'comitato' && !req.utente.admin && ['gara', 'olimpiadi'].includes(tipo)) throw httpErr(403, 'le gare e le Olimpiadi le organizza la regione: un comitato crea allenamenti');
+    if (ente.livello === 'comitato' && !req.utente.admin && ['gara', 'olimpiadi', 'corso_giudici'].includes(tipo)) throw httpErr(403, 'le gare, le Olimpiadi e i corsi giudici li organizza la regione: un comitato crea allenamenti');
     return (await pool.query(
       `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, data_fine, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato, livello, regione) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,nullif(trim($10),''),$11,$12,$13,$14) returning *`,
       [b.codice, b.nome, tipo, b.titolo_stampa, b.luogo, b.data, b.data_fine || null, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, ente.comitato ?? comitato, ente.livello, ente.regione])).rows[0];

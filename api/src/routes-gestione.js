@@ -258,7 +258,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   // ── evento / scena / scheda ──
   app.patch('/api/eventi/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
-    if (b.tipo && !['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode'].includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
+    if (b.tipo && !['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode', 'corso_giudici'].includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
     const { rows: [att] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [req.params.id]);
     if (!att) throw httpErr(404, 'evento inesistente');
     const prof = soloFormazione(req.utente) ? await profiloFormativo(pool, req.utente.id) : null;
