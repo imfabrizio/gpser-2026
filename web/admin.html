@@ -88,7 +88,7 @@ const LIV = ['mb', 'be', 'su', 'in', 'ne'];
 
 async function api(path, opt = {}) {
   const r = await fetch('/api' + path, { method: opt.method || (opt.body ? 'POST' : 'GET'),
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    headers: { ...(opt.body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: 'Bearer ' + token } : {}) },
     body: opt.body ? JSON.stringify(opt.body) : undefined });
   if (r.status === 403 && (await r.clone().json().catch(() => ({}))).errore === 'configura_mfa') { location.href = '/#sicurezza'; throw new Error('configura la MFA'); }
   if (r.status === 401 && !path.startsWith('/login') && !path.startsWith('/auth/')) { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; throw new Error('sessione scaduta'); }

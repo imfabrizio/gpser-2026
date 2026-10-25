@@ -278,18 +278,20 @@ async function vistaHome() {
       ${tileF('#documenti', 'documenti', 'Documentazione', 'Regolamento, comunicazioni, manuali')}</div></div>`;
   // due mondi: chi ha accesso a entrambi sceglie all'ingresso; ciascuno vede solo le proprie cose
   const haForm = org() && (me.admin || aree.some((a) => ['esami', 'formazione_esame'].includes(a))), haGara = !soloFormazione;
+  const haComune = org() && (me.admin || aree.includes('anagrafiche'));
+  const tileComune = haComune ? tileF('/admin.html#hub:comune', 'documenti', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli') : '';
   let mondo = haGara && haForm ? localStorage.getItem('mondo') : (haForm ? 'formazione' : 'gara');
   const cambia = haGara && haForm ? '<p><a href="#" id="cambia_area">← Cambia area</a></p>' : '';
   const legaCambia = () => { if ($('#cambia_area')) $('#cambia_area').onclick = (e) => { e.preventDefault(); localStorage.removeItem('mondo'); vistaHome(); }; };
   if (haGara && haForm && !['gara', 'formazione'].includes(mondo)) {
     $('#app').innerHTML = `<div class="sezione-home"><div class="tiles">${tileF('#', 'gestione', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede e classifiche').replace('<a class="tile" href="#"', '<a class="tile" href="#" data-m="gara"')}
-      ${tileF('#', 'esami', 'Formazione', 'Corsi, Mega Code, esami e schede d\'esame').replace('<a class="tile" href="#"', '<a class="tile" href="#" data-m="formazione"')}</div></div>`;
+      ${tileF('#', 'esami', 'Formazione', 'Corsi, Mega Code, esami e schede d\'esame').replace('<a class="tile" href="#"', '<a class="tile" href="#" data-m="formazione"')}${tileComune}</div></div>`;
     document.querySelectorAll('[data-m]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); localStorage.setItem('mondo', a.dataset.m); vistaHome(); }; });
     return;
   }
   if (mondo === 'formazione') {
     const avvF = await api('/avvisi?ambito=formazione').catch(() => []);
-    $('#app').innerHTML = `${cambia}${formazione.replace('<h3>Formazione</h3><div class="tiles">', '<h3>Formazione</h3><div class="tiles">' + (org() ? tileF('/admin.html#hub:corsi', 'gestione', 'Gestione', 'Corsi, scene, squadre, notizie') : ''))}
+    $('#app').innerHTML = `${cambia}${formazione.replace('<h3>Formazione</h3><div class="tiles">', '<h3>Formazione</h3><div class="tiles">' + (org() ? tileF('/admin.html#hub:corsi', 'gestione', 'Gestione', 'Corsi, scene, equipaggi, notizie') : '') + tileComune)}
       <div class="card"><strong>Notizie per la Formazione</strong>${avvF.length ? avvF.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>`;
     legaCambia(); return;
   }
@@ -301,7 +303,7 @@ async function vistaHome() {
   const tipoGara = TIPO_EV[ev.tipo] || 'Gara';
   const gestioneGara = org() && aree.some((a) => !['valutazione', 'esami', 'formazione_esame'].includes(a));
   const tileGara = (aree.includes('valutazione') ? tileF('#valutazione', 'valutazione', 'Valutazione', esc(ev.nome)) : '')
-    + (gestioneGara ? tileF('/admin.html#hub:gara', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '')
+    + (gestioneGara ? tileF('/admin.html#hub:gara', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '') + (haGara && !haForm ? tileComune : '')
     + (gestioneGara && aree.includes('classifiche') ? tileF('#monitor', 'monitor', 'Monitor', 'Avanzamento delle schede') : '');
   $('#app').innerHTML = `${cambia}<div class="banner"><small>${tipoGara} ${statoGara(ev)}</small><h2>${esc(ev.nome)}</h2>
     <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
