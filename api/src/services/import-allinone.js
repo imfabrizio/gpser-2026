@@ -12,6 +12,7 @@ const val = (c) => {
   return v ?? null;
 };
 const COL = [4, 7, 10, 13, 16];   // D G J M P: punti dei livelli MB BE SU IN NE
+const FORM = [6, 9, 12, 15, 18];  // F I L O R: cella con la formula dei punti; se è stata svuotata a mano la voce è annullata
 const MARK = [5, 8, 11, 14, 17];  // E H K N Q: la «x» del giudice sul livello scelto
 const LIVELLI = ['mb', 'be', 'su', 'in', 'ne'];
 const norm = (t) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '').toLowerCase();
@@ -36,7 +37,8 @@ function leggiScheda(ws) {
     }
     if (!sezione) sezione = 'Valutazione';
     const marks = MARK.map((c) => String(val(ws.getCell(r, c)) ?? '').trim().toLowerCase() === 'x');
-    voci.push({ sezione, testo: t, liv, marks, sep: testoCella(val(ws.getCell(r, 1))) === 'SEP' });
+    const annullata = MARK.some((_, j) => marks[j] && liv[j] !== null && (ws.getCell(r, FORM[j]).value === null || ws.getCell(r, FORM[j]).value === undefined));
+    voci.push({ sezione, testo: t, liv, marks, annullata, sep: testoCella(val(ws.getCell(r, 1))) === 'SEP' });
   }
   return voci;
 }
@@ -157,7 +159,7 @@ export async function importaValutazioniAllInOne(db, wb, { eventoId, sostituisci
     const sch = schede[i];
     const { rows: stored } = await db.query('select id, ordine, testo, mb, be, su, "in", ne from scena_scheda_voce where scheda_id=$1 order by ordine', [sch.id]);
     const voci = leggiScheda(fogli[i]);
-    const usate = new Set(); let tot = 0; let nonApp = 0; const scelte = [];
+    const usate = new Set(); let tot = 0; let nonApp = 0, annullate = 0; const scelte = [];
     for (const v of voci) {
       const k = norm(v.testo);
       const st = stored.find((x) => !usate.has(x.id) && norm(x.testo) === k);
@@ -167,11 +169,13 @@ export async function importaValutazioniAllInOne(db, wb, { eventoId, sostituisci
       usate.add(st.id);
       if (segnate.length > 1) { rep.avvisi.push(`${sch.titolo}: più livelli segnati per «${v.testo}»: voce saltata`); continue; }
       if (!segnate.length) continue;
+      if (v.annullata) { annullate++; continue; }   // voce annullata nel file (formula dei punti rimossa): non conta
       const j = segnate[0], punti = st[LIVELLI[j]];
       if (punti === null || punti === undefined) { rep.avvisi.push(`${sch.titolo}: il livello ${LIVELLI[j].toUpperCase()} non esiste per «${v.testo}»`); continue; }
       scelte.push([st.id, LIVELLI[j]]); tot += punti;
     }
     if (nonApp) rep.avvisi.push(`${sch.titolo}: ${nonApp} voci azzerate nel file della squadra (non applicabili): non contate`);
+    if (annullate) rep.avvisi.push(`${sch.titolo}: ${annullate} voci annullate nel file: non contate`);
     if (riga.realizzato !== null && tot !== riga.realizzato) rep.avvisi.push(`${sch.titolo}: totale ricalcolato ${tot}, nel file ${riga.realizzato}`);
     if (!scelte.length) { rep.avvisi.push(`${sch.titolo}: nessuna valutazione nel file`); continue; }
     const { rows: [c] } = await db.query(
