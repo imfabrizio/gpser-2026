@@ -1170,3 +1170,26 @@ test('AIO-1 import del vecchio formato «All in one»: scene, schede e punteggi 
   const { rows: [e] } = await pool.query(`select archiviato from evento where codice='STORICO-T'`);
   assert.equal(e.archiviato, true);
 });
+
+test('AIO-2 import delle valutazioni dai file «All in one» compilati (x sui livelli), con confronto dei totali', async () => {
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  const d = wb.addWorksheet('DATI');
+  d.getRow(1).values = ['SCENA', 'SQUADRA', 'TITOLO SCENA']; d.getRow(2).values = ['Z', 1, 'Scena di prova'];
+  d.getRow(9).values = ['RUOLO', 'Simulatore', 'Patologia', 'Coscienza', 'FR', 'FC', 'CUTE', 'Codice Scheda', 'Punteggio Massimo', 'Realizzato'];
+  d.getRow(10).values = ['Master', 'M', 'Master', null, null, null, null, 'Z01M', 8, 6];     // 1 + 5
+  d.getRow(11).values = ['Giudice 1', 1, 'Ferita', 'V', 20, 90, 'Pallida', 'Z0101', 13, 13];
+  const calc = (nome, righe) => { const w = wb.addWorksheet(nome); righe.forEach((r, i) => { const row = w.getRow(i + 2); row.getCell(2).value = r[0]; if (r[1]) r[1].forEach((v, k) => { if (v !== null) row.getCell([4, 7, 10, 13, 16][k]).value = v; }); if (r[2] !== undefined) row.getCell([5, 8, 11, 14, 17][r[2]]).value = 'x'; }); };
+  calc('Calcolo Master', [['SICUREZZA'], ['si guarda attorno', [3, null, 1, null, 0], 2], ['indossa i d.p.i.', [5, 4, 2, 1, 0], 0], ['Tot']]);
+  calc('Calcolo Ferita', [['SCENA'], ['valuta i rischi', [5, 4, 2, 1, 0], 0], ['chiama entro 2 minuti', [0, null, null, null, -20], 0], ['ferma l\'emorragia', [8, null, null, null, 0], 0]]);
+  const buf = Buffer.from(await wb.xlsx.writeBuffer());
+  const { rows: [e] } = await pool.query(`select id from evento where codice='STORICO-T'`);
+  const r = await chiama('POST', '/api/import/excel', { token: tok['org@t'], body: { dati: buf.toString('base64'), evento_id: e.id, valutazioni: true } });
+  assert.equal(r.statusCode, 200, r.payload);
+  const o = json(r);
+  assert.equal(o.risposte, 5); assert.equal(o.avvisi.length, 0, o.avvisi.join('|'));
+  const { rows: [c] } = await pool.query(`select count(*)::int n from compilazione c join squadra q on q.id=c.squadra_id where q.evento_id=$1 and q.numero=1`, [e.id]);
+  assert.equal(c.n, 2);
+  const bis = await chiama('POST', '/api/import/excel', { token: tok['org@t'], body: { dati: buf.toString('base64'), evento_id: e.id, valutazioni: true } });
+  assert.equal(bis.statusCode, 409);   // già presenti: serve «Sostituisci»
+});

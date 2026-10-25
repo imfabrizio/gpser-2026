@@ -11,7 +11,10 @@ const val = (c) => {
   if (v && typeof v === 'object' && !(v instanceof Date)) return v.result ?? v.text ?? null;
   return v ?? null;
 };
-const COL = [4, 7, 10, 13, 16];   // D G J M P
+const COL = [4, 7, 10, 13, 16];   // D G J M P: punti dei livelli MB BE SU IN NE
+const MARK = [5, 8, 11, 14, 17];  // E H K N Q: la «x» del giudice sul livello scelto
+const LIVELLI = ['mb', 'be', 'su', 'in', 'ne'];
+const norm = (t) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '').toLowerCase();
 const slug = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').toUpperCase();
 const num = (v) => (typeof v === 'number' ? v : (v !== null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : null));
 const testoCella = (v) => (v === null || v === undefined || v === '' ? null : String(v).trim());
@@ -32,7 +35,8 @@ function leggiScheda(ws) {
       sezione = t; continue;
     }
     if (!sezione) sezione = 'Valutazione';
-    voci.push({ sezione, testo: t, liv, sep: testoCella(val(ws.getCell(r, 1))) === 'SEP' });
+    const marks = MARK.map((c) => String(val(ws.getCell(r, c)) ?? '').trim().toLowerCase() === 'x');
+    voci.push({ sezione, testo: t, liv, marks, sep: testoCella(val(ws.getCell(r, 1))) === 'SEP' });
   }
   return voci;
 }
@@ -116,5 +120,67 @@ export async function importaAllInOne(db, wb, opz) {
   }
   Object.assign(rep, { eventoId: ev.id, eventoCodice: ev.codice, scenaCodice, scenaTitolo: titoloScena, scenaId: scena.id,
     voci: nVoci, schede: righe.length, squadre: 0, risposte: 0, formato: 'all-in-one' });
+  return rep;
+}
+
+/**
+ * Importa le VALUTAZIONI di un file compilato (una squadra, una scena) nella scena già presente nell'evento:
+ * per ogni scheda una compilazione completata (origine «carta»), con un livello per ogni voce marcata con la «x».
+ * Il totale ricalcolato dalle voci viene confrontato con il «Realizzato» scritto nel file.
+ */
+export async function importaValutazioniAllInOne(db, wb, { eventoId, sostituisci = false }) {
+  const rep = { avvisi: [] };
+  const d = wb.getWorksheet('DATI');
+  const scenaCodice = String(val(d.getCell('A2')) ?? '').trim().toUpperCase();
+  const nSquadra = num(val(d.getCell('B2')));
+  let r0 = 0;
+  for (let r = 1; r <= 25; r++) if (String(val(d.getCell(r, 1)) ?? '').trim().toUpperCase() === 'RUOLO') { r0 = r; break; }
+  if (!scenaCodice || nSquadra === null || !r0) throw httpErr(400, 'file non riconosciuto: scena, squadra o elenco schede mancanti');
+  const righe = [];
+  for (let r = r0 + 1; testoCella(val(d.getCell(r, 1))); r++) righe.push({ patologia: testoCella(val(d.getCell(r, 3))), realizzato: num(val(d.getCell(r, 10))) });
+  const fogli = wb.worksheets.filter((w) => /^Calcolo/i.test(w.name));
+  if (righe.length !== fogli.length) throw httpErr(400, `file non coerente: ${righe.length} schede in DATI ma ${fogli.length} fogli «Calcolo»`);
+  const { rows: [sc] } = await db.query('select id from scena where evento_id=$1 and codice=$2', [eventoId, scenaCodice]);
+  if (!sc) throw httpErr(404, `la scena ${scenaCodice} non c'è nell'evento: importa prima le schede della scena`);
+  const { rows: [sq] } = await db.query('select id from squadra where evento_id=$1 and numero=$2', [eventoId, nSquadra]);
+  if (!sq) throw httpErr(404, `la squadra ${nSquadra} non c'è nell'evento`);
+  const { rows: schede } = await db.query('select id, titolo, slot from scena_scheda where scena_id=$1 order by slot', [sc.id]);
+  if (schede.length !== righe.length) throw httpErr(400, `la scena ${scenaCodice} ha ${schede.length} schede, il file ne ha ${righe.length}`);
+  const { rowCount: gia } = await db.query('select 1 from compilazione where squadra_id=$1 and scheda_id = any($2::uuid[])', [sq.id, schede.map((x) => x.id)]);
+  if (gia && !sostituisci) throw httpErr(409, `la squadra ${nSquadra} ha già valutazioni nella scena ${scenaCodice}: non importate (spunta «Sostituisci»)`);
+  if (gia) {
+    await db.query('delete from risposta where compilazione_id in (select id from compilazione where squadra_id=$1 and scheda_id = any($2::uuid[]))', [sq.id, schede.map((x) => x.id)]);
+    await db.query('delete from compilazione where squadra_id=$1 and scheda_id = any($2::uuid[])', [sq.id, schede.map((x) => x.id)]);
+  }
+  let nRisposte = 0;
+  for (const [i, riga] of righe.entries()) {
+    const sch = schede[i];
+    const { rows: stored } = await db.query('select id, ordine, testo, mb, be, su, "in", ne from scena_scheda_voce where scheda_id=$1 order by ordine', [sch.id]);
+    const voci = leggiScheda(fogli[i]);
+    const usate = new Set(); let tot = 0; let nonApp = 0; const scelte = [];
+    for (const v of voci) {
+      const k = norm(v.testo);
+      const st = stored.find((x) => !usate.has(x.id) && norm(x.testo) === k);
+      const segnate = v.marks.flatMap((m, j) => (m ? [j] : []));
+      if (v.liv.every((x) => x === null || x === 0) && segnate.length) { nonApp++; continue; }   // voce azzerata in questo file (non applicabile alla squadra): nessun punto
+      if (!st) { if (segnate.length) rep.avvisi.push(`${sch.titolo}: voce non trovata nella scheda della scena: «${v.testo}»`); continue; }
+      usate.add(st.id);
+      if (segnate.length > 1) { rep.avvisi.push(`${sch.titolo}: più livelli segnati per «${v.testo}»: voce saltata`); continue; }
+      if (!segnate.length) continue;
+      const j = segnate[0], punti = st[LIVELLI[j]];
+      if (punti === null || punti === undefined) { rep.avvisi.push(`${sch.titolo}: il livello ${LIVELLI[j].toUpperCase()} non esiste per «${v.testo}»`); continue; }
+      scelte.push([st.id, LIVELLI[j]]); tot += punti;
+    }
+    if (nonApp) rep.avvisi.push(`${sch.titolo}: ${nonApp} voci azzerate nel file della squadra (non applicabili): non contate`);
+    if (riga.realizzato !== null && tot !== riga.realizzato) rep.avvisi.push(`${sch.titolo}: totale ricalcolato ${tot}, nel file ${riga.realizzato}`);
+    if (!scelte.length) { rep.avvisi.push(`${sch.titolo}: nessuna valutazione nel file`); continue; }
+    const { rows: [c] } = await db.query(
+      `insert into compilazione (scheda_id, squadra_id, stato, origine, completata_at) values ($1,$2,'completata','carta', now()) returning id`, [sch.id, sq.id]);
+    await db.query(
+      `insert into risposta (compilazione_id, voce_id, livello) select $1, x.v, x.l::livello from unnest($2::uuid[], $3::text[]) as x(v, l)`,
+      [c.id, scelte.map((x) => x[0]), scelte.map((x) => x[1].toUpperCase())]);
+    nRisposte += scelte.length;
+  }
+  Object.assign(rep, { eventoId, scenaCodice, scenaTitolo: String(val(d.getCell('C2')) ?? ''), scenaId: sc.id, voci: 0, schede: righe.length, squadre: 1, risposte: nRisposte, formato: 'all-in-one valutazioni' });
   return rep;
 }

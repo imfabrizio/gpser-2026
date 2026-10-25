@@ -643,6 +643,7 @@ async function tImporta() {
     $('#im_cfg').innerHTML = files.length ? `<table style="margin-top:10px"><tr><th>File</th><th>Tipo</th><th>Esito</th></tr>${files.map((f, i) => `<tr><td>${esc(f.file.name)}<br><small>${Math.round(f.file.size / 1024)} KB</small></td>
       <td><select class="im_t" data-i="${i}"><option value="gara" ${f.tipo === 'gara' ? 'selected' : ''}>gara</option><option value="olimpiadi" ${f.tipo === 'olimpiadi' ? 'selected' : ''}>olimpiadi</option></select></td>
       <td id="im_e${i}"><small>da importare</small></td></tr>`).join('')}</table>${tipi.map(cfg).join('')}
+      <p><label style="font-size:14px;color:inherit"><input type="checkbox" id="im_val"> <strong>Sono file compilati</strong>: importa le <em>valutazioni</em> (le «x» dei giudici) nelle scene già presenti dell'evento scelto, una squadra per file</label></p>
       <p><label style="font-size:14px;color:inherit"><input type="checkbox" id="im_sost"> <strong>Sostituisci</strong> le scene già presenti: cancella le loro valutazioni e le reimporta dal file</label></p>
       <p><button class="b" id="im_go">Importa ${files.length} file</button></p>` : '';
     document.querySelectorAll('.im_t').forEach((sel) => { sel.onchange = () => { files[sel.dataset.i].tipo = sel.value; disegna(); }; });
@@ -658,14 +659,15 @@ async function tImporta() {
         squadre: blocco.querySelector('.ic_sq').value, storico: blocco.querySelector('.ic_sto').checked } };
       if (!id && (!dest[t].evento.codice || !dest[t].evento.nome)) return flash('Per un nuovo evento servono codice e nome', false);
     }
-    const sostituisci = $('#im_sost').checked;
+    const sostituisci = $('#im_sost').checked, valutazioni = $('#im_val').checked;
+    if (valutazioni && Object.values(dest).some((x) => !x.evento_id)) return flash('Per le valutazioni scegli un evento esistente che contiene già le scene', false);
     if (sostituisci && !confirm('Le scene già presenti, con le loro valutazioni, verranno cancellate e ricaricate dai file. Continuare?')) return;
     $('#im_go').disabled = true; document.querySelectorAll('.im_t, .ic_ev').forEach((x) => (x.disabled = true));
     let ok = 0, ko = 0;
     for (const [i, f] of files.entries()) {
       const cella = $(`#im_e${i}`); cella.innerHTML = '⏳ in corso…';
       try {
-        const r = await api('/import/excel', { body: { dati: await aBase64(f.file), tipo: f.tipo, sostituisci, ...dest[f.tipo] } });
+        const r = await api('/import/excel', { body: { dati: await aBase64(f.file), tipo: f.tipo, sostituisci, valutazioni, ...dest[f.tipo] } });
         cella.innerHTML = `<span class="tag ok">✓ scena ${esc(r.scenaCodice)}</span> ${esc(r.scenaTitolo)}<br><small>${r.schede} schede · ${r.voci} voci · ${r.squadre} squadre · ${r.risposte} valutazioni</small>
           ${r.avvisi.length ? '<br><small>⚠ ' + [...new Set(r.avvisi)].slice(0, 4).map(esc).join(' · ') + '</small>' : ''}`;
         ok++;

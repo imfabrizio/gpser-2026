@@ -9,7 +9,7 @@ import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
 import { aggiungiSchedaDaPatologia, creaScena, duplicaScena } from './services/scene.js';
 import { importaExcel } from './services/import-excel.js';
-import { èAllInOne, importaAllInOne } from './services/import-allinone.js';
+import { èAllInOne, importaAllInOne, importaValutazioniAllInOne } from './services/import-allinone.js';
 import ExcelJS from 'exceljs';
 import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
@@ -431,6 +431,11 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const opz = { eventoId: b.evento_id || undefined, eventoCodice: e.codice?.trim(), nomeEvento: e.nome?.trim(), titoloStampa: e.titolo_stampa?.trim() || e.nome?.trim(),
       luogo: e.luogo?.trim() || null, data: e.data || null, tipoEvento, attiva: false, sostituisci: b.sostituisci === true };
     const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf);
+    if (b.valutazioni === true) {
+      if (!b.evento_id) throw httpErr(400, 'per importare le valutazioni scegli l\'evento che contiene già le scene');
+      if (!èAllInOne(wb)) throw httpErr(400, 'le valutazioni si importano solo dai file «All in one» compilati');
+      return inTransazione(pool, (db) => importaValutazioniAllInOne(db, wb, { eventoId: b.evento_id, sostituisci: b.sostituisci === true }));
+    }
     return inTransazione(pool, async (db) => {
       const rep = èAllInOne(wb) ? await importaAllInOne(db, wb, opz) : await importaExcel(db, buf, opz);
       // squadre indicate a mano («1-Carpineti», una per riga) e archiviazione dell'evento come storico
