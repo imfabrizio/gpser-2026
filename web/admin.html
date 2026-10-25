@@ -99,7 +99,17 @@ async function api(path, opt = {}) {
 const flash = (testo, ok = true) => { const d = document.createElement('div'); d.className = 'msg ' + (ok ? 'ok' : 'err'); d.textContent = testo;
   document.body.append(d); setTimeout(() => d.remove(), ok ? 3000 : 8000); };
 const fai = async (fn, okMsg) => { try { await fn(); await render(); if (okMsg) flash(okMsg); } catch (e) { flash(e.message, false); } };
-const dlg = (html) => { $('#dlg').innerHTML = html; $('#dlg').showModal(); };
+// nella Formazione le squadre si chiamano equipaggi
+const SOSTITUZIONI = [[/\btutte le squadre\b/g, 'tutti gli equipaggi'], [/\bdelle squadre\b/g, 'degli equipaggi'], [/\bdalle squadre\b/g, 'dagli equipaggi'], [/\balle squadre\b/g, 'agli equipaggi'], [/\b(L|l)e squadre\b/g, (m, a) => (a === 'L' ? 'Gli' : 'gli') + ' equipaggi'], [/\bSquadre \(1 attive\)/g, 'Equipaggi (1 attivo)'], [/\b(Nuova|nuova) squadra\b/g, (m, a) => (a === 'Nuova' ? 'Nuovo' : 'nuovo') + ' equipaggio'], [/\b(Una|una) squadra\b/g, (m, a) => (a === 'Una' ? 'Un' : 'un') + ' equipaggio'], [/\b(Una|una) o più squadre\b/g, (m, a) => (a === 'Una' ? 'Uno' : 'uno') + ' o più equipaggi'],
+  [/\bSquadre \((\d+) attive\)/g, 'Equipaggi ($1 attivi)'], [/\bsquadre\b/g, 'equipaggi'], [/\bSquadre\b/g, 'Equipaggi'], [/\bsquadra\b/g, 'equipaggio'], [/\bSquadra\b/g, 'Equipaggio'], [/\bdella squadra\b/g, 'dell\'equipaggio']];
+const inEquipaggi = (t) => SOSTITUZIONI.reduce((x, [r, n]) => x.replace(r, n), t);
+function equipaggi(radice) {
+  if (fam !== 'corsi' || !radice) return;
+  const w = document.createTreeWalker(radice, NodeFilter.SHOW_TEXT); let n; while ((n = w.nextNode())) { if (n.parentNode.closest('script,style')) continue; const v = inEquipaggi(n.nodeValue); if (v !== n.nodeValue) n.nodeValue = v; }
+  radice.querySelectorAll('[placeholder],[title]').forEach((el) => { for (const a of ['placeholder', 'title']) if (el.hasAttribute(a)) el.setAttribute(a, inEquipaggi(el.getAttribute(a))); });
+}
+new MutationObserver(() => equipaggi(document.getElementById('dlg'))).observe(document.getElementById('dlg'), { childList: true, subtree: true });
+const dlg = (html) => { $('#dlg').innerHTML = html; equipaggi($('#dlg')); $('#dlg').showModal(); };
 const chiudi = () => $('#dlg').close();
 window.chiudi = chiudi;
 
@@ -128,7 +138,7 @@ const haArea = (a) => admin() || (me.aree || []).includes(a);
 const figliVisibili = (g) => g[4].filter((k) => k === 'evento' ? haArea(g[0] === 'corsi' ? 'esami' : 'gara') : g[0] === 'corsi' ? haArea('esami') && consentito(k) : consentito(k));
 const nomeTab = (k) => k === 'evento' ? (fam === 'corsi' ? 'Dati dell\'evento' : 'Gare e allenamenti') : (TABS.find(([x]) => x === k)?.[1] || '');
 let ELENCO_RUOLI = [];
-window.addEventListener('hashchange', () => { const h = location.hash.slice(1) || 'menu'; if (TABS.some(([k]) => k === h) && consentito(h) && h !== tab) { vai(h, true); } });
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1).replace(/^hub:(\w+)$/, (_, m) => { if (GRUPPI.some((g) => g[0] === m)) impostaMondo(m); return 'hub'; }) || 'menu'; if (TABS.some(([k]) => k === h) && consentito(h) && (h !== tab || h === 'hub')) { vai(h, true); } });
 const vai = (t, daHash) => { if (t === 'monitor') { location.href = '/#monitor'; return; }
   if (t !== 'menu' && t !== 'hub') { const m = GRUPPI.find((g) => g[0] === fam && g[4].includes(t)) || GRUPPI.find((g) => g[4].includes(t)); if (m && m[0] !== fam) impostaMondo(m[0]); }
   tab = t; if (!daHash) history.replaceState(null, '', t === 'menu' ? location.pathname : '#' + t); disegnaTabs(); render(); };
@@ -137,6 +147,7 @@ function disegnaTabs() {
   const g = tab === 'menu' ? null : mondoCorrente(), vis = g && tab !== 'hub' ? figliVisibili(g) : [];
   $('#tabs').hidden = vis.length < 2;               // le linguette del mondo in cui si è entrati
   $('#tabs').innerHTML = vis.map((k) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${nomeTab(k)}</button>`).join('');
+  equipaggi($('#tabs'));
   $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) { vai(b.dataset.t); } };
 }
 
@@ -379,7 +390,7 @@ async function apriComponenti(squadraId, nomeSquadra) {
     $('#mps').onclick = () => { const body = { membri: lista.map((m) => ({ partecipante_id: m.partecipante_id, ruolo: m.ruolo.trim() || null })) }; chiudi();
       fai(() => api(`/squadre/${squadraId}/membri`, { method: 'PUT', body }), 'Componenti salvati'); };
   };
-  $('#dlg').showModal(); disegna();
+  equipaggi($('#dlg')); $('#dlg').showModal(); disegna();
 }
 
 // ───────── PERSONE (anagrafica) ─────────
@@ -1106,6 +1117,7 @@ async function render() {
   if ($('#nv_g')) $('#nv_g').onclick = () => vai(tab === 'hub' && molti ? 'menu' : 'hub');
   if ($('#dv_g')) $('#dv_g').onclick = (e) => { e.preventDefault(); vai(molti ? 'menu' : 'hub'); };
   if ($('#dv_m')) $('#dv_m').onclick = (e) => { e.preventDefault(); vai('hub'); };
+  equipaggi($('#app'));
   window.scrollTo(0, 0);
 }
 (async () => {
