@@ -1422,3 +1422,26 @@ test('REG-1: registrazione con email, password e MFA, poi approvazione', async (
   const ok = await chiama('POST', '/api/login/mfa', { body: { ticket: lg.ticket, codice: totp(form.mfa.segreto) } });
   assert.equal(ok.statusCode, 200);
 });
+
+test('NOT-1: notifiche per utente ed email di esito (con Resend simulato)', async () => {
+  const mail = []; const f0 = globalThis.fetch; process.env.RESEND_API_KEY = 'k';
+  globalThis.fetch = async (u, o) => { if (String(u).includes('resend.com')) { mail.push(JSON.parse(o.body)); return { ok: true }; } return f0(u, o); };
+  try {
+    const adm = tok['adm@t'];
+    const r = json(await chiama('POST', '/api/registrati/inizia', { body: { email: 'notifica@t.it', password: 'password-lunga-2' } }));
+    const form = json(await chiama('GET', '/api/registrazione', { token: r.token }));
+    const { totp } = await import('../src/mfa.js');
+    await chiama('POST', '/api/registrazione/mfa', { token: r.token, body: { codice: totp(form.mfa.segreto) } });
+    const antes = json(await chiama('GET', '/api/me/notifiche', { token: adm })).non_lette;
+    assert.equal((await chiama('POST', '/api/registrazione', { token: r.token, body: { nome: 'Mario', cognome: 'Rossi', codice_fiscale: 'RSSMRA85T10A562S', comitato: 'Modena', provincia: 'mo', ruolo_gara: 'giudice' } })).statusCode, 200);
+    const dopo = json(await chiama('GET', '/api/me/notifiche', { token: adm }));
+    assert.equal(dopo.non_lette, antes + 1); assert.ok(dopo.elenco[0].titolo.includes('Mario Rossi'));
+    assert.ok(mail.some((m) => m.to[0] === 'notifica@t.it' && /ricevuta/.test(m.subject)));
+    await chiama('POST', '/api/me/notifiche/lette', { token: adm, body: {} });
+    assert.equal(json(await chiama('GET', '/api/me/notifiche', { token: adm })).non_lette, 0);
+    const rq = json(await chiama('GET', '/api/richieste', { token: adm })).find((x) => x.email === 'notifica@t.it');
+    assert.ok(rq);
+    assert.equal((await chiama('DELETE', `/api/richieste/${rq.id}`, { token: adm, body: { motivo: 'dati non corretti' } })).statusCode, 200);
+    assert.ok(mail.some((m) => /non approvata/.test(m.subject) && /dati non corretti/.test(m.text)));
+  } finally { globalThis.fetch = f0; delete process.env.RESEND_API_KEY; }
+});

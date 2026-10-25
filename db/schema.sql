@@ -2704,7 +2704,20 @@ create table if not exists evento_comitato_invitato (
 );
 update ruolo set aree = (select array(select distinct unnest(aree || '{gara,squadre,classifiche,stampa}'::text[]))) where codice = 'approvatore';
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql'), ('022-comitati-gaia-ufficiale.sql'), ('023-qualifiche-ruoli-multipli.sql'), ('024-qualifiche-corsi.sql'), ('025-eventi-ambito.sql'), ('026-organizzazione-per-evento.sql'), ('027-schede-ai.sql'), ('028-categorie-gravita.sql'), ('029-canovacci.sql'), ('030-promozioni.sql'), ('031-enti-visibilita.sql'), ('032-accorpamenti-allenamenti.sql'), ('033-notizie-ambito-corso-giudici.sql'), ('034-registrazione-password.sql');   -- lo schema qui sopra le include già tutte
+-- notifiche per utente (richieste di accesso, proposte alla regione, esiti)
+create table if not exists notifica (
+  id         uuid primary key default gen_random_uuid(),
+  utente_id  uuid not null references utente(id) on delete cascade,
+  tipo       text not null,
+  titolo     text not null,
+  testo      text,
+  link       text,
+  letta      boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists notifica_utente_idx on notifica (utente_id, letta, created_at desc);
+
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql'), ('022-comitati-gaia-ufficiale.sql'), ('023-qualifiche-ruoli-multipli.sql'), ('024-qualifiche-corsi.sql'), ('025-eventi-ambito.sql'), ('026-organizzazione-per-evento.sql'), ('027-schede-ai.sql'), ('028-categorie-gravita.sql'), ('029-canovacci.sql'), ('030-promozioni.sql'), ('031-enti-visibilita.sql'), ('032-accorpamenti-allenamenti.sql'), ('033-notizie-ambito-corso-giudici.sql'), ('034-registrazione-password.sql'), ('035-notifiche.sql');   -- lo schema qui sopra le include già tutte
 
 -- schede d'esame TSSA (stesso contenuto della migrazione 015)
 insert into scala_punteggio (codice, mb, su, ne) values ('Esame 0-1-2', 2, 1, 0) on conflict (codice) do nothing;

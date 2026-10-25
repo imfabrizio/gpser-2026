@@ -5,6 +5,8 @@ import crypto from 'node:crypto';
 import { hashPassword, firmaToken, troppiTentativi, registraFallimento } from './auth.js';
 import { cifra, decifra, nuovoSegreto, verificaTotp, otpauth, nuoviCodiciRecupero } from './mfa.js';
 import QRCode from 'qrcode';
+import { inviaMail, URL_BASE } from './posta.js';
+import { notifica as notificaApp, adminIds } from './notifiche.js';
 import { verificaCodiceFiscale } from './codice-fiscale.js';
 import { hashCf } from './anagrafica.js';
 import { inTransazione } from './db.js';
@@ -100,6 +102,8 @@ export function registraRichieste(app, pool, { soloAdmin, fetchImpl = fetch }) {
          codice_ruolo=$10, compilata=true, scade_il = now() + interval '48 hours' where id=$1`,
       [r.id, nome, cognome, cifra(cf.normalizzato), cf.coerente, comitato, provincia, ruolo, squadraId, pulisci(b.codice_ruolo, 40) || null]);
     notifica({ ...r, nome, cognome, comitato, provincia, ruolo_gara: ruolo });
+    await notificaApp(pool, await adminIds(pool), { tipo: 'richiesta', titolo: `Nuova richiesta di accesso: ${nome} ${cognome}`, testo: `${comitato} (${provincia}) · ${RUOLI_GARA[ruolo] || ruolo}`, link: '/admin.html#richieste' });
+    inviaMail(r.email, 'GareCRI: richiesta di accesso ricevuta', `Ciao ${nome},\n\nabbiamo ricevuto la tua richiesta di accesso a GareCRI. Non sei ancora registrato: l'organizzazione deve approvarla e assegnarti il ruolo.\nRiceverai una mail con l'esito. Se non viene esaminata entro 48 ore la richiesta viene cancellata e potrai ripresentarla.\n\nGareCRI`);
     return { ok: true, scade_il: new Date(Date.now() + 48 * 3600e3).toISOString() };
   });
 
@@ -143,13 +147,16 @@ export function registraRichieste(app, pool, { soloAdmin, fetchImpl = fetch }) {
       if (r.provider !== 'password') await db.query('insert into utente_identita (provider, sub, utente_id, email) values ($1,$2,$3,$4) on conflict do nothing', [r.provider, r.sub, u.id, r.email]);
       await db.query(`insert into audit_log (utente_id, azione, entita, entita_id) values ($1::uuid,'richiesta_approvata','utente',$2::text)`, [req.utente.id, u.id]);
       await db.query('delete from richiesta_accesso where id=$1', [r.id]);
+      inviaMail(r.email, 'GareCRI: richiesta approvata', `Ciao ${r.nome},\n\nla tua richiesta è stata approvata: ora puoi accedere a GareCRI${r.provider === 'password' ? ' con la tua email, la password scelta e il codice dell\'app di autenticazione' : ' con il tuo account ' + r.provider}.\n\nAccedi qui: ${URL_BASE()}/#login\n\nGareCRI`);
       return u;
     });
   });
   app.delete('/api/richieste/:id', { preHandler: soloAdmin }, async (req) => {
-    const { rowCount } = await pool.query('delete from richiesta_accesso where id=$1', [req.params.id]);
-    if (!rowCount) throw httpErr(404, 'richiesta inesistente');
+    const { rows: [r] } = await pool.query('delete from richiesta_accesso where id=$1 returning email, nome, compilata', [req.params.id]);
+    if (!r) throw httpErr(404, 'richiesta inesistente');
     await pool.query(`insert into audit_log (utente_id, azione, entita, entita_id) values ($1::uuid,'richiesta_rifiutata','richiesta',$2::text)`, [req.utente.id, req.params.id]);
+    const motivo = pulisci(req.body?.motivo, 300);
+    if (r.compilata) inviaMail(r.email, 'GareCRI: richiesta non approvata', `Ciao ${r.nome || ''},\n\npurtroppo la tua richiesta di accesso a GareCRI non è stata approvata.${motivo ? '\nMotivo: ' + motivo : ''}\n\nSe pensi sia un errore, contatta l'organizzazione o ripresenta la richiesta con i dati corretti.\n\nGareCRI`);
     return { ok: true };
   });
 }

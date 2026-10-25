@@ -61,6 +61,7 @@
 </style>
 <link rel="stylesheet" href="stile.css">
 <script src="comitati.js"></script>
+<script src="barra.js"></script>
 </head>
 <body>
 <header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GareCRI</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#account" hidden title="Il mio account">Il mio account</a><button id="esci" hidden>Esci</button></header>
@@ -205,7 +206,7 @@ const ERR_SSO = { non_autorizzato: 'Questo account non è abilitato: chiedi all\
 async function avviaSessione(r) {
   token = r.token; me = r.utente; localStorage.setItem('token', token); localStorage.setItem('me', JSON.stringify(me));
   if (me.in_attesa) { window.__meOk = false; location.hash = ''; return route(); }
-  await preparaCoda(); location.hash = me.mfa_da_configurare ? '#sicurezza' : ''; route();
+  await preparaCoda(); location.hash = me.mfa_da_configurare ? '#sicurezza' : ''; await route(); window.Barra && Barra.disegna('index');
 }
 const LOGO_GOOGLE = '<svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
 const LOGO_MS = '<svg viewBox="0 0 21 21" width="20" height="20" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#F25022"/><rect x="11" y="1" width="9" height="9" fill="#7FBA00"/><rect x="1" y="11" width="9" height="9" fill="#00A4EF"/><rect x="11" y="11" width="9" height="9" fill="#FFB900"/></svg>';
@@ -317,7 +318,7 @@ async function vistaHome() {
   const haComune = org() && (me.admin || aree.includes('anagrafiche'));
   const tileComune = haComune ? tileF('/admin.html#hub:comune', 'documenti', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli') : '';
   let mondo = haGara && haForm ? localStorage.getItem('mondo') : (haForm ? 'formazione' : 'gara');
-  const cambia = haGara && haForm ? '<p><a href="#" id="cambia_area">← Cambia area</a></p>' : '';
+  const cambia = '';   // l'area si cambia dal menu in alto
   const legaCambia = () => { if ($('#cambia_area')) $('#cambia_area').onclick = (e) => { e.preventDefault(); localStorage.removeItem('mondo'); vistaHome(); }; };
   if (haGara && haForm && !['gara', 'formazione'].includes(mondo)) {
     $('#app').innerHTML = `<div class="sezione-home"><div class="tiles">${tileF('#', 'gestione', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede e classifiche').replace('<a class="tile" href="#"', '<a class="tile" href="#" data-m="gara"')}
@@ -327,7 +328,7 @@ async function vistaHome() {
   }
   if (mondo === 'formazione') {
     const avvF = await api('/avvisi?ambito=formazione').catch(() => []);
-    $('#app').innerHTML = `${cambia}${formazione.replace('<h3>Formazione</h3><div class="tiles">', '<h3>Formazione</h3><div class="tiles">' + (org() ? tileF('/admin.html#hub:corsi', 'gestione', 'Gestione', 'Corsi, scene, equipaggi, notizie') : '') + tileComune)}
+    $('#app').innerHTML = `${cambia}${formazione.replace('<h3>Formazione</h3><div class="tiles">', '<h3>Formazione</h3><div class="tiles">' + (org() ? tileF('/admin.html#hub:corsi', 'gestione', 'Gestione', 'Corsi, scene, equipaggi, notizie') : ''))}
       <div class="card"><strong>Notizie per la Formazione</strong>${avvF.length ? avvF.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>`;
     legaCambia(); return;
   }
@@ -339,7 +340,7 @@ async function vistaHome() {
   const tipoGara = TIPO_EV[ev.tipo] || 'Gara';
   const gestioneGara = org() && aree.some((a) => !['valutazione', 'esami', 'formazione_esame'].includes(a));
   const tileGara = (aree.includes('valutazione') ? tileF('#valutazione', 'valutazione', 'Valutazione', esc(ev.nome)) : '')
-    + (gestioneGara ? tileF('/admin.html#hub:gara', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '') + (haGara && !haForm ? tileComune : '')
+    + (gestioneGara ? tileF('/admin.html#hub:gara', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '')
     + (gestioneGara && aree.includes('classifiche') ? tileF('#monitor', 'monitor', 'Monitor', 'Avanzamento delle schede') : '');
   $('#app').innerHTML = `${cambia}<div class="banner"><small>${tipoGara} ${statoGara(ev)}</small><h2>${esc(ev.nome)}</h2>
     <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
@@ -541,7 +542,8 @@ async function route() {
     return await vistaHome();
   } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
-addEventListener('hashchange', route); route();
+const routeB = async () => { await route(); window.Barra && Barra.disegna('index'); };
+addEventListener('hashchange', routeB); routeB();
 </script>
 </body>
 </html>

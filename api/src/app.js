@@ -18,6 +18,7 @@ import { èAllInOne, importaAllInOne, importaValutazioniAllInOne } from './servi
 import ExcelJS from 'exceljs';
 import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
+import { registraNotifiche } from './notifiche.js';
 import { registraSegreteria } from './routes-segreteria.js';
 import { registraRisorse } from './routes-risorse.js';
 import { registraDocumenti } from './routes-documenti.js';
@@ -604,6 +605,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   registraGestione(app, pool, { soloOrg, soloAdmin });
   registraAuth(app, pool, { fetchImpl, soloAdmin });
   registraRichieste(app, pool, { soloAdmin, fetchImpl });
+  registraNotifiche(app, pool);
   registraSegreteria(app, pool, { soloOrg });
   registraRisorse(app, pool, { inTransazione, soloOrg });
   registraDocumenti(app, pool, { soloOrg });

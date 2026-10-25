@@ -29,6 +29,7 @@ async function confronta(db, voci, regione) {
   return { stato: 'nuova', con: null, somiglianza: migliore ? Math.round(migliore.j * 100) / 100 : 0 };
 }
 
+import { notifica, approvatoriIds } from '../notifiche.js';
 export async function proponi(db, utente, { scenaId, patologiaId }, { tipo, nota, sblocca } = {}) {
   const mio = await enteUtente(db, utente);
   let comitato, schede, origine;
@@ -62,6 +63,7 @@ export async function proponi(db, utente, { scenaId, patologiaId }, { tipo, nota
   const { rows: [p] } = await db.query(
     `insert into promozione (scena_id, patologia_id, tipo, livello, automatica, proposta_da, nota, regione, comitato, controllo) values ($1,$2,$3,'regionale',$4,$5,nullif(trim($6),''),$7,$8,$9) returning *`,
     [scenaId || null, patologiaId || null, tipo, auto, utente.id, nota ?? '', regione, comitato, JSON.stringify(controllo)]);
+  if (!auto) await notifica(db, (await approvatoriIds(db, regione)).filter((i) => i !== utente.id), { tipo: 'proposta', titolo: `Nuova proposta dal comitato ${comitato}`, testo: schede.map((k) => k.titolo).filter(Boolean).slice(0, 3).join(', ') || null, link: '/admin.html#libreria' });
   return auto ? approva(db, p.id, utente, {}) : p;
 }
 
@@ -119,7 +121,9 @@ export async function approva(db, id, utente, { escludi = [], comitati = false, 
     creati.push({ tipo: 'scena', id: copia.id });
   }
   for (const r of creati) await impostaCondivisione(db, r.tipo, r.id, p.regione, { comitati, regioni });
-  return (await db.query(`update promozione set stato='approvata', deciso_da=$2, deciso_il=now(), esito=$3 where id=$1 returning *`, [id, utente.id, JSON.stringify(esito)])).rows[0];
+  const approvata = (await db.query(`update promozione set stato='approvata', deciso_da=$2, deciso_il=now(), esito=$3 where id=$1 returning *`, [id, utente.id, JSON.stringify(esito)])).rows[0];
+  if (approvata.proposta_da && approvata.proposta_da !== utente.id) await notifica(db, approvata.proposta_da, { tipo: 'esito', titolo: 'Proposta approvata', testo: 'La tua proposta è stata catalogata nella libreria della regione.', link: '/admin.html#libreria' });
+  return approvata;
 }
 
 export async function rifiuta(db, id, utente, motivo) {
@@ -127,6 +131,7 @@ export async function rifiuta(db, id, utente, motivo) {
   if (q && !utente.admin) { const mio = await enteUtente(db, utente); if (!èApprovatore(utente) || mio.regione !== q.regione) throw httpErr(403, 'puoi decidere solo le proposte della tua regione'); }
   const { rows: [p] } = await db.query(`update promozione set stato='rifiutata', deciso_da=$2, deciso_il=now(), motivo=nullif(trim($3),'') where id=$1 and stato='in_attesa' returning *`, [id, utente.id, motivo ?? '']);
   if (!p) throw httpErr(409, 'proposta inesistente o già decisa');
+  if (p.proposta_da && p.proposta_da !== utente.id) await notifica(db, p.proposta_da, { tipo: 'esito', titolo: 'Proposta rifiutata', testo: p.motivo || null, link: '/admin.html#libreria' });
   return p;
 }
 
