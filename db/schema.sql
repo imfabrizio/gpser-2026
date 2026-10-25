@@ -2624,7 +2624,22 @@ update patologia p set gravita = coalesce(case when (coalesce(categoria,'') || '
 
 update scena_scheda s set gravita = p.gravita, macro = p.macro from patologia p where s.patologia_id = p.id and s.gravita is null and s.macro is null and not s.is_master;
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql'), ('022-comitati-gaia-ufficiale.sql'), ('023-qualifiche-ruoli-multipli.sql'), ('024-qualifiche-corsi.sql'), ('025-eventi-ambito.sql'), ('026-organizzazione-per-evento.sql'), ('027-schede-ai.sql'), ('028-categorie-gravita.sql');   -- lo schema qui sopra le include già tutte
+-- Canovacci: descrizione completa di una scena (briefing, pazienti, triage, logistica) in versione Gara oppure Olimpiadi
+create table if not exists canovaccio (
+  id         uuid primary key default gen_random_uuid(),
+  codice     text not null,                                   -- lettera della scena: A, B, C...
+  versione   text not null check (versione in ('gara','olimpiadi')),
+  titolo     text not null,
+  tempo_min  int,
+  dati       jsonb not null default '{}'::jsonb,              -- sezioni, triage, pazienti, logistica
+  fabbisogno jsonb not null default '{}'::jsonb,              -- simulatori, manichini, attori, trucchi (calcolato)
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (codice, versione)
+);
+alter table scena add column if not exists canovaccio_id uuid references canovaccio(id) on delete set null;
+
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql'), ('022-comitati-gaia-ufficiale.sql'), ('023-qualifiche-ruoli-multipli.sql'), ('024-qualifiche-corsi.sql'), ('025-eventi-ambito.sql'), ('026-organizzazione-per-evento.sql'), ('027-schede-ai.sql'), ('028-categorie-gravita.sql'), ('029-canovacci.sql');   -- lo schema qui sopra le include già tutte
 
 -- schede d'esame TSSA (stesso contenuto della migrazione 015)
 insert into scala_punteggio (codice, mb, su, ne) values ('Esame 0-1-2', 2, 1, 0) on conflict (codice) do nothing;

@@ -1219,3 +1219,38 @@ test('GRV-1 categorie e gravità: proposta dalla categoria, modificabile, e elen
   const { rows: [g] } = await pool.query(`select gravita from scena_scheda where scena_id=$1 and titolo='Ictus prova'`, [sc.id]);
   assert.equal(g.gravita, 'rosso');
 });
+
+test('CAN-1 canovaccio: import da .docx, lettura di pazienti/triage/logistica, PDF e collegamento alla scena', async () => {
+  const { default: JSZip } = await import('jszip');
+  const p = (t) => `<w:p><w:r><w:t xml:space="preserve">${t}</w:t></w:r></w:p>`;
+  const tc = (t) => `<w:tc>${t.split('\n').map(p).join('')}</w:tc>`;
+  const tab = (righe) => `<w:tbl>${righe.map((r) => `<w:tr>${r.map(tc).join('')}</w:tr>`).join('')}</w:tbl>`;
+  const corpo = [p('ZULU  –  Scena di prova'), p('Versione Olimpiadi di Primo Soccorso  –  Tempo: 6 minuti'), p('📢  Briefing per la squadra'), p('Siete in un parco.'),
+    p('⚖️  Ordine di gravità – Triage'), tab([['#', 'Paziente', 'Patologia', 'Codice triage'], ['1', 'Ciclista', 'Trauma cranico', '🔴 ROSSO – T1'], ['2', 'Madre', 'Agitazione', '⚪ BIANCO']]),
+    p('🧍  Schede Pazienti'), p('🚴 Paziente 1 – Ciclista  |  Trauma cranico'), tab([['Coscienza', 'Confuso'], ['FR / FC / PA / SpO₂', '20 atti/min  –  95 bpm  –  130/80 mmHg  –  97%'], ['⚠️ Nota clinica', 'Attenzione al collo'], ['🎭 Attore', 'Lamentarsi']]),
+    p('👩 Paziente 2 – Madre  |  Agitazione'), tab([['Coscienza', 'Vigile']]),
+    p('🎬  Logistica e materiale di scena'), tab([['Simulatori (attori-pazienti)', '2  (Ciclista, Madre)'], ['Manichini RCP', 'Non necessari'], ['Trucchi / moulage', 'Ematoma (semplice), ferita (complesso)']])].join('');
+  const zip = new JSZip(); zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="x"><w:body>${corpo}</w:body></w:document>`);
+  const dati = (await zip.generateAsync({ type: 'nodebuffer' })).toString('base64');
+  const r = await chiama('POST', '/api/import/canovacci', { token: tok['org@t'], body: { files: [{ nome: 'ALFA_-_OLI_-_Prova.docx', dati }, { nome: 'rotto.docx', dati: 'AAAA' }] } });
+  assert.equal(r.statusCode, 200, r.payload);
+  const [ok, ko] = json(r).esiti;
+  assert.equal(ok.codice, 'A'); assert.equal(ok.versione, 'olimpiadi'); assert.equal(ok.pazienti, 2); assert.ok(ok.nuovo);
+  assert.ok(ko.errore);
+  assert.deepEqual(ok.fabbisogno.trucchi, { semplice: 1, medio: 0, complesso: 1 }); assert.equal(ok.fabbisogno.simulatori, 2); assert.equal(ok.fabbisogno.manichini_rcp, 0);
+  const lista = json(await chiama('GET', '/api/canovacci', { token: tok['org@t'] }));
+  const c = lista.find((x) => x.id === ok.id); assert.equal(c.pazienti, 2);
+  const det = json(await chiama('GET', `/api/canovacci/${ok.id}`, { token: tok['org@t'] }));
+  assert.equal(det.dati.pazienti[0].gravita, 'rosso'); assert.equal(det.dati.pazienti[1].gravita, 'bianco');
+  assert.equal(det.dati.pazienti[0].parametri.split(/\s+–\s+/).length, 4); assert.equal(det.tempo_min, 6);
+  const pdf = await chiama('GET', `/api/canovacci/${ok.id}/canovaccio.pdf`, { token: tok['org@t'] });
+  assert.equal(pdf.statusCode, 200); assert.equal(pdf.rawPayload.subarray(0, 4).toString(), '%PDF');
+  // reimport = aggiornamento
+  assert.equal(json(await chiama('POST', '/api/import/canovacci', { token: tok['org@t'], body: { files: [{ nome: 'ALFA_-_OLI_-_Prova.docx', dati }] } })).esiti[0].nuovo, false);
+  // collegamento a una scena
+  const { rows: [sc] } = await pool.query('select id from scena limit 1');
+  assert.equal(json(await chiama('PATCH', `/api/scene/${sc.id}`, { token: tok['org@t'], body: { canovaccio_id: ok.id } })).canovaccio_id, ok.id);
+  assert.equal((await chiama('GET', '/api/canovacci', { token: tok['giu@t'] })).statusCode, 403);
+  assert.equal((await chiama('DELETE', `/api/canovacci/${ok.id}`, { token: tok['org@t'] })).statusCode, 200);
+  const { rows: [dopo] } = await pool.query('select canovaccio_id from scena where id=$1', [sc.id]); assert.equal(dopo.canovaccio_id, null);
+});

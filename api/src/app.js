@@ -7,6 +7,8 @@ import { sincronizza, riapri, httpErr } from './services/compilazioni.js';
 import { generaPdfSchede } from './services/stampa.js';
 import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
+import { importaCanovaccio } from './services/canovaccio.js';
+import { creaCanovaccio } from './pdf/canovaccio.js';
 import { aggiungiSchedaDaPatologia, creaScena, duplicaScena, aggiornaElencoPazienti } from './services/scene.js';
 import { importaExcel } from './services/import-excel.js';
 import { èAllInOne, importaAllInOne, importaValutazioniAllInOne } from './services/import-allinone.js';
@@ -208,7 +210,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
 
   app.get('/api/eventi/:id/scene', async (req) => {
     const { rows } = await pool.query(
-      `select sc.id, sc.codice, sc.titolo, sc.indirizzo, sc.lat, sc.lng,
+      `select sc.id, sc.codice, sc.titolo, sc.indirizzo, sc.lat, sc.lng, sc.canovaccio_id,
          (select json_agg(json_build_object('id', s.id, 'slot', s.slot, 'titolo', s.titolo, 'simulatore', s.simulatore) order by s.slot)
             from scena_scheda s
             where s.scena_id = sc.id
@@ -220,6 +222,32 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       [req.params.id, req.utente.ruolo, req.utente.id]);
     return rows;
   });
+  // ── canovacci: descrizione completa delle scene (briefing, pazienti, triage, logistica) ──
+  app.post('/api/import/canovacci', { preHandler: soloOrg, bodyLimit: 12 * 1024 * 1024 }, async (req) => {
+    const files = Array.isArray(req.body?.files) ? req.body.files : [];
+    if (!files.length || files.length > 30) throw httpErr(400, 'carica da 1 a 30 file .docx');
+    const esiti = [];
+    for (const f of files) {
+      try { esiti.push({ file: f.nome, ...(await importaCanovaccio(pool, Buffer.from(String(f.dati || ''), 'base64'), f.nome || '')) }); }
+      catch (e) { esiti.push({ file: f.nome, errore: e.statusCode && e.statusCode < 500 ? e.message : 'file non leggibile' }); }
+    }
+    return { esiti };
+  });
+  app.get('/api/canovacci', { preHandler: soloOrg }, async () => (await pool.query(
+    `select c.id, c.codice, c.versione, c.titolo, c.tempo_min, c.fabbisogno, jsonb_array_length(c.dati->'pazienti') as pazienti, c.updated_at,
+            (select count(*)::int from scena s where s.canovaccio_id = c.id) as scene
+       from canovaccio c order by c.codice, c.versione`)).rows);
+  app.get('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => {
+    const { rows: [c] } = await pool.query('select * from canovaccio where id=$1', [req.params.id]);
+    if (!c) throw httpErr(404, 'canovaccio inesistente'); return c;
+  });
+  app.get('/api/canovacci/:id/canovaccio.pdf', { preHandler: soloOrg }, async (req, reply) => {
+    const { rows: [c] } = await pool.query('select * from canovaccio where id=$1', [req.params.id]);
+    if (!c) throw httpErr(404, 'canovaccio inesistente');
+    const doc = creaCanovaccio(c); const chunks = []; doc.on('data', (x) => chunks.push(x)); const fine = new Promise((r) => doc.on('end', r)); doc.end(); await fine;
+    return reply.type('application/pdf').header('Content-Disposition', `inline; filename="canovaccio-${c.codice}-${c.versione}.pdf"`).send(Buffer.concat(chunks));
+  });
+  app.delete('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => { await pool.query('delete from canovaccio where id=$1', [req.params.id]); return { ok: true }; });
   app.post('/api/eventi/:id/scene', { preHandler: soloOrg }, async (req) => {
     const { codice, titolo, ordine } = req.body || {};
     if (!/^[A-Z0-9]{1,3}$/.test(codice || '')) throw httpErr(400, 'codice scena: 1-3 caratteri maiuscoli o cifre');

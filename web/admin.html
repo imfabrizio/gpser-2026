@@ -207,6 +207,15 @@ async function anteprimaScheda(p) {
   $('#an_st').onclick = () => { const f = $('#an_if').contentWindow; f.focus(); f.print(); };
 }
 
+async function anteprimaCanovaccio(c) {
+  dlg(`<h3>Canovaccio ${esc(c.codice)} · ${esc(c.titolo)} <span class="tag">${c.versione === 'olimpiadi' ? 'Olimpiadi' : 'Gara'}</span></h3>
+    <iframe id="cv_if" title="Canovaccio" style="width:100%;height:70vh;border:1px solid #ccc;background:#eee"></iframe>
+    <p><button class="b" id="cv_st">Stampa</button> <button class="s" onclick="chiudi()">Chiudi</button></p>`);
+  try { $('#cv_if').src = await pdfUrl(`/canovacci/${c.id}/canovaccio.pdf`); }
+  catch (e) { $('#cv_if').srcdoc = `<p style="font-family:sans-serif;color:#b00;padding:12px">${esc(e.message)}</p>`; }
+  $('#cv_st').onclick = () => { const f = $('#cv_if').contentWindow; f.focus(); f.print(); };
+}
+
 // ───────── CORSI: corso (n. Gaia) con i suoi Mega Code ed esami ─────────
 async function tCorsi() {
   const corsi = eventi.filter((e) => e.tipo === 'corso' && !e.archiviato);
@@ -425,7 +434,9 @@ function formPersona(p) {
 // ───────── SCENE E SCHEDE ─────────
 async function tScene() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima un evento.</div>'; return; }
-  const [scene, pat, ass, mas, macro] = await Promise.all([api(`/eventi/${ev.id}/scene`), api('/libreria/patologie'), api(`/eventi/${ev.id}/assegnazioni`), api(`/eventi/${ev.id}/master`), api('/libreria/macro')]);
+  const [scene, pat, ass, mas, macro, canov] = await Promise.all([api(`/eventi/${ev.id}/scene`), api('/libreria/patologie'), api(`/eventi/${ev.id}/assegnazioni`), api(`/eventi/${ev.id}/master`), api('/libreria/macro'), api('/canovacci').catch(() => [])]);
+  const verEv = ev.tipo === 'olimpiadi' ? 'olimpiadi' : 'gara';
+  const optCan = (s) => `<option value="">— nessuno —</option>${[...canov].sort((a, b) => (b.versione === verEv) - (a.versione === verEv) || a.codice.localeCompare(b.codice)).map((c) => `<option value="${c.id}" ${s.canovaccio_id === c.id ? 'selected' : ''}>${esc(c.codice)} · ${esc(c.titolo)} (${c.versione === 'olimpiadi' ? 'Olimpiadi' : 'Gara'})</option>`).join('')}`;
   const schede = {};
   for (const s of scene) for (const k of s.schede || []) schede[k.id] = (await api(`/schede/${k.id}`));
   cache = { schede, giudici: null, macro };
@@ -435,6 +446,8 @@ async function tScene() {
     <div class="riga"><div style="flex:3"><label>Indirizzo della scena (per la mappa)</label><input class="s_ind" data-id="${s.id}" value="${esc(s.indirizzo || '')}" placeholder="Via Roma 1, Piacenza"></div>
       <div><label>Latitudine</label><input class="s_lat" data-id="${s.id}" value="${s.lat ?? ''}" placeholder="45.0526"></div><div><label>Longitudine</label><input class="s_lng" data-id="${s.id}" value="${s.lng ?? ''}" placeholder="9.6930"></div>
       <div class="stretto"><button class="s p s_pos" data-id="${s.id}">Salva posizione</button></div></div>
+    ${canov.length ? `<div class="riga"><div style="flex:3"><label>Canovaccio (descrizione, pazienti e materiale della scena)</label><select class="s_cv" data-id="${s.id}">${optCan(s)}</select></div>
+      <div class="stretto"><button class="s p cv_apri" data-id="${s.id}" ${s.canovaccio_id ? '' : 'disabled'}>Apri canovaccio</button></div></div>` : ''}
     <p><button class="s p elp" data-id="${s.id}" title="Scrive nel Master i pazienti della scena in ordine di gravità">Aggiorna l'elenco pazienti del Master</button> <button class="s p dup" data-id="${s.id}">Duplica in un altro evento…</button> <button class="x p delsc" data-id="${s.id}">Elimina scena</button></p>
     ${(s.schede || []).map((k) => { const d = schede[k.id]; const p = d.parametri || {}; return `<div class="scheda">
       <div class="riga"><div style="flex:2"><strong>${esc(d.titolo)}</strong> <span class="tag">slot ${d.slot}</span><span class="tag">sim. ${esc(d.simulatore)}</span>
@@ -457,6 +470,8 @@ async function tScene() {
     <div style="flex:3"><label>Titolo</label><input id="ns_tit"></div><div class="stretto"><button class="b" id="ns_ok">Crea</button></div></div></div>`;
   legaSelettore();
   document.querySelectorAll('.t_sc').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { titolo: i.value } }), 'Titolo aggiornato'); });
+  document.querySelectorAll('.s_cv').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { canovaccio_id: i.value } }), 'Canovaccio collegato'); });
+  document.querySelectorAll('.cv_apri').forEach((b) => { b.onclick = () => { const c = canov.find((x) => x.id === document.querySelector(`.s_cv[data-id="${b.dataset.id}"]`).value); if (c) anteprimaCanovaccio(c); }; });
   document.querySelectorAll('.s_pos').forEach((b) => { b.onclick = () => { const id = b.dataset.id, g = (c) => document.querySelector(`.${c}[data-id="${id}"]`).value.trim();
     fai(() => api(`/scene/${id}`, { method: 'PATCH', body: { indirizzo: g('s_ind'), lat: g('s_lat'), lng: g('s_lng') } }), 'Posizione salvata'); }; });
   document.querySelectorAll('.pp').forEach((i) => { i.onchange = () => { const d = cache.schede[i.dataset.id]; const p = { ...(d.parametri || {}) };
@@ -582,6 +597,15 @@ async function tLibreria() {
   document.querySelectorAll('.del').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la patologia?')) fai(() => api(`/libreria/patologie/${b.dataset.id}`, { method: 'DELETE' }), 'Eliminata'); }; });
   document.querySelectorAll('.ed').forEach((b) => { b.onclick = async () => editorPatologia(pat.find((p) => p.id === b.dataset.id), await api(`/libreria/patologie/${b.dataset.id}`)); });
   $('#np').onclick = () => editorPatologia(null, []);
+  const canov = await api('/canovacci').catch(() => []);
+  $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Canovacci delle scene (${canov.length})</h3>
+    ${canov.length ? `<table><tr><th>Scena</th><th>Versione</th><th>Pazienti</th><th>Simulatori</th><th>Manichini</th><th>Truccatori</th><th>In uso</th><th></th></tr>${canov.map((c) => `<tr><td><strong>${esc(c.codice)}</strong> · ${esc(c.titolo)}</td>
+      <td><span class="tag">${c.versione === 'olimpiadi' ? 'Olimpiadi' : 'Gara'}</span></td><td>${c.pazienti}</td><td>${c.fabbisogno?.simulatori ?? '–'}</td><td>${c.fabbisogno?.manichini_rcp ?? '–'}</td><td>${c.fabbisogno?.truccatori ?? '–'}</td>
+      <td>${c.scene ? c.scene + ' scene' : '–'}</td><td><button class="s p cv_pdf" data-id="${c.id}">Apri</button> ${admin() || (me.aree || []).includes('importa') ? `<button class="x p cv_del" data-id="${c.id}">Elimina</button>` : ''}</td></tr>`).join('')}</table>`
+      : '<p class="nota">Nessun canovaccio. Si caricano da <strong>Importa</strong> (file .docx).</p>'}
+    <p class="nota">Il canovaccio si collega a una scena dal tab Scene. Simulatori, manichini e truccatori sono calcolati dalla logistica del file.</p></div>`);
+  document.querySelectorAll('.cv_pdf').forEach((b) => { b.onclick = () => anteprimaCanovaccio(canov.find((c) => c.id === b.dataset.id)); });
+  document.querySelectorAll('.cv_del').forEach((b) => { b.onclick = () => { if (confirm('Eliminare il canovaccio? Le scene collegate restano, senza canovaccio.')) fai(() => api(`/canovacci/${b.dataset.id}`, { method: 'DELETE' }), 'Canovaccio eliminato'); }; });
   document.querySelectorAll('.an').forEach((b) => { b.onclick = async () => { const p = pat.find((x) => x.id === b.dataset.id); anteprimaScheda(p); }; });
   document.querySelectorAll('.pub').forEach((b) => { b.onclick = () => { if (confirm('Pubblicare la scheda? Dopo averla controllata sarà utilizzabile nelle scene e negli esami.')) fai(() => api(`/libreria/patologie/${b.dataset.id}/pubblica`, { body: {} }), 'Scheda pubblicata'); }; });
   $('#ai').onclick = async () => { const st = await api('/ai/stato').catch((e) => ({ errore: e.message }));
@@ -644,7 +668,15 @@ async function tImporta() {
     <p class="nota">Carica i file Excel delle scene (formato GareCRI, oppure il vecchio «All in one» con i fogli Calcolo: lo riconosco da solo). I file con «OLI» nel nome sono considerati Olimpiadi, gli altri gare. Ogni file diventa una scena dell'evento scelto,
       con schede e valutazioni già inserite; le schede entrano anche nella <strong>libreria</strong> come «Tipo · Gara/Olimpiadi Scena». L'evento attivo non viene cambiato.
       Una scena già presente nell'evento non viene sovrascritta, a meno che tu spunti «Sostituisci».</p>
-    <input type="file" id="im_f" accept=".xlsx" multiple><div id="im_cfg"></div><div id="im_ris"></div></div>`;
+    <input type="file" id="im_f" accept=".xlsx" multiple><div id="im_cfg"></div><div id="im_ris"></div></div>
+    <div class="card"><h3>Importa canovacci (.docx)</h3>
+    <p class="nota">Carica i documenti di descrizione delle scene (briefing, pazienti, triage, logistica). La lettera e la versione (Gara o Olimpiadi) si riconoscono dal nome del file: se carichi di nuovo lo stesso canovaccio, viene aggiornato. Poi li colleghi alle scene dal tab Scene.</p>
+    <input type="file" id="cv_f" accept=".docx" multiple><div id="cv_ris"></div></div>`;
+  $('#cv_f').onchange = async () => { const fl = [...$('#cv_f').files]; if (!fl.length) return; $('#cv_ris').innerHTML = '<p>⏳ Importo…</p>';
+    try { const files = []; for (const f of fl) files.push({ nome: f.name, dati: await aBase64(f) }); const r = await api('/import/canovacci', { body: { files } });
+      $('#cv_ris').innerHTML = `<table style="margin-top:10px"><tr><th>File</th><th>Esito</th></tr>${r.esiti.map((x) => `<tr><td>${esc(x.file)}</td><td>${x.errore ? `<span class="tag no">✗</span> ${esc(x.errore)}`
+        : `<span class="tag ok">✓ ${esc(x.codice)} · ${esc(x.titolo)}</span> ${x.versione === 'olimpiadi' ? 'Olimpiadi' : 'Gara'}, ${x.pazienti} pazienti${x.nuovo ? '' : ' (aggiornato)'}${(x.avvisi || []).length ? '<br><small>⚠ ' + x.avvisi.map(esc).join(' · ') + '</small>' : ''}`}</td></tr>`).join('')}</table>`;
+      flash(`Canovacci importati: ${r.esiti.filter((x) => !x.errore).length} su ${r.esiti.length}`, r.esiti.every((x) => !x.errore)); } catch (e) { $('#cv_ris').innerHTML = ''; flash(e.message, false); } };
   let files = [];
   const tipoDi = (f) => (/OLI/i.test(f.name) ? 'olimpiadi' : 'gara');
   const cfg = (tipo) => {

@@ -299,9 +299,10 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const { rows: [s] } = await pool.query(
       `update scena set titolo=coalesce($2,titolo), ordine=coalesce($3,ordine),
          indirizzo = case when $4 then nullif(trim($5),'') else indirizzo end,
-         lat = case when $6 then $7::numeric else lat end, lng = case when $6 then $8::numeric else lng end where id=$1 returning *`,
+         lat = case when $6 then $7::numeric else lat end, lng = case when $6 then $8::numeric else lng end,
+         canovaccio_id = case when $9 then nullif($10,'')::uuid else canovaccio_id end where id=$1 returning *`,
       [req.params.id, b.titolo ?? null, b.ordine ?? null, 'indirizzo' in b, b.indirizzo ?? '',
-       'lat' in b || 'lng' in b, b.lat === '' ? null : (b.lat ?? null), b.lng === '' ? null : (b.lng ?? null)]);
+       'lat' in b || 'lng' in b, b.lat === '' ? null : (b.lat ?? null), b.lng === '' ? null : (b.lng ?? null), 'canovaccio_id' in b, b.canovaccio_id ?? '']);
     if (!s) throw httpErr(404, 'scena inesistente');
     return s;
   });
