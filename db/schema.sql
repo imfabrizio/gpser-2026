@@ -2681,7 +2681,25 @@ alter table promozione add column if not exists comitato text;                  
 alter table promozione add column if not exists controllo jsonb;                                             -- confronto con il catalogo: identica / simile / nuova
 insert into ruolo (codice, nome, sistema, aree) values ('approvatore', 'Approvatore', true, '{approvazione,scene,formazione_esame}') on conflict (codice) do nothing;
 
-insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql'), ('022-comitati-gaia-ufficiale.sql'), ('023-qualifiche-ruoli-multipli.sql'), ('024-qualifiche-corsi.sql'), ('025-eventi-ambito.sql'), ('026-organizzazione-per-evento.sql'), ('027-schede-ai.sql'), ('028-categorie-gravita.sql'), ('029-canovacci.sql'), ('030-promozioni.sql'), ('031-enti-visibilita.sql');   -- lo schema qui sopra le include già tutte
+-- Doppioni in libreria (coppie da non riproporre) e comitati invitati agli allenamenti
+create table if not exists accorpamento_ignorato (
+  a          uuid not null references patologia(id) on delete cascade,
+  b          uuid not null references patologia(id) on delete cascade,
+  deciso_da  uuid references utente(id) on delete set null,
+  created_at timestamptz not null default now(),
+  primary key (a, b),
+  check (a < b)
+);
+create table if not exists evento_comitato_invitato (
+  evento_id   uuid not null references evento(id) on delete cascade,
+  comitato    text not null,                       -- nome ufficiale del comitato invitato
+  invitato_da uuid references utente(id) on delete set null,
+  created_at  timestamptz not null default now(),
+  primary key (evento_id, comitato)
+);
+update ruolo set aree = (select array(select distinct unnest(aree || '{gara,squadre,classifiche,stampa}'::text[]))) where codice = 'approvatore';
+
+insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql'), ('022-comitati-gaia-ufficiale.sql'), ('023-qualifiche-ruoli-multipli.sql'), ('024-qualifiche-corsi.sql'), ('025-eventi-ambito.sql'), ('026-organizzazione-per-evento.sql'), ('027-schede-ai.sql'), ('028-categorie-gravita.sql'), ('029-canovacci.sql'), ('030-promozioni.sql'), ('031-enti-visibilita.sql'), ('032-accorpamenti-allenamenti.sql');   -- lo schema qui sopra le include già tutte
 
 -- schede d'esame TSSA (stesso contenuto della migrazione 015)
 insert into scala_punteggio (codice, mb, su, ne) values ('Esame 0-1-2', 2, 1, 0) on conflict (codice) do nothing;

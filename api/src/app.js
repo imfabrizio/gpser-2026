@@ -7,7 +7,8 @@ import { sincronizza, riapri, httpErr } from './services/compilazioni.js';
 import { generaPdfSchede } from './services/stampa.js';
 import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
-import { enteUtente, regioneDelComitato, puoVedereEvento, èApprovatore } from './enti.js';
+import { enteUtente, regioneDelComitato, puoVedereEvento, accessoEvento, èApprovatore } from './enti.js';
+import { trovaDoppioni, unisci, ignora } from './services/accorpamenti.js';
 import { proponi, approva, rifiuta, tutteLeRegioni, impostaCondivisione } from './services/promozioni.js';
 import { importaCanovaccio } from './services/canovaccio.js';
 import { creaCanovaccio } from './pdf/canovaccio.js';
@@ -88,7 +89,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     }
     if (req.utente.ruolo === 'organizzazione' && !u.per_evento) {      // eventi di un comitato o di una regione: li vede solo chi appartiene a quell'ente
       const idEv = await eventoDellaRotta(rotta, req.params);
-      if (idEv) { const { rows: [e] } = await pool.query('select id, livello, comitato, regione from evento where id=$1', [idEv]); if (e && !(await puoVedereEvento(pool, req.utente, e))) throw httpErr(403, 'evento di un altro ente'); }
+      if (idEv) { const { rows: [e] } = await pool.query('select id, tipo, livello, comitato, regione from evento where id=$1', [idEv]);
+        if (e) { const acc = await accessoEvento(pool, req.utente, e); if (!acc) throw httpErr(403, 'evento di un altro ente'); if (acc === 'lettura' && req.method !== 'GET') throw httpErr(403, 'il tuo comitato è invitato: puoi consultare l\'allenamento ma non modificarlo'); } }
     }
     if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/me/') || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta))))
       throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
@@ -138,10 +140,10 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/pubblico', async () => {
     const { rows: avvisi } = await pool.query(`select id, titolo, testo, created_at from avviso where pubblico order by created_at desc limit 20`);
     const { rows: eventi } = await pool.query(
-      `select id, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, mappa_url from evento where not archiviato order by data desc nulls last limit 20`);
+      `select id, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, mappa_url from evento where not archiviato and tipo <> 'allenamento' and (livello is null or (livello <> 'comitato' and attivo)) order by data desc nulls last limit 20`);
     const { rows: scene } = await pool.query(
       `select s.evento_id, s.codice, s.titolo, s.indirizzo, s.lat, s.lng from scena s join evento e on e.id=s.evento_id
-        where not e.archiviato and (s.indirizzo is not null or s.lat is not null) order by s.ordine, s.codice`);
+        where not e.archiviato and e.tipo <> 'allenamento' and (e.livello is null or (e.livello <> 'comitato' and e.attivo)) and (s.indirizzo is not null or s.lat is not null) order by s.ordine, s.codice`);
     return { avvisi, eventi: eventi.map((e) => ({ ...e, scene: scene.filter((s) => s.evento_id === e.id) })) };
   });
 
@@ -168,7 +170,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
          from evento where ($1 or id = $2 or id = any($3::uuid[]) or ($2::uuid is null and not cardinality($3::uuid[]) > 0 and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id, req.utente.eventi_ammessi])).rows;
     if (req.utente.ruolo === 'organizzazione' && req.utente.per_evento) return righe.filter((e) => req.utente.eventi_org.includes(e.id));
-    if (req.utente.ruolo === 'organizzazione') { const v = []; for (const e of righe) if (await puoVedereEvento(pool, req.utente, e)) v.push(e); righe.splice(0, righe.length, ...v); }
+    if (req.utente.ruolo === 'organizzazione') { const v = []; for (const e of righe) { const acc = await accessoEvento(pool, req.utente, e); if (acc) v.push(acc === 'lettura' ? { ...e, invitato: true } : e); } righe.splice(0, righe.length, ...v); }
     if (!soloFormazione(req.utente)) return righe;                                // chi gestisce solo i corsi vede i corsi del suo ambito
     const prof = await profiloFormativo(pool, req.utente.id), out = [];
     for (const e of righe) if (await puoGestireEvento(pool, req.utente, e, prof)) out.push(e);
@@ -221,6 +223,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     }
     const didattico = ['allenamento', 'corso', 'esame', 'megacode'].includes(tipo);
     const ente = await decidiEnte(req, b, tipo, comitato);
+    if (ente.livello === 'comitato' && !req.utente.admin && ['gara', 'olimpiadi'].includes(tipo)) throw httpErr(403, 'le gare e le Olimpiadi le organizza la regione: un comitato crea allenamenti');
     return (await pool.query(
       `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, data_fine, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato, livello, regione) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,nullif(trim($10),''),$11,$12,$13,$14) returning *`,
       [b.codice, b.nome, tipo, b.titolo_stampa, b.luogo, b.data, b.data_fine || null, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, ente.comitato ?? comitato, ente.livello, ente.regione])).rows[0];
@@ -261,6 +264,21 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       [req.params.id, req.utente.ruolo, req.utente.id]);
     return rows;
   });
+  // ── allenamento del comitato: comitati invitati (consultano l'allenamento, non lo modificano) ──
+  const soloAllenamento = async (id) => { const { rows: [e] } = await pool.query('select id, tipo from evento where id=$1', [id]); if (!e) throw httpErr(404, 'evento inesistente'); if (e.tipo !== 'allenamento') throw httpErr(400, 'solo gli allenamenti si aprono ad altri comitati'); };
+  app.get('/api/eventi/:id/comitati-invitati', { preHandler: soloOrg }, async (req) => (await pool.query('select comitato from evento_comitato_invitato where evento_id=$1 order by comitato', [req.params.id])).rows.map((r) => r.comitato));
+  app.put('/api/eventi/:id/comitati-invitati', { preHandler: soloOrg }, async (req) => {
+    await soloAllenamento(req.params.id);
+    const lista = Array.isArray(req.body?.comitati) ? req.body.comitati : null; if (!lista || lista.length > 60) throw httpErr(400, 'elenco comitati non valido (max 60)');
+    const nomi = []; for (const t of lista) { const c = (await canonico(pool, String(t))).comitato; if (!c) throw httpErr(400, `«${t}» non è un comitato dell'elenco ufficiale`); if (!nomi.includes(c.nome)) nomi.push(c.nome); }
+    await inTransazione(pool, async (db) => { await db.query('delete from evento_comitato_invitato where evento_id=$1', [req.params.id]);
+      for (const n of nomi) await db.query('insert into evento_comitato_invitato (evento_id, comitato, invitato_da) values ($1,$2,$3)', [req.params.id, n, req.utente.id]); });
+    return nomi;
+  });
+  // ── doppioni in libreria ──
+  app.get('/api/libreria/doppioni', { preHandler: soloOrg }, async (req) => trovaDoppioni(pool, req.utente));
+  app.post('/api/libreria/doppioni/ignora', { preHandler: soloOrg }, async (req) => ignora(pool, req.utente, req.body?.a, req.body?.b));
+  app.post('/api/libreria/patologie/:id/unisci', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => unisci(db, req.utente, req.params.id, req.body?.in)));
   // ── dal comitato alla regione: proposte, approvazione, catalogo e condivisione ──
   const regioneMia = async (req) => (await enteUtente(pool, req.utente)).regione;
   const soloApprovatore = async (req) => { if (!èApprovatore(req.utente)) throw httpErr(403, 'serve il ruolo di approvatore'); };
@@ -433,6 +451,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const mio = haSchede(req.utente) ? null : await comitatoDi(pool, req.utente);
     return (await pool.query(
     `select p.*, (select count(*) from patologia_voce where patologia_id=p.id) as voci,
+       (select nome from utente where id = p.creata_da) as autore,
        (select coalesce(jsonb_agg(jsonb_build_object('evento', x.nome, 'codice', x.codice, 'luogo', x.luogo, 'data', to_char(x.data, 'YYYY-MM-DD')) order by x.data desc nulls last), '[]'::jsonb)
           from (select distinct e.id, e.nome, e.codice, e.luogo, e.data from scena_scheda ss join scena s on s.id = ss.scena_id join evento e on e.id = s.evento_id where ss.patologia_id = p.id) x) as usi
        from patologia p where (p.comitato is null or $1::boolean or lower(trim(p.comitato)) = lower(trim($2::text))) and (not p.bozza or p.creata_da = $3::uuid)

@@ -139,8 +139,11 @@ async function caricaEventi() {
   eventi = await api('/eventi');
   impostaFam(fam);
 }
-const selettoreEvento = () => `<div class="card"><label>${fam === 'corsi' ? 'Corso / evento' : 'Gara'}</label><div class="riga">
-  <select id="selev">${eventiFam().map((e) => `<option value="${e.id}" ${ev && e.id === ev.id ? 'selected' : ''}>${esc(e.codice)} – ${esc(e.nome)}${e.attivo ? ' (attivo)' : ''}</option>`).join('')}</select></div></div>`;
+const etichettaEv = (e) => `${esc(e.codice)} – ${esc(e.nome)}${e.attivo ? ' (attivo)' : ''}${e.invitato ? ' · invitato' : ''}`;
+const selettoreEvento = () => { const l = eventiFam(), opt = (e) => `<option value="${e.id}" ${ev && e.id === ev.id ? 'selected' : ''}>${etichettaEv(e)}</option>`;
+  const all = l.filter((e) => e.tipo === 'allenamento'), altri = l.filter((e) => e.tipo !== 'allenamento');
+  return `<div class="card"><label>${fam === 'corsi' ? 'Corso / evento' : 'Gara o allenamento'}</label><div class="riga">
+  <select id="selev">${fam === 'gara' && all.length && altri.length ? `<optgroup label="Gare e Olimpiadi">${altri.map(opt).join('')}</optgroup><optgroup label="Allenamenti">${all.map(opt).join('')}</optgroup>` : l.map(opt).join('')}</select></div></div>`; };
 const legaSelettore = () => { const s = $('#selev'); if (s) s.onchange = () => { ev = eventi.find((e) => e.id === s.value); localStorage.setItem('ev_' + fam, ev.id); render(); }; };
 
 // ───────── EVENTO ─────────
@@ -178,6 +181,20 @@ async function tEvento() {
     <p><button class="b" id="n_crea">Crea evento</button></p></div>`;
   if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});
   legaSelettore();
+  if (ev && ev.tipo === 'allenamento') {
+    const sola = !!ev.invitato; let inv = await api(`/eventi/${ev.id}/comitati-invitati`).catch(() => []);
+    $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Comitati invitati all'allenamento</h3>
+      <p class="nota">${sola ? 'Il tuo comitato è invitato: puoi consultare l\'allenamento ma non modificarlo.' : 'L\'allenamento è del comitato ' + esc(ev.comitato || '') + ': le schede restano sue. I comitati invitati possono consultare scene, squadre e classifica, senza modificarli. Per rendere utile una scena a tutti, proponila alla regione dal tab Scene.'}</p>
+      <div id="ci_l"></div>${sola ? '' : `<div class="riga"><div style="flex:3"><label>Aggiungi un comitato</label><input id="ci_q" placeholder="cerca per nome o provincia" autocomplete="off"><div id="ci_r"></div></div><div class="stretto"><button class="b" id="ci_ok">Salva inviti</button></div></div>`}</div>`);
+    const disegnaInv = () => { $('#ci_l').innerHTML = inv.length ? inv.map((n, i) => `<span class="tag">${esc(n)} ${sola ? '' : `<a href="#" class="ci_x" data-i="${i}" style="text-decoration:none">✕</a>`}</span>`).join(' ') : '<p><em>Nessun comitato invitato.</em></p>';
+      document.querySelectorAll('.ci_x').forEach((a) => { a.onclick = (e) => { e.preventDefault(); inv.splice(+a.dataset.i, 1); disegnaInv(); }; }); };
+    disegnaInv();
+    if (!sola) { let t; $('#ci_q').oninput = () => { clearTimeout(t); t = setTimeout(async () => { const q = $('#ci_q').value.trim(); if (q.length < 2) { $('#ci_r').innerHTML = ''; return; }
+        const r = await api('/comitati/cerca?q=' + encodeURIComponent(q)).catch(() => []);
+        $('#ci_r').innerHTML = r.slice(0, 8).map((c) => `<button class="s p ci_a" data-n="${esc(c.nome)}">${esc(c.nome)} <small>${esc(c.provincia || '')}</small></button>`).join(' ');
+        document.querySelectorAll('.ci_a').forEach((b) => { b.onclick = () => { if (!inv.includes(b.dataset.n)) inv.push(b.dataset.n); $('#ci_q').value = ''; $('#ci_r').innerHTML = ''; disegnaInv(); }; }); }, 250); };
+      $('#ci_ok').onclick = () => fai(async () => { inv = await api(`/eventi/${ev.id}/comitati-invitati`, { method: 'PUT', body: { comitati: inv } }); disegnaInv(); }, 'Inviti salvati'); }
+  }
   if (ev) {
     $('#e_salva').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
       luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia').value, mostra_punteggi: $('#e_mp').checked, codice_gaia: $('#e_gaia').value, corso_id: $('#e_corso').value || null } })
@@ -596,16 +613,19 @@ async function tLibreria() {
     ${direzione ? '' : `<p class="nota">Le schede che crei qui sono visibili solo al tuo comitato. Le schede generali puoi guardarle e copiarle, ma non modificarle.</p>`}
     <p><button class="b" id="np">Nuova scheda</button> ${direzione ? '<button class="s" id="vp">Punteggi MB/BE/SU/IN/NE</button> ' : ''}<button class="s" id="nm">Nuova da modello…</button> <button class="s" id="ai">Genera con l'AI</button>
       ${direzione ? `<label style="display:inline-flex;gap:6px;align-items:center;font-size:15px;color:inherit;margin-left:10px"><input type="checkbox" id="vcom" ${conComitati ? 'checked' : ''}> Vedi anche schede dei comitati</label>` : ''}</p>
-    <input id="pf" placeholder="Cerca (es. Ictus, frattura, Olimpiadi, Gara D)" style="margin-bottom:8px">
-    ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:430px"></colgroup>${l.map((p) => `<tr class="pr" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + usiTesto(p)).toLowerCase())}"><td>${puntoGrav(p.gravita)}<strong>${esc(p.nome)}</strong>${p._sec ? ' <span class="tag">secondaria</span>' : ''} <span class="tag">${esc(p.sigla)}</span>
+    <div class="riga"><div style="flex:3"><input id="pf" placeholder="Cerca per nome, sigla, autore, gara (es. Ictus, frattura, Olimpiadi)"></div>
+      <div><select id="pf_t"><option value="">Tutti i tipi</option>${(cache.macro || []).map((m) => `<option value="${m.codice}">${esc(m.nome)}</option>`).join('')}</select></div>
+      <div><select id="pf_o"><option value="">Qualsiasi origine</option><option value="generale">Libreria generale</option><option value="regione">Catalogo regionale</option><option value="comitato">Del mio comitato</option></select></div></div>
+    ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:430px"></colgroup>${l.map((p) => `<tr class="pr" data-m="${esc(p.macro || '')}" data-m2="${esc(p.macro2 || '')}" data-o="${p.comitato ? 'comitato' : p.regione ? 'regione' : 'generale'}" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + (p.autore || '') + ' ' + usiTesto(p)).toLowerCase())}"><td>${puntoGrav(p.gravita)}<strong>${esc(p.nome)}</strong>${p._sec ? ' <span class="tag">secondaria</span>' : ''} <span class="tag">${esc(p.sigla)}</span>
       ${p.categoria2 ? `<span class="tag">+ ${esc(p.categoria2)}</span>` : ''}${p.regione ? `<span class="tag">${esc(p.regione)}</span>` : ''}${p.bozza ? '<span class="tag no">Bozza' + (p.generata_ai ? ' AI' : '') + '</span>' : ''}${p.is_bls ? '<span class="tag">BLSD</span>' : ''}${p.is_diu ? '<span class="tag">DIU</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}${p.comitato ? `<span class="tag no">Privata · ${esc(p.comitato)}</span>` : ''}
 </td><td>${p.voci} voci</td>
       <td><div class="azioni">${p.bozza ? `<button class="b p pub" data-id="${p.id}">Pubblica</button>` : '<span></span>'}<button class="s p an" data-id="${p.id}">Anteprima</button>${modificabile(p) ? `<button class="s p ed" data-id="${p.id}">Modifica</button>` : `<button class="s p ed" data-id="${p.id}">Apri</button>`}<button class="s p cp" data-id="${p.id}">Copia</button>${modificabile(p) ? `<button class="x p del" data-id="${p.id}">Elimina</button>` : ''}</div></td></tr>`).join('')}</table></details>`).join('')}
     <p class="nota">Modificare una patologia non cambia le scene già create: ognuna ne conserva una copia.</p></div>
 `;
-  $('#pf').oninput = () => { const q = $('#pf').value.trim().toLowerCase();
-    document.querySelectorAll('tr.pr').forEach((r) => { r.hidden = !!q && !r.dataset.n.includes(q); });
-    document.querySelectorAll('details.grp').forEach((d) => { const v = d.querySelectorAll('tr.pr:not([hidden])').length; d.hidden = !v; if (q) d.open = true; }); };
+  const filtra = () => { const q = $('#pf').value.trim().toLowerCase(), t = $('#pf_t').value, o = $('#pf_o').value;
+    document.querySelectorAll('tr.pr').forEach((r) => { r.hidden = !((!q || r.dataset.n.includes(q)) && (!t || r.dataset.m === t || r.dataset.m2 === t) && (!o || r.dataset.o === o)); });
+    document.querySelectorAll('details.grp').forEach((d) => { const v = d.querySelectorAll('tr.pr:not([hidden])').length; d.hidden = !v; if (q || t || o) d.open = true; }); };
+  $('#pf').oninput = filtra; $('#pf_t').onchange = filtra; $('#pf_o').onchange = filtra;
   document.querySelectorAll('.cp').forEach((b) => { b.onclick = async () => { const o = pat.find((p) => p.id === b.dataset.id);
     editorPatologia({ ...o, id: null, nome: o.nome + ' (copia)' }, await api(`/libreria/patologie/${o.id}`), true); }; });
   $('#nm').onclick = () => dlg(`<h3>Nuova scheda da modello</h3><p class="nota">Scegli la scheda da cui partire: ne verrà creata una copia da modificare.</p>
@@ -623,6 +643,15 @@ async function tLibreria() {
       <td>${c.scene ? c.scene + ' scene' : '–'}</td><td><button class="s p cv_pdf" data-id="${c.id}">Apri</button> ${admin() || (me.aree || []).includes('importa') ? `<button class="x p cv_del" data-id="${c.id}">Elimina</button>` : ''}</td></tr>`).join('')}</table>`
       : '<p class="nota">Nessun canovaccio. Si caricano da <strong>Importa</strong> (file .docx).</p>'}
     <p class="nota">Il canovaccio si collega a una scena dal tab Scene. Simulatori, manichini e truccatori sono calcolati dalla logistica del file.</p></div>`);
+  const dopp = await api('/libreria/doppioni').catch(() => []);
+  if (dopp.length) $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Possibili doppioni (${dopp.length})</h3>
+    <p class="nota">Schede con voci molto simili. Unendole, scene ed esami che usano la scheda eliminata passano a quella che tieni: non si perde nulla.</p>
+    <table><tr><th>Scheda A</th><th>Scheda B</th><th>Somiglianza</th><th></th></tr>${dopp.map((d, i) => `<tr><td>${esc(d.a.nome)}<br><small>${d.a.voci} voci · usata ${d.a.usi} volte</small></td><td>${esc(d.b.nome)}<br><small>${d.b.voci} voci · usata ${d.b.usi} volte</small></td>
+      <td>${Math.round(d.somiglianza * 100)}%${d.somiglianza === 1 ? ' <span class="tag no">identiche</span>' : ''}</td>
+      <td><button class="s p dp_u" data-i="${i}" data-dup="a">Tieni B</button> <button class="s p dp_u" data-i="${i}" data-dup="b">Tieni A</button> <button class="s p dp_i" data-i="${i}">Sono diverse</button></td></tr>`).join('')}</table></div>`);
+  document.querySelectorAll('.dp_u').forEach((b) => { b.onclick = () => { const d = dopp[+b.dataset.i], dup = d[b.dataset.dup], tieni = d[b.dataset.dup === 'a' ? 'b' : 'a'];
+    if (confirm(`Unire «${dup.nome}» in «${tieni.nome}»? La prima verrà eliminata.`)) fai(() => api(`/libreria/patologie/${dup.id}/unisci`, { body: { in: tieni.id } }), 'Schede unite'); }; });
+  document.querySelectorAll('.dp_i').forEach((b) => { b.onclick = () => { const d = dopp[+b.dataset.i]; fai(() => api('/libreria/doppioni/ignora', { body: { a: d.a.id, b: d.b.id } }), 'Non verranno più proposte'); }; });
   const [prom, cond, cat, regioniTutte] = await Promise.all([api('/promozioni').catch(() => []), api('/scene-condivise').catch(() => []), api('/catalogo').catch(() => ({ voci: [] })), api('/regioni').catch(() => [])]);
   const appr = cat.approvatore || admin();
   const stPr = { in_attesa: '<span class="tag">in attesa</span>', approvata: '<span class="tag ok">approvata</span>', rifiutata: '<span class="tag no">rifiutata</span>' };

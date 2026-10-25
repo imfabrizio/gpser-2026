@@ -22,3 +22,14 @@ export async function puoVedereEvento(db, utente, evento) {
   if (evento.livello === 'regione') return !!mio.regione && mio.regione === evento.regione;
   return false;   // nazionale: solo admin e chi è assegnato all'evento
 }
+
+// accesso a un evento: 'scrittura' (è del tuo ente o ti è assegnato), 'lettura' (il tuo comitato è invitato a un allenamento), null
+export async function accessoEvento(db, utente, evento) {
+  if (await puoVedereEvento(db, utente, evento)) return 'scrittura';
+  if (evento.tipo === 'allenamento' || evento.livello === 'comitato') {
+    const mio = await enteUtente(db, utente); if (!mio.comitato) return null;
+    const { rows } = await db.query('select comitato from evento_comitato_invitato where evento_id=$1', [evento.id]);
+    if (rows.some((r) => norm(r.comitato) === norm(mio.comitato))) return 'lettura';
+  }
+  return null;
+}

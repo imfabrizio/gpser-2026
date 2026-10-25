@@ -1334,3 +1334,41 @@ test('ENT-1 enti e promozione: visibilità per comitato, blocco data, approvator
   assert.ok(!json(await chiama('GET', '/api/eventi', { token: tok['ist2@t'] })).some((e) => e.id === ev));
   assert.equal((await chiama('PUT', `/api/eventi/${ev}/ente`, { token: tok['adm@t'], body: { livello: '' } })).statusCode, 200);   // si può tornare a «storico»
 });
+
+test('ALL-1 allenamento del comitato: lo crea il comitato, invita altri comitati (sola lettura), non è pubblico', async () => {
+  assert.equal((await chiama('POST', '/api/eventi', { token: tok['ist@t'], body: { codice: 'GARA-X', nome: 'Gara di prova', tipo: 'gara' } })).statusCode, 403);   // le gare le fa la regione
+  const r = await chiama('POST', '/api/eventi', { token: tok['ist@t'], body: { codice: 'ALL-2', nome: 'Allenamento Prignano', tipo: 'allenamento', data: '2026-11-15' } });
+  assert.equal(r.statusCode, 200, r.payload); const al = json(r);
+  assert.equal(al.livello, 'comitato'); assert.equal(al.comitato, 'Prignano sulla Secchia'); assert.equal(al.regione, 'Emilia-Romagna');
+  assert.ok(!json(await chiama('GET', '/api/eventi', { token: tok['ist2@t'] })).some((e) => e.id === al.id));      // prima dell'invito, Milano non lo vede
+  assert.equal((await chiama('PUT', `/api/eventi/${al.id}/comitati-invitati`, { token: tok['ist2@t'], body: { comitati: ['Milano'] } })).statusCode, 403);
+  assert.equal((await chiama('PUT', `/api/eventi/${al.id}/comitati-invitati`, { token: tok['ist@t'], body: { comitati: ['Comitato inesistente'] } })).statusCode, 400);
+  const inv = await chiama('PUT', `/api/eventi/${al.id}/comitati-invitati`, { token: tok['ist@t'], body: { comitati: ['Milano'] } }); assert.equal(inv.statusCode, 200, inv.payload); assert.deepEqual(json(inv), ['Milano']);
+  const vis = json(await chiama('GET', '/api/eventi', { token: tok['ist2@t'] })).find((e) => e.id === al.id); assert.ok(vis); assert.equal(vis.invitato, true);
+  assert.equal((await chiama('GET', `/api/eventi/${al.id}/scene`, { token: tok['ist2@t'] })).statusCode, 200);            // l'invitato consulta…
+  assert.equal((await chiama('POST', `/api/eventi/${al.id}/scene`, { token: tok['ist2@t'], body: { codice: 'Q', titolo: 'no' } })).statusCode, 403);   // …ma non modifica
+  assert.equal((await chiama('PUT', `/api/eventi/${al.id}/comitati-invitati`, { token: tok['ist@t'], body: { comitati: [] } })).statusCode, 200);
+  assert.equal((await chiama('GET', `/api/eventi/${al.id}/scene`, { token: tok['ist2@t'] })).statusCode, 403);             // tolto l'invito, sparisce
+  assert.equal((await chiama('PUT', `/api/eventi/${ev}/comitati-invitati`, { token: tok['adm@t'], body: { comitati: [] } })).statusCode, 400);   // solo per gli allenamenti
+  const pub = json(await app.inject({ method: 'GET', url: '/api/pubblico' }));
+  assert.ok(!pub.eventi.some((e) => e.id === al.id || e.tipo === 'allenamento'));                                          // gli allenamenti non sono pubblici
+});
+
+test('DOP-1 doppioni in libreria: si individuano, si uniscono spostando le scene, si possono ignorare', async () => {
+  const mk = async (cod, voci) => json(await chiama('POST', '/api/libreria/patologie', { token: tok['adm@t'], body: { codice: cod, nome: 'Dop ' + cod, sigla: cod.slice(-3), voci: voci.map((t) => ({ sezione: 'S', testo: t, scala: 'Standard' })) } }));
+  const base = ['dop valuta la scena', 'dop controlla la coscienza', 'dop apre le vie aeree', 'dop valuta il respiro', 'dop chiama il 112'];
+  const A = await mk('DOP_A', base), B = await mk('DOP_B', [...base, 'dop applica ossigeno']), C = await mk('DOP_C', ['dop altro uno', 'dop altro due', 'dop altro tre']);
+  const D = await mk('DOP_D', ['dop ghiaccio sulla caviglia', 'dop immobilizza l\'arto', 'dop valuta il circolo']), E = await mk('DOP_E', ['dop ghiaccio sulla caviglia', 'dop immobilizza l\'arto', 'dop valuta il circolo', 'dop eleva l\'arto']);
+  const { rows: [sc] } = await pool.query(`select id from scena limit 1`);
+  await chiama('POST', `/api/scene/${sc.id}/schede`, { token: tok['adm@t'], body: { patologiaId: A.id, slot: 7, simulatore: '07' } });
+  let l = json(await chiama('GET', '/api/libreria/doppioni', { token: tok['adm@t'] }));
+  const coppia = (x, y) => l.find((d) => [d.a.id, d.b.id].sort().join() === [x, y].sort().join());
+  assert.ok(coppia(A.id, B.id)); assert.ok(coppia(D.id, E.id)); assert.ok(!l.some((d) => d.a.id === C.id || d.b.id === C.id));
+  assert.equal((await chiama('GET', '/api/libreria/doppioni', { token: tok['giu@t'] })).statusCode, 403);
+  const u = await chiama('POST', `/api/libreria/patologie/${A.id}/unisci`, { token: tok['adm@t'], body: { in: B.id } }); assert.equal(u.statusCode, 200, u.payload);
+  assert.equal((await pool.query('select count(*)::int n from patologia where id=$1', [A.id])).rows[0].n, 0);
+  assert.equal((await pool.query('select count(*)::int n from scena_scheda where patologia_id=$1', [B.id])).rows[0].n, 1);   // la scena ora punta a B
+  assert.equal((await chiama('POST', `/api/libreria/patologie/${B.id}/unisci`, { token: tok['adm@t'], body: { in: B.id } })).statusCode, 400);
+  assert.equal((await chiama('POST', '/api/libreria/doppioni/ignora', { token: tok['adm@t'], body: { a: D.id, b: E.id } })).statusCode, 200);
+  l = json(await chiama('GET', '/api/libreria/doppioni', { token: tok['adm@t'] })); assert.ok(!coppia(D.id, E.id)); assert.ok(!coppia(A.id, B.id));
+});

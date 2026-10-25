@@ -16,3 +16,9 @@ Il proprietario si imposta dalla scheda dell'evento (solo admin). Chi crea un ev
 
 La scena approvata diventa un modello copiabile (Libreria → Scene del catalogo). La scheda del comitato resta sua.
 Il nazionale non vede il materiale delle regioni, a meno che sia condiviso.
+
+**Allenamento del comitato.** Un comitato crea solo allenamenti (le gare e le Olimpiadi le organizza la regione). L'allenamento è del comitato, le sue schede restano private.
+Il comitato può invitare altri comitati (scheda dell'evento → «Comitati invitati»): gli invitati consultano scene, squadre e classifica ma non modificano nulla. Gli allenamenti non compaiono mai nel sito pubblico.
+
+**Doppioni.** In Libreria, chi cura il catalogo (approvatore della regione, direzione per la libreria generale) vede le coppie di schede simili (≥ 60% di voci in comune):
+può unirle (scene ed esami passano alla scheda tenuta, l'altra viene eliminata) oppure segnarle come diverse. La ricerca in libreria filtra per nome, autore, tipo e origine.
