@@ -103,3 +103,7 @@ L'elenco ufficiale va caricato una volta dall'import (non è scaricabile in auto
 ## Schede generate con l'AI
 
 Le bozze di schede si generano dalla Libreria («Genera con l'AI»). Chiave del sito: variabile `GEMINI_API_KEY` su Render (Environment), creata in Google AI Studio (aistudio.google.com → Get API key) con l'account Google del sito. Mai nel codice o nel repository. Modello predefinito `gemini-3.8-flash` (variabile facoltativa `GEMINI_MODEL`). Ogni utente può aggiungere una propria chiave (Gemini, Claude, ChatGPT): resta cifrata nel database. Le schede generate sono sempre bozze, visibili solo a chi le ha create finché non le pubblica; limite di 12 generazioni all'ora per utente.
+
+## Promuovere un utente ad amministratore
+
+Se non hai più un accesso amministratore con cui farlo dal sito, imposta su Render la variabile `ADMIN_EMAILS` (uno o più indirizzi separati da virgola, es. `nome.cognome@emiliaromagna.cri.it`) e riavvia il servizio. All'avvio gli utenti **già registrati** con quell'email diventano amministratori; non viene creato nessun account. Dopo il riavvio l'utente deve uscire e rientrare. Puoi poi togliere la variabile: il ruolo resta.
