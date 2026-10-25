@@ -425,17 +425,17 @@ function formPersona(p) {
 // ───────── SCENE E SCHEDE ─────────
 async function tScene() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima un evento.</div>'; return; }
-  const [scene, pat, ass, mas] = await Promise.all([api(`/eventi/${ev.id}/scene`), api('/libreria/patologie'), api(`/eventi/${ev.id}/assegnazioni`), api(`/eventi/${ev.id}/master`)]);
+  const [scene, pat, ass, mas, macro] = await Promise.all([api(`/eventi/${ev.id}/scene`), api('/libreria/patologie'), api(`/eventi/${ev.id}/assegnazioni`), api(`/eventi/${ev.id}/master`), api('/libreria/macro')]);
   const schede = {};
   for (const s of scene) for (const k of s.schede || []) schede[k.id] = (await api(`/schede/${k.id}`));
-  cache = { schede, giudici: null };
+  cache = { schede, giudici: null, macro };
   const nomiAss = (id) => ass.filter((a) => a.scheda_id === id).map((a) => esc(a.nome)).join(', ') || '<em>nessuno</em>';
   $('#app').innerHTML = selettoreEvento() + scene.map((s) => `<div class="card"><h3>Scena ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
     <p>Giudice master: <strong>${mas.filter((m) => m.scena_id === s.id).map((m) => esc(m.nome)).join(', ') || '<em>nessuno</em>'}</strong> <button class="s p mas-b" data-id="${s.id}">Giudice master…</button></p>
     <div class="riga"><div style="flex:3"><label>Indirizzo della scena (per la mappa)</label><input class="s_ind" data-id="${s.id}" value="${esc(s.indirizzo || '')}" placeholder="Via Roma 1, Piacenza"></div>
       <div><label>Latitudine</label><input class="s_lat" data-id="${s.id}" value="${s.lat ?? ''}" placeholder="45.0526"></div><div><label>Longitudine</label><input class="s_lng" data-id="${s.id}" value="${s.lng ?? ''}" placeholder="9.6930"></div>
       <div class="stretto"><button class="s p s_pos" data-id="${s.id}">Salva posizione</button></div></div>
-    <p><button class="s p dup" data-id="${s.id}">Duplica in un altro evento…</button> <button class="x p delsc" data-id="${s.id}">Elimina scena</button></p>
+    <p><button class="s p elp" data-id="${s.id}" title="Scrive nel Master i pazienti della scena in ordine di gravità">Aggiorna l'elenco pazienti del Master</button> <button class="s p dup" data-id="${s.id}">Duplica in un altro evento…</button> <button class="x p delsc" data-id="${s.id}">Elimina scena</button></p>
     ${(s.schede || []).map((k) => { const d = schede[k.id]; const p = d.parametri || {}; return `<div class="scheda">
       <div class="riga"><div style="flex:2"><strong>${esc(d.titolo)}</strong> <span class="tag">slot ${d.slot}</span><span class="tag">sim. ${esc(d.simulatore)}</span>
         ${d.is_bls ? '<span class="tag">BLS</span>' : ''}${d.is_master ? '<span class="tag">Master</span>' : ''}<span class="tag">${d.voci.length} voci</span>
@@ -444,7 +444,8 @@ async function tScene() {
         <div><label>FR</label><input class="pp" data-id="${k.id}" data-k="fr" value="${esc(p.fr ?? '')}"></div>
         <div><label>FC</label><input class="pp" data-id="${k.id}" data-k="fc" value="${esc(p.fc ?? '')}"></div>
         <div><label>Cute</label><input class="pp" data-id="${k.id}" data-k="cute" value="${esc(p.cute || '')}"></div>
-        <div><label>Simulatore</label><input class="ps" data-id="${k.id}" value="${esc(d.simulatore)}"></div></div>
+        <div><label>Simulatore</label><input class="ps" data-id="${k.id}" value="${esc(d.simulatore)}"></div>
+        ${d.is_master ? '' : `<div><label>Gravità</label><select class="pg" data-id="${k.id}"><option value="">—</option>${['rosso', 'giallo', 'verde'].map((g) => `<option value="${g}" ${d.gravita === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>`}</div>
       <p><button class="s p voci-b" data-id="${k.id}">Voci e punteggi…</button> <button class="s p ass-b" data-id="${k.id}">Giudici…</button>
         <button class="x p delsk" data-id="${k.id}">Elimina scheda</button></p></div>`; }).join('')}
     <div class="scheda"><strong>Aggiungi scheda da patologia</strong><div class="riga">
@@ -461,6 +462,8 @@ async function tScene() {
   document.querySelectorAll('.pp').forEach((i) => { i.onchange = () => { const d = cache.schede[i.dataset.id]; const p = { ...(d.parametri || {}) };
     const v = i.value.trim(); p[i.dataset.k] = v === '' ? null : (['fr', 'fc'].includes(i.dataset.k) ? Number(v) : v);
     fai(() => api(`/schede/${i.dataset.id}`, { method: 'PATCH', body: { parametri: p } }), 'Parametri salvati'); }; });
+  document.querySelectorAll('.pg').forEach((i) => { i.onchange = () => fai(() => api(`/schede/${i.dataset.id}`, { method: 'PATCH', body: { gravita: i.value } }), 'Gravità aggiornata'); });
+  document.querySelectorAll('.elp').forEach((b) => { b.onclick = () => fai(async () => { const r = await api(`/scene/${b.dataset.id}/elenco-pazienti`, { body: {} }); flash('Elenco nel Master: ' + r.pazienti.join(' · ')); }); });
   document.querySelectorAll('.ps').forEach((i) => { i.onchange = () => fai(() => api(`/schede/${i.dataset.id}`, { method: 'PATCH', body: { simulatore: i.value.trim() } }), 'Simulatore aggiornato'); });
   document.querySelectorAll('.delsk').forEach((b) => { b.onclick = () => { if (confirm('Eliminare questa scheda?')) fai(() => api(`/schede/${b.dataset.id}`, { method: 'DELETE' }), 'Scheda eliminata'); }; });
   document.querySelectorAll('.delsc').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la scena con tutte le sue schede?')) fai(() => api(`/scene/${b.dataset.id}`, { method: 'DELETE' }), 'Scena eliminata'); }; });
@@ -511,12 +514,24 @@ function apriVociScheda(id) {
 
 // ───────── LIBRERIA ─────────
 const categoriaDi = (p) => (p.categoria || p.nome.split(' · ')[0] || 'Altre').trim();
+const GRAV = { rosso: '#c8102e', giallo: '#e0a800', verde: '#2e8b3d' };
+const puntoGrav = (g) => (g ? `<span title="Gravità: ${g}" style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${GRAV[g]};vertical-align:middle;margin-right:4px"></span>` : '');
+// raggruppa per categoria principale (e, senza duplicare la scheda, anche sotto la secondaria); le schede senza categoria stanno in «Da classificare»
 function gruppiPatologie(pat) {
+  const macro = cache.macro || [];
+  const nome = (c) => macro.find((m) => m.codice === c)?.nome;
   const m = new Map();
-  for (const p of pat) { const c = categoriaDi(p); if (!m.has(c)) m.set(c, []); m.get(c).push(p); }
-  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'it'));
+  const aggiungi = (c, p) => { if (!m.has(c)) m.set(c, []); m.get(c).push(p); };
+  for (const p of pat) {
+    if (p.is_master) aggiungi('Schede Master', p);
+    else if (p.macro && nome(p.macro)) { aggiungi(nome(p.macro), p); if (p.macro2 && nome(p.macro2)) aggiungi(nome(p.macro2), { ...p, _sec: true }); }
+    else aggiungi('Da classificare', p);
+  }
+  const ordine = (c) => (c === 'Da classificare' ? 98 : c === 'Schede Master' ? 99 : (macro.find((x) => x.nome === c)?.priorita ?? 50));
+  for (const l of m.values()) l.sort((a, b) => categoriaDi(a).localeCompare(categoriaDi(b), 'it') || a.nome.localeCompare(b.nome, 'it'));
+  return [...m.entries()].sort((a, b) => ordine(a[0]) - ordine(b[0]));
 }
-const opzioniPatologie = (pat) => gruppiPatologie(pat).map(([c, l]) => `<optgroup label="${esc(c)}">${l.map((p) => `<option value="${p.id}">${esc(p.nome)}${p.categoria2 ? ' + ' + esc(p.categoria2) : ''} (${p.voci} voci)</option>`).join('')}</optgroup>`).join('');
+const opzioniPatologie = (pat) => gruppiPatologie(pat).map(([c, l]) => `<optgroup label="${esc(c)}">${l.filter((p) => !p._sec).map((p) => `<option value="${p.id}">${esc(p.nome)}${p.categoria2 ? ' + ' + esc(p.categoria2) : ''} (${p.voci} voci)</option>`).join('')}</optgroup>`).join('');
 const dataIt = (d) => (d ? d.split('-').reverse().join('/') : '');
 const descGara = (u) => [u.codice || u.evento, u.luogo, dataIt(u.data)].filter(Boolean).join(' - ');
 const usiTesto = (p) => (p.usi || []).map(descGara).join(' / ');
@@ -540,15 +555,15 @@ async function tPunteggi() {
 async function tLibreria() {
   const direzione = admin() || (me.aree || []).includes('schede');
   const conComitati = direzione && localStorage.getItem('libComitati') === '1';
-  const [pat, scale] = await Promise.all([api('/libreria/patologie' + (conComitati ? '?comitati=1' : '')), api('/libreria/scale')]);
-  cache.scale = scale; cache.pat = pat;
+  const [pat, scale, macro] = await Promise.all([api('/libreria/patologie' + (conComitati ? '?comitati=1' : '')), api('/libreria/scale'), api('/libreria/macro')]);
+  cache.scale = scale; cache.pat = pat; cache.macro = macro;
   const modificabile = (p) => (p.comitato ? (!direzione || admin()) : direzione);
   $('#app').innerHTML = `<div class="card"><h3>Schede in libreria (${pat.length})</h3>
     ${direzione ? '' : `<p class="nota">Le schede che crei qui sono visibili solo al tuo comitato. Le schede generali puoi guardarle e copiarle, ma non modificarle.</p>`}
     <p><button class="b" id="np">Nuova scheda</button> ${direzione ? '<button class="s" id="vp">Punteggi MB/BE/SU/IN/NE</button> ' : ''}<button class="s" id="nm">Nuova da modello…</button> <button class="s" id="ai">Genera con l'AI</button>
       ${direzione ? `<label style="display:inline-flex;gap:6px;align-items:center;font-size:15px;color:inherit;margin-left:10px"><input type="checkbox" id="vcom" ${conComitati ? 'checked' : ''}> Vedi anche schede dei comitati</label>` : ''}</p>
     <input id="pf" placeholder="Cerca (es. Ictus, frattura, Olimpiadi, Gara D)" style="margin-bottom:8px">
-    ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:430px"></colgroup>${l.map((p) => `<tr class="pr" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + usiTesto(p)).toLowerCase())}"><td><strong>${esc(p.nome)}</strong> <span class="tag">${esc(p.sigla)}</span>
+    ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:430px"></colgroup>${l.map((p) => `<tr class="pr" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + usiTesto(p)).toLowerCase())}"><td>${puntoGrav(p.gravita)}<strong>${esc(p.nome)}</strong>${p._sec ? ' <span class="tag">secondaria</span>' : ''} <span class="tag">${esc(p.sigla)}</span>
       ${p.categoria2 ? `<span class="tag">+ ${esc(p.categoria2)}</span>` : ''}${p.bozza ? '<span class="tag no">Bozza' + (p.generata_ai ? ' AI' : '') + '</span>' : ''}${p.is_bls ? '<span class="tag">BLSD</span>' : ''}${p.is_diu ? '<span class="tag">DIU</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}${p.comitato ? `<span class="tag no">Privata · ${esc(p.comitato)}</span>` : ''}
 </td><td>${p.voci} voci</td>
       <td><div class="azioni">${p.bozza ? `<button class="b p pub" data-id="${p.id}">Pubblica</button>` : '<span></span>'}<button class="s p an" data-id="${p.id}">Anteprima</button>${modificabile(p) ? `<button class="s p ed" data-id="${p.id}">Modifica</button>` : `<button class="s p ed" data-id="${p.id}">Apri</button>`}<button class="s p cp" data-id="${p.id}">Copia</button>${modificabile(p) ? `<button class="x p del" data-id="${p.id}">Elimina</button>` : ''}</div></td></tr>`).join('')}</table></details>`).join('')}
@@ -595,12 +610,16 @@ function editorPatologia(p, voci, nuova = false) {
   const dir = admin() || (me.aree || []).includes('schede'), sola = !!(p && p.id && !nuova && (p.comitato ? (dir && !admin()) : !dir));
   dlg(`<h3>${p && !nuova ? (sola ? 'Scheda' : 'Modifica') : 'Nuova'} scheda${p?.comitato ? ` <small>(privata · ${esc(p.comitato)})</small>` : ''}</h3>${sola ? '<p class="nota">Solo lettura: usa «Copia» per averne una tua da modificare.</p>' : ''}<div class="riga">
     <div><label>Nome</label><input id="pt_n" value="${esc(p?.nome || '')}"></div><div><label>Sigla (3 lettere)</label><input id="pt_s" maxlength="4" value="${esc(p?.sigla || '')}"></div></div>
+    <div class="riga"><div><label>Categoria</label><select id="pt_mc"><option value="">— da classificare —</option>${(cache.macro || []).map((m) => `<option value="${m.codice}" ${p?.macro === m.codice ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}</select></div>
+    <div><label>Categoria secondaria</label><select id="pt_mc2"><option value="">nessuna</option>${(cache.macro || []).map((m) => `<option value="${m.codice}" ${p?.macro2 === m.codice ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}</select></div>
+    <div><label>Gravità</label><select id="pt_gr"><option value="">—</option>${['rosso', 'giallo', 'verde'].map((g) => `<option value="${g}" ${p?.gravita === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div></div>
     <div class="riga"><div><label>Patologia (gruppo)</label><input id="pt_c" list="dl_cat" value="${esc(p ? categoriaDi(p) : '')}" placeholder="es. Ictus"><datalist id="dl_cat">${[...new Set((cache.pat || []).map(categoriaDi))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
     <div><label>Seconda patologia (facoltativa)</label><input id="pt_c2" list="dl_cat" value="${esc(p?.categoria2 || '')}" placeholder="es. Frattura polso"></div>
     <div class="stretto"><label>BLSD</label><input type="checkbox" id="pt_b" ${p?.is_bls ? 'checked' : ''}></div><div class="stretto"><label>DIU</label><input type="checkbox" id="pt_d" ${p?.is_diu ? 'checked' : ''}></div><div class="stretto"><label>Master</label><input type="checkbox" id="pt_m" ${p?.is_master ? 'checked' : ''}></div></div>
     <table class="voci" id="pt_t"><tr><th>Sezione</th><th>Voce</th><th>Scala</th><th>SEP</th><th></th></tr>${voci.map(riga).join('')}</table>
     <p><button class="s" id="pt_add">+ Voce</button> <button class="b" id="pt_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
   const t = $('#pt_t');
+  $('#pt_mc').onchange = () => { const m = (cache.macro || []).find((x) => x.codice === $('#pt_mc').value); if (m && !$('#pt_gr').value) $('#pt_gr').value = m.gravita; };
   if (sola) { $('#pt_ok').hidden = true; $('#pt_add').hidden = true; document.querySelectorAll('#dlg input, #dlg select').forEach((e) => { e.disabled = true; }); t.querySelectorAll('button').forEach((b) => { b.hidden = true; }); }
   $('#pt_add').onclick = () => { const last = t.querySelector('tr:last-child .r_sez'); t.insertAdjacentHTML('beforeend', riga({ sezione: last && last.closest('tr') !== t.rows[0] ? last.value : '' })); t.lastElementChild.querySelector('.r_tx').focus(); };
   t.onclick = (e) => { const b = e.target.closest('button'); if (!b) return; const tr = b.closest('tr');
@@ -611,7 +630,7 @@ function editorPatologia(p, voci, nuova = false) {
     const vv = [...t.querySelectorAll('tr')].slice(1).map((tr) => ({ sezione: tr.querySelector('.r_sez').value.trim(), testo: tr.querySelector('.r_tx').value.trim(),
       scala: tr.querySelector('.r_sc').value, is_sep: tr.querySelector('.r_sep').checked })).filter((v) => v.testo);
     if (vv.some((v) => !v.sezione)) return alert('Ogni voce deve avere una sezione');
-    const body = { nome: $('#pt_n').value.trim(), sigla: $('#pt_s').value.trim().toUpperCase(), is_bls: $('#pt_b').checked, is_diu: $('#pt_d').checked, is_master: $('#pt_m').checked, categoria: $('#pt_c').value.trim(), categoria2: $('#pt_c2').value.trim(), voci: vv };
+    const body = { nome: $('#pt_n').value.trim(), sigla: $('#pt_s').value.trim().toUpperCase(), is_bls: $('#pt_b').checked, is_diu: $('#pt_d').checked, is_master: $('#pt_m').checked, categoria: $('#pt_c').value.trim(), categoria2: $('#pt_c2').value.trim(), macro: $('#pt_mc').value, macro2: $('#pt_mc2').value, gravita: $('#pt_gr').value, voci: vv };
     if (!body.nome || !body.sigla) return alert('Nome e sigla obbligatori');
     chiudi();
     fai(() => p && p.id ? api(`/libreria/patologie/${p.id}`, { method: 'PUT', body }) : api('/libreria/patologie', { body: { ...body, codice: body.nome.toUpperCase().replace(/[^A-Z0-9]+/g, '_') + '_' + Date.now().toString(36).toUpperCase() } }), 'Patologia salvata');

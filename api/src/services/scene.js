@@ -26,10 +26,10 @@ export async function aggiungiSchedaDaPatologia(db, {
   if (pat?.bozza) throw httpErr(400, 'scheda in bozza: pubblicala prima di usarla in una scena');
   if (!pat) throw httpErr(404, 'patologia inesistente');
   const { rows: [scheda] } = await db.query(
-    `insert into scena_scheda (scena_id, slot, patologia_id, titolo, sigla, simulatore, is_bls, is_master, is_diu, parametri, fasce)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+    `insert into scena_scheda (scena_id, slot, patologia_id, titolo, sigla, simulatore, is_bls, is_master, is_diu, parametri, fasce, gravita, macro)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *`,
     [scenaId, slot, pat.id, titolo || pat.nome, pat.sigla, simulatore, pat.is_bls, pat.is_master, pat.is_diu,
-     JSON.stringify(parametri), pat.fasce ? JSON.stringify(pat.fasce) : null]);
+     JSON.stringify(parametri), pat.fasce ? JSON.stringify(pat.fasce) : null, pat.gravita, pat.macro]);
   await db.query(
     `insert into scena_scheda_voce (scheda_id, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep)
      select $1, pv.ordine, pv.sezione, v.id, v.testo, sp.codice, sp.mb, sp.be, sp.su, sp."in", sp.ne, pv.is_sep
@@ -61,13 +61,64 @@ export async function duplicaScena(db, { scenaId, eventoDestId, nuovoCodice }) {
   const { rows: schede } = await db.query(`select * from scena_scheda where scena_id=$1`, [scenaId]);
   for (const sc of schede) {
     const { rows: [n] } = await db.query(
-      `insert into scena_scheda (scena_id, slot, patologia_id, titolo, sigla, simulatore, is_bls, is_master, is_diu, parametri, fasce)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`,
-      [nuova.id, sc.slot, sc.patologia_id, sc.titolo, sc.sigla, sc.simulatore, sc.is_bls, sc.is_master, sc.is_diu, sc.parametri, sc.fasce ? JSON.stringify(sc.fasce) : null]);
+      `insert into scena_scheda (scena_id, slot, patologia_id, titolo, sigla, simulatore, is_bls, is_master, is_diu, parametri, fasce, gravita, macro)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`,
+      [nuova.id, sc.slot, sc.patologia_id, sc.titolo, sc.sigla, sc.simulatore, sc.is_bls, sc.is_master, sc.is_diu, sc.parametri, sc.fasce ? JSON.stringify(sc.fasce) : null, sc.gravita, sc.macro]);
     await db.query(
       `insert into scena_scheda_voce (scheda_id, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep)
        select $1, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep
        from scena_scheda_voce where scheda_id = $2`, [n.id, sc.id]);
   }
   return nuova;
+}
+
+const RANGO_GRAVITA = { rosso: 0, giallo: 1, verde: 2 };
+const VOCE_PAZIENTE = /^\s*\d+\s*[–—-]\s*\S/;
+
+/**
+ * Compila nel Master l'elenco dei pazienti della scena (voci «1 – Ictus», «2 – …») in ordine di gravità
+ * (rosso, giallo, verde) e, a parità, di priorità della categoria, poi di posizione. Sostituisce le voci già
+ * scritte in quel formato; se non ce ne sono le inserisce dopo «descrive l'evento».
+ */
+export async function aggiornaElencoPazienti(db, scenaId) {
+  const { rows: [master] } = await db.query('select id from scena_scheda where scena_id=$1 and is_master', [scenaId]);
+  if (!master) throw httpErr(400, 'la scena non ha la scheda Master');
+  const { rows: pz } = await db.query(
+    `select s.titolo, s.slot, s.gravita, coalesce(m.priorita, 99) as prio from scena_scheda s left join macro_categoria m on m.codice = s.macro
+      where s.scena_id=$1 and not s.is_master`, [scenaId]);
+  pz.sort((a, b) => (RANGO_GRAVITA[a.gravita] ?? 3) - (RANGO_GRAVITA[b.gravita] ?? 3) || a.prio - b.prio || a.slot - b.slot);
+  const testi = pz.map((p, i) => `${i + 1} – ${p.titolo}`);
+  const { rows: voci } = await db.query('select * from scena_scheda_voce where scheda_id=$1 order by ordine', [master.id]);
+  const idx = voci.map((v, i) => (VOCE_PAZIENTE.test(v.testo) ? i : -1)).filter((i) => i >= 0);
+  let punto, modello;
+  if (idx.length) { punto = idx[0]; modello = voci[idx[0]]; }
+  else {
+    const d = voci.findIndex((v) => /descrive.*evento/i.test(v.testo));
+    if (d < 0) throw httpErr(400, 'nel Master non trovo dove mettere l\'elenco: aggiungi una voce «1 – …» dopo la descrizione dell\'evento');
+    punto = d + 1; modello = voci[d];
+  }
+  const { rows: [{ n: conRisposte }] } = await db.query('select count(*)::int n from risposta r join scena_scheda_voce v on v.id=r.voce_id where v.scheda_id=$1', [master.id]);
+  if (conRisposte && testi.length !== idx.length) throw httpErr(409, 'il Master ha già delle valutazioni e il numero di pazienti è cambiato: non posso rinumerare le voci');
+  if (conRisposte || (idx.length && testi.length === idx.length)) {       // stesso numero di voci: si aggiorna solo il testo
+    for (const [k, i] of idx.entries()) {
+      const { rows: [v] } = await db.query(`insert into voce (testo) values ($1) on conflict (lower(testo)) do update set testo=voce.testo returning id`, [testi[k]]);
+      await db.query('update scena_scheda_voce set testo=$2, voce_id=$3 where id=$1', [voci[i].id, testi[k], v.id]);
+    }
+    return { pazienti: testi };
+  }
+  // numero diverso e nessuna valutazione: si ricostruisce l'elenco delle voci del Master
+  const prima = voci.filter((_, i) => i < punto && !idx.includes(i));
+  const dopo = voci.filter((_, i) => i >= punto && !idx.includes(i));
+  await db.query('delete from scena_scheda_voce where scheda_id=$1', [master.id]);
+  let ord = 0;
+  const inserisci = async (v) => db.query(
+    `insert into scena_scheda_voce (scheda_id, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    [master.id, ++ord, v.sezione, v.voce_id, v.testo, v.scala, v.mb, v.be, v.su, v.in, v.ne, v.is_sep]);
+  for (const v of prima) await inserisci(v);
+  for (const t of testi) {
+    const { rows: [vc] } = await db.query(`insert into voce (testo) values ($1) on conflict (lower(testo)) do update set testo=voce.testo returning id`, [t]);
+    await inserisci({ ...modello, voce_id: vc.id, testo: t });
+  }
+  for (const v of dopo) await inserisci(v);
+  return { pazienti: testi };
 }

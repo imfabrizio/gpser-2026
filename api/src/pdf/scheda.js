@@ -126,7 +126,8 @@ export function disegnaScheda(doc, ctx) {
   } else { rect(doc, XL, 216, X1 - XL, 21); rect(doc, XL, 237, X1 - XL, 44); }
 
   // intestazione colonne
-  rect(doc, X0, 281, 461, 99);
+  const TINTA = { rosso: '#F8D3D6', giallo: '#FFF1BF', verde: '#D5EBD3' }[scheda.is_master ? '' : scheda.gravita];   // gravità: sfondo del riquadro con la patologia
+  rect(doc, X0, 281, 461, 99, TINTA ? { fill: TINTA } : {});
   testo(doc, scheda.titolo, X0, 281, 461, 99, { size: 14, font: 'Sans-Bold' });
   LIVELLI.forEach((l, i) => {
     const x = XL + i * COLW;

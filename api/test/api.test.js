@@ -1193,3 +1193,29 @@ test('AIO-2 import delle valutazioni dai file «All in one» compilati (x sui li
   const bis = await chiama('POST', '/api/import/excel', { token: tok['org@t'], body: { dati: buf.toString('base64'), evento_id: e.id, valutazioni: true } });
   assert.equal(bis.statusCode, 409);   // già presenti: serve «Sostituisci»
 });
+
+test('GRV-1 categorie e gravità: proposta dalla categoria, modificabile, e elenco pazienti del Master in ordine di gravità', async () => {
+  const macro = json(await chiama('GET', '/api/libreria/macro', { token: tok['org@t'] }));
+  assert.equal(macro.length, 9); assert.equal(macro[0].codice, 'arresto');
+  const mk = async (nome, sigla, extra = {}) => json(await chiama('POST', '/api/libreria/patologie', { token: tok['org@t'], body: { codice: `GRV_${sigla}`, nome, sigla,
+    voci: [{ sezione: 'S', testo: `voce ${sigla}`, scala: 'Standard' }], ...extra } }));
+  const verde = await mk('Agitato prova', 'AGP', { macro: 'comp', gravita: 'verde' });
+  const rosso = await mk('Ictus prova', 'ICP', { macro: 'neuro', gravita: 'rosso' });
+  const giallo = await mk('Frattura prova', 'FRP', { macro: 'trauma', gravita: 'giallo' });
+  const mas = await mk('Master prova', 'MAP', { is_master: true });
+  // scena con Master (che contiene due voci-paziente da riscrivere) e i tre pazienti, messi in ordine "sbagliato"
+  const { rows: [e] } = await pool.query(`select id from evento where codice='STORICO-T'`);
+  const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: tok['org@t'], body: { codice: 'GR', titolo: 'Gravità', ordine: 9 } }));
+  await pool.query(`update patologia_voce set sezione='CHIAMATA' where patologia_id=$1`, [mas.id]);
+  await pool.query(`insert into voce (testo) values ('descrive l''evento'), ('1 – xx') on conflict do nothing`);
+  await pool.query(`insert into patologia_voce (patologia_id, ordine, sezione, voce_id, scala_id) select $1, 2, 'CHIAMATA', (select id from voce where testo='descrive l''evento'), (select id from scala_punteggio where codice='Standard')`, [mas.id]);
+  for (const [slot, p, sim] of [[0, mas, 'M'], [1, verde, '01'], [2, giallo, '02'], [3, rosso, '03']])
+    assert.equal((await chiama('POST', `/api/scene/${sc.id}/schede`, { token: tok['org@t'], body: { patologiaId: p.id, slot, simulatore: sim } })).statusCode, 200);
+  const r = await chiama('POST', `/api/scene/${sc.id}/elenco-pazienti`, { token: tok['org@t'], body: {} });
+  assert.equal(r.statusCode, 200, r.payload);
+  assert.deepEqual(json(r).pazienti, ['1 – Ictus prova', '2 – Frattura prova', '3 – Agitato prova']);
+  const { rows } = await pool.query(`select v.testo from scena_scheda_voce v join scena_scheda s on s.id=v.scheda_id where s.scena_id=$1 and s.is_master order by v.ordine`, [sc.id]);
+  assert.deepEqual(rows.map((x) => x.testo).slice(-3), ['1 – Ictus prova', '2 – Frattura prova', '3 – Agitato prova']);
+  const { rows: [g] } = await pool.query(`select gravita from scena_scheda where scena_id=$1 and titolo='Ictus prova'`, [sc.id]);
+  assert.equal(g.gravita, 'rosso');
+});

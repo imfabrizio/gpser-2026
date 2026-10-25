@@ -309,8 +309,8 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const b = req.body || {};
     const { rows: [s] } = await pool.query(
       `update scena_scheda set titolo=coalesce($2,titolo), simulatore=coalesce($3,simulatore),
-         parametri=coalesce($4::jsonb,parametri) where id=$1 returning *`,
-      [req.params.id, b.titolo ?? null, b.simulatore ?? null, b.parametri ? JSON.stringify(b.parametri) : null]);
+         parametri=coalesce($4::jsonb,parametri), gravita = case when $5 then nullif($6,'') else gravita end where id=$1 returning *`,
+      [req.params.id, b.titolo ?? null, b.simulatore ?? null, b.parametri ? JSON.stringify(b.parametri) : null, 'gravita' in b, b.gravita ?? '']);
     if (!s) throw httpErr(404, 'scheda inesistente');
     return s;
   });
@@ -344,9 +344,11 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     await controllaScheda(pool, req.utente, req.params.id, { modifica: true });
     const { rows: [p] } = await db.query(
       `update patologia set nome=coalesce($2,nome), sigla=coalesce($3,sigla), is_bls=coalesce($4,is_bls), is_master=coalesce($5,is_master), is_diu=coalesce($6,is_diu),
-         categoria = case when $7 then nullif(trim($8),'') else categoria end, categoria2 = case when $9 then nullif(trim($10),'') else categoria2 end
+         categoria = case when $7 then nullif(trim($8),'') else categoria end, categoria2 = case when $9 then nullif(trim($10),'') else categoria2 end,
+         macro = case when $11 then nullif($12,'') else macro end, macro2 = case when $13 then nullif($14,'') else macro2 end, gravita = case when $15 then nullif($16,'') else gravita end
        where id=$1 returning *`, [req.params.id, b.nome ?? null, b.sigla ?? null, b.is_bls ?? null, b.is_master ?? null, b.is_diu ?? null,
-        'categoria' in b, b.categoria ?? '', 'categoria2' in b, b.categoria2 ?? '']);
+        'categoria' in b, b.categoria ?? '', 'categoria2' in b, b.categoria2 ?? '',
+        'macro' in b, b.macro ?? '', 'macro2' in b, b.macro2 ?? '', 'gravita' in b, b.gravita ?? '']);
     if (!p) throw httpErr(404, 'patologia inesistente');
     if (Array.isArray(b.voci)) {          // sostituisce l'elenco; le scene già composte non cambiano (snapshot)
       await db.query('delete from patologia_voce where patologia_id=$1', [p.id]);

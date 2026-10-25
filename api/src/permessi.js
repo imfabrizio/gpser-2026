@@ -17,7 +17,7 @@ const REGOLE = [
   R('POST|DELETE', '/api/avvisi(/:id)?', ['notizie']),
   R('POST|PATCH', '/api/eventi(/:id)?', ['gara', 'esami']), R('POST', '/api/eventi/:id/attiva', ['gara']), R('GET|POST', '/api/eventi/:id/(inviti|invitabili)', ['gara', 'esami']), R('DELETE', '/api/eventi/:id/inviti/:utente', ['gara', 'esami']),
   R('POST', '/api/eventi/:id/squadre', ['squadre']), R('PATCH', '/api/squadre/:id', ['squadre']), R('GET|PUT', '/api/squadre/:id/membri', ['squadre', 'anagrafiche']),
-  R('POST', '/api/eventi/:id/scene', ['scene']), R('POST', '/api/scene/:id/(duplica|schede)', ['scene']), R('PATCH|DELETE', '/api/scene/:id', ['scene']),
+  R('POST', '/api/eventi/:id/scene', ['scene']), R('POST', '/api/scene/:id/(duplica|schede|elenco-pazienti)', ['scene']), R('PATCH|DELETE', '/api/scene/:id', ['scene']),
   R('PUT', '/api/schede/:id/voci/:ordine', ['scene']), R('PATCH|DELETE', '/api/schede/:id', ['scene']), R('PUT', '/api/schede/:id/assegnazioni', ['scene']),
   R('GET', '/api/eventi/:id/(assegnazioni|master)', ['scene']), R('PUT', '/api/scene/:id/master', ['scene']), R('GET', '/api/giudici', ['scene']),
   R('GET', '/api/libreria/(scale|voci|patologie(/:id)?)', ['schede', 'scene', 'formazione_esame']), R('POST', '/api/libreria/scale', ['schede']), R('POST', '/api/libreria/patologie', ['schede', 'formazione_esame']),

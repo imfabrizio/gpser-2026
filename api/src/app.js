@@ -7,7 +7,7 @@ import { sincronizza, riapri, httpErr } from './services/compilazioni.js';
 import { generaPdfSchede } from './services/stampa.js';
 import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
-import { aggiungiSchedaDaPatologia, creaScena, duplicaScena } from './services/scene.js';
+import { aggiungiSchedaDaPatologia, creaScena, duplicaScena, aggiornaElencoPazienti } from './services/scene.js';
 import { importaExcel } from './services/import-excel.js';
 import { èAllInOne, importaAllInOne, importaValutazioniAllInOne } from './services/import-allinone.js';
 import ExcelJS from 'exceljs';
@@ -228,6 +228,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   });
   app.post('/api/scene/:id/duplica', { preHandler: soloOrg }, async (req) =>
     inTransazione(pool, (db) => duplicaScena(db, { scenaId: req.params.id, ...req.body })));
+  app.post('/api/scene/:id/elenco-pazienti', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => aggiornaElencoPazienti(db, req.params.id)));
   app.post('/api/scene/:id/schede', { preHandler: soloOrg }, async (req) =>
     inTransazione(pool, (db) => aggiungiSchedaDaPatologia(db, { scenaId: req.params.id, ...req.body })));
   app.get('/api/schede/:id', async (req) => {
@@ -301,6 +302,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/libreria/scale', { preHandler: soloOrg }, async () => (await pool.query('select * from scala_punteggio order by codice')).rows);
   app.get('/api/libreria/voci', { preHandler: soloOrg }, async (req) => (await pool.query(
     `select * from voce where $1::text is null or testo ilike '%'||$1||'%' order by testo limit 200`, [req.query.q ?? null])).rows);
+  app.get('/api/libreria/macro', { preHandler: soloOrg }, async () => (await pool.query('select * from macro_categoria order by priorita')).rows);
   app.get('/api/libreria/patologie', { preHandler: soloOrg }, async (req) => {
     // generale per tutti; le schede dei comitati solo se la direzione le chiede (?comitati=1) o per il proprio comitato
     const tutte = haSchede(req.utente) && req.query.comitati === '1';
@@ -318,13 +320,13 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   // anteprima di una scheda della libreria con lo stesso template delle schede stampate (PDF)
   app.get('/api/libreria/patologie/:id/anteprima.pdf', { preHandler: soloOrg }, async (req, reply) => {
     await controllaScheda(pool, req.utente, req.params.id, { modifica: false });
-    const { rows: [pt] } = await pool.query('select nome, sigla, is_master from patologia where id=$1', [req.params.id]);
+    const { rows: [pt] } = await pool.query('select nome, sigla, is_master, gravita from patologia where id=$1', [req.params.id]);
     const { rows: voci } = await pool.query(
       `select pv.ordine as id, pv.sezione, v.testo, pv.is_sep, sp.mb, sp.be, sp.su, sp."in", sp.ne from patologia_voce pv
          join voce v on v.id=pv.voce_id join scala_punteggio sp on sp.id=pv.scala_id where pv.patologia_id=$1 order by pv.ordine`, [req.params.id]);
     const doc = creaDocumento(); const chunks = []; doc.on('data', (c) => chunks.push(c)); const fine = new Promise((r) => doc.on('end', r));
     disegnaScheda(doc, { evento: { nome: 'Anteprima scheda', titolo_stampa: 'Anteprima scheda', luogo: '', data_txt: null }, squadra: { numero: 0, nome: 'Test' },
-      scena: { codice: 'T', titolo: 'Nome Scena' }, scheda: { simulatore: 'M', titolo: pt.nome, is_master: pt.is_master, parametri: { coscienza: 'Vigile', fr: 16, fc: 80, cute: 'Normale' } }, voci, compilazione: null, risposte: new Map(), vuota: true });
+      scena: { codice: 'T', titolo: 'Nome Scena' }, scheda: { simulatore: 'M', titolo: pt.nome, is_master: pt.is_master, gravita: pt.gravita, parametri: { coscienza: 'Vigile', fr: 16, fc: 80, cute: 'Normale' } }, voci, compilazione: null, risposte: new Map(), vuota: true });
     doc.end(); await fine;
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="anteprima.pdf"').send(Buffer.concat(chunks));
   });
@@ -340,8 +342,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       for (let n = 2; (await db.query('select 1 from patologia where codice=$1', [codice])).rowCount; n++) codice = `${codice.replace(/-\d+$/, '')}-${n}`;
     }
     const { rows: [p] } = await db.query(
-      `insert into patologia (codice, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2, comitato, creata_da) values ($1,$2,$3,coalesce($4,false),coalesce($5,false),coalesce($6,false),$7,$8,$9,$10) returning *`,
-      [codice, b.nome, b.sigla, b.is_bls, b.is_master, b.is_diu, (b.categoria || '').trim() || b.nome, (b.categoria2 || '').trim() || null, comitato, req.utente.id]);
+      `insert into patologia (codice, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2, comitato, creata_da, macro, macro2, gravita) values ($1,$2,$3,coalesce($4,false),coalesce($5,false),coalesce($6,false),$7,$8,$9,$10,$11,$12,$13) returning *`,
+      [codice, b.nome, b.sigla, b.is_bls, b.is_master, b.is_diu, (b.categoria || '').trim() || b.nome, (b.categoria2 || '').trim() || null, comitato, req.utente.id, b.macro || null, b.macro2 || null, b.gravita || null]);
     let o = 0;
     for (const v of b.voci || []) {
       const { rows: [voce] } = await db.query(
