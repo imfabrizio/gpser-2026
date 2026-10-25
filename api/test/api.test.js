@@ -1254,3 +1254,40 @@ test('CAN-1 canovaccio: import da .docx, lettura di pazienti/triage/logistica, P
   assert.equal((await chiama('DELETE', `/api/canovacci/${ok.id}`, { token: tok['org@t'] })).statusCode, 200);
   const { rows: [dopo] } = await pool.query('select canovaccio_id from scena where id=$1', [sc.id]); assert.equal(dopo.canovaccio_id, null);
 });
+
+test('PRO-1 promozione: proposta di un comitato → coda → approvazione; la direzione promuove subito; scena condivisa copiabile', async () => {
+  const { rows: [al] } = await pool.query(`insert into evento (codice, nome, tipo, comitato) values ('ALL-T','Allenamento test','allenamento','Comitato Prova') returning id`);
+  const pat = json(await chiama('POST', '/api/libreria/patologie', { token: tok['adm@t'], body: { codice: 'PRO_PRIV', nome: 'Scheda privata prova', sigla: 'SPP', voci: [{ sezione: 'S', testo: 'voce promo uno', scala: 'Standard' }, { sezione: 'S', testo: 'voce promo due', scala: 'Standard' }] } }));
+  await pool.query(`update patologia set comitato='Comitato Prova' where id=$1`, [pat.id]);
+  const mk = async (cod) => { const sc = json(await chiama('POST', `/api/eventi/${al.id}/scene`, { token: tok['org@t'], body: { codice: cod, titolo: 'Scena ' + cod } }));
+    assert.equal((await chiama('POST', `/api/scene/${sc.id}/schede`, { token: tok['org@t'], body: { patologiaId: pat.id, slot: 1, simulatore: '01' } })).statusCode, 200); return sc; };
+  const s1 = await mk('P1');
+  // chi ha solo l'area Scene (es. istruttore del comitato) propone: resta in attesa finché non decide la direzione
+  await pool.query(`insert into ruolo (codice, nome, aree) values ('istr_t','Istruttore prova','{scene}')`);
+  await pool.query(`insert into utente (email, nome, ruolo, password_hash) values ('ist@t','ist@t','istr_t',$1)`, [hashPassword('pw')]);
+  tok['ist@t'] = json(await chiama('POST', '/api/login', { body: { email: 'ist@t', password: 'pw' } })).token;
+  const r = await chiama('POST', `/api/scene/${s1.id}/promozione`, { token: tok['ist@t'], body: { tipo: 'scena', livello: 'regionale', nota: 'ok' } });
+  assert.equal(r.statusCode, 200, r.payload);
+  const pr = json(r); assert.equal(pr.stato, 'in_attesa');
+  assert.equal((await chiama('POST', `/api/scene/${s1.id}/promozione`, { token: tok['ist@t'], body: { tipo: 'scena', livello: 'regionale' } })).statusCode, 409);
+  assert.equal((await chiama('POST', `/api/promozioni/${pr.id}/approva`, { token: tok['ist@t'] })).statusCode, 403);
+  assert.equal(json(await chiama('GET', '/api/promozioni', { token: tok['ist@t'] })).length, 1);
+  const { rows: [pv] } = await pool.query('select comitato from patologia where id=$1', [pat.id]); assert.equal(pv.comitato, 'Comitato Prova');
+  const ok = await chiama('POST', `/api/promozioni/${pr.id}/approva`, { token: tok['adm@t'] }); assert.equal(ok.statusCode, 200, ok.payload); assert.equal(json(ok).stato, 'approvata');
+  const { rows: [dopo] } = await pool.query('select comitato, livello from patologia where id=$1', [pat.id]);
+  assert.equal(dopo.comitato, null); assert.equal(dopo.livello, 'regionale');
+  assert.equal((await pool.query('select condivisa from scena where id=$1', [s1.id])).rows[0].condivisa, 'regionale');
+  // la direzione (admin) promuove subito solo le schede: la scheda modificata nella scena diventa una nuova scheda di libreria
+  const s2 = await mk('P2');
+  const { rows: [k] } = await pool.query('select id from scena_scheda where scena_id=$1', [s2.id]);
+  await pool.query(`update scena_scheda_voce set testo='voce modificata in scena' where scheda_id=$1 and ordine=(select min(ordine) from scena_scheda_voce where scheda_id=$1)`, [k.id]);
+  const d = json(await chiama('POST', `/api/scene/${s2.id}/promozione`, { token: tok['adm@t'], body: { tipo: 'schede', livello: 'nazionale' } }));
+  assert.equal(d.stato, 'approvata'); assert.ok(d.automatica); assert.equal(d.esito[0].esito, 'creata');
+  const { rows: [nuova] } = await pool.query(`select p.livello, p.comitato, (select count(*)::int from patologia_voce where patologia_id=p.id) as n from patologia p where p.codice like 'NAZ-%' order by p.nome limit 1`);
+  assert.equal(nuova.livello, 'nazionale'); assert.equal(nuova.comitato, null); assert.equal(nuova.n, 2);
+  assert.equal((await pool.query('select condivisa from scena where id=$1', [s2.id])).rows[0].condivisa, null);
+  // scene condivise: elenco e copia in un altro evento
+  const cond = json(await chiama('GET', '/api/scene-condivise', { token: tok['adm@t'] })); assert.ok(cond.some((x) => x.id === s1.id));
+  const cp = await chiama('POST', `/api/scene-condivise/${s1.id}/copia`, { token: tok['adm@t'], body: { eventoDestId: ev, nuovoCodice: 'ZQ' } }); assert.equal(cp.statusCode, 200, cp.payload);
+  assert.equal((await chiama('POST', `/api/scene-condivise/${s2.id}/copia`, { token: tok['adm@t'], body: { eventoDestId: ev, nuovoCodice: 'ZR' } })).statusCode, 404);
+});

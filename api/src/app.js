@@ -7,9 +7,10 @@ import { sincronizza, riapri, httpErr } from './services/compilazioni.js';
 import { generaPdfSchede } from './services/stampa.js';
 import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
+import { proponi, approva, rifiuta } from './services/promozioni.js';
 import { importaCanovaccio } from './services/canovaccio.js';
 import { creaCanovaccio } from './pdf/canovaccio.js';
-import { aggiungiSchedaDaPatologia, creaScena, duplicaScena, aggiornaElencoPazienti } from './services/scene.js';
+import { aggiungiSchedaDaPatologia, CODICE_SCENA, creaScena, duplicaScena, aggiornaElencoPazienti } from './services/scene.js';
 import { importaExcel } from './services/import-excel.js';
 import { èAllInOne, importaAllInOne, importaValutazioniAllInOne } from './services/import-allinone.js';
 import ExcelJS from 'exceljs';
@@ -221,6 +222,27 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
        from scena sc where sc.evento_id=$1 order by sc.ordine, sc.codice`,
       [req.params.id, req.utente.ruolo, req.utente.id]);
     return rows;
+  });
+  // ── promozione di scene e schede alla libreria regionale/nazionale ──
+  app.post('/api/scene/:id/promozione', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => proponi(db, req.utente, req.params.id, req.body || {})));
+  app.get('/api/promozioni', { preHandler: soloOrg }, async (req) => (await pool.query(
+    `select p.id, p.tipo, p.livello, p.stato, p.automatica, p.nota, p.motivo, p.esito, p.created_at, p.deciso_il, s.codice as scena, s.titolo as scena_titolo, e.nome as evento, e.tipo as evento_tipo, e.comitato,
+            u.nome as proponente, d.nome as deciso_da, (select count(*)::int from scena_scheda k where k.scena_id=s.id and not k.is_master) as schede
+       from promozione p join scena s on s.id=p.scena_id join evento e on e.id=s.evento_id left join utente u on u.id=p.proposta_da left join utente d on d.id=p.deciso_da
+      where ($1::boolean or p.proposta_da=$2::uuid) and (p.stato='in_attesa' or p.created_at > now() - interval '90 days') order by (p.stato='in_attesa') desc, p.created_at desc limit 100`,
+    [haSchede(req.utente), req.utente.id])).rows);
+  app.post('/api/promozioni/:id/approva', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => approva(db, req.params.id, req.utente.id)));
+  app.post('/api/promozioni/:id/rifiuta', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => rifiuta(db, req.params.id, req.utente.id, req.body?.motivo)));
+  app.get('/api/scene-condivise', { preHandler: soloOrg }, async () => (await pool.query(
+    `select s.id, s.codice, s.titolo, s.condivisa, e.nome as evento, e.comitato, (select count(*)::int from scena_scheda k where k.scena_id=s.id) as schede
+       from scena s join evento e on e.id=s.evento_id where s.condivisa is not null order by s.titolo`)).rows);
+  app.post('/api/scene-condivise/:id/copia', { preHandler: soloOrg }, async (req) => {
+    const { eventoDestId, nuovoCodice } = req.body || {};
+    if (!eventoDestId || !CODICE_SCENA.test(nuovoCodice || '')) throw httpErr(400, 'scegli l\'evento e un codice scena (1-3 caratteri maiuscoli o cifre)');
+    const { rows: [s] } = await pool.query('select condivisa from scena where id=$1', [req.params.id]);
+    if (!s?.condivisa) throw httpErr(404, 'scena non condivisa');
+    if (req.utente.per_evento && !req.utente.eventi_org.includes(String(eventoDestId).toLowerCase())) throw httpErr(403, 'gara non assegnata');
+    return inTransazione(pool, (db) => duplicaScena(db, { scenaId: req.params.id, eventoDestId, nuovoCodice }));
   });
   // ── canovacci: descrizione completa delle scene (briefing, pazienti, triage, logistica) ──
   app.post('/api/import/canovacci', { preHandler: soloOrg, bodyLimit: 12 * 1024 * 1024 }, async (req) => {

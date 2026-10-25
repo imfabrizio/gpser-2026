@@ -448,7 +448,7 @@ async function tScene() {
       <div class="stretto"><button class="s p s_pos" data-id="${s.id}">Salva posizione</button></div></div>
     ${canov.length ? `<div class="riga"><div style="flex:3"><label>Canovaccio (descrizione, pazienti e materiale della scena)</label><select class="s_cv" data-id="${s.id}">${optCan(s)}</select></div>
       <div class="stretto"><button class="s p cv_apri" data-id="${s.id}" ${s.canovaccio_id ? '' : 'disabled'}>Apri canovaccio</button></div></div>` : ''}
-    <p><button class="s p elp" data-id="${s.id}" title="Scrive nel Master i pazienti della scena in ordine di gravità">Aggiorna l'elenco pazienti del Master</button> <button class="s p dup" data-id="${s.id}">Duplica in un altro evento…</button> <button class="x p delsc" data-id="${s.id}">Elimina scena</button></p>
+    <p><button class="s p elp" data-id="${s.id}" title="Scrive nel Master i pazienti della scena in ordine di gravità">Aggiorna l'elenco pazienti del Master</button> <button class="s p dup" data-id="${s.id}">Duplica in un altro evento…</button> <button class="s p prom" data-id="${s.id}" title="Proponi la scena o le sue schede alla libreria regionale o nazionale">Proponi alla libreria…</button> <button class="x p delsc" data-id="${s.id}">Elimina scena</button></p>
     ${(s.schede || []).map((k) => { const d = schede[k.id]; const p = d.parametri || {}; return `<div class="scheda">
       <div class="riga"><div style="flex:2"><strong>${esc(d.titolo)}</strong> <span class="tag">slot ${d.slot}</span><span class="tag">sim. ${esc(d.simulatore)}</span>
         ${d.is_bls ? '<span class="tag">BLS</span>' : ''}${d.is_master ? '<span class="tag">Master</span>' : ''}<span class="tag">${d.voci.length} voci</span>
@@ -472,6 +472,15 @@ async function tScene() {
   document.querySelectorAll('.t_sc').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { titolo: i.value } }), 'Titolo aggiornato'); });
   document.querySelectorAll('.s_cv').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { canovaccio_id: i.value } }), 'Canovaccio collegato'); });
   document.querySelectorAll('.cv_apri').forEach((b) => { b.onclick = () => { const c = canov.find((x) => x.id === document.querySelector(`.s_cv[data-id="${b.dataset.id}"]`).value); if (c) anteprimaCanovaccio(c); }; });
+  document.querySelectorAll('.prom').forEach((b) => { b.onclick = () => {
+    const dir = admin() || (me.aree || []).includes('schede');
+    dlg(`<h3>Proponi alla libreria</h3><p class="nota">${dir ? 'Hai il ruolo che approva: la promozione è immediata e resta subito disponibile a tutti.' : 'La proposta va a chi ha il ruolo di approvare le schede: finché non è accettata, la scena e le schede restano private.'}</p>
+      <label>Cosa promuovere</label><select id="pr_t"><option value="scena">Tutta la scena (schede, ordine e gravità: diventa un modello da copiare)</option><option value="schede">Solo le schede</option></select>
+      <label>Livello</label><select id="pr_l"><option value="regionale">Regionale</option><option value="nazionale">Nazionale</option></select>
+      <label>Nota per chi approva (facoltativa)</label><textarea id="pr_n" rows="3" placeholder="es. testata all'allenamento del 12 ottobre con 5 squadre"></textarea>
+      <p><button class="b" id="pr_ok">${dir ? 'Promuovi ora' : 'Invia la proposta'}</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+    $('#pr_ok').onclick = async () => { try { const r = await api(`/scene/${b.dataset.id}/promozione`, { body: { tipo: $('#pr_t').value, livello: $('#pr_l').value, nota: $('#pr_n').value } }); chiudi();
+      flash(r.stato === 'approvata' ? 'Promossa: ora è nella libreria ' + r.livello : 'Proposta inviata'); } catch (e) { flash(e.message, false); } }; }; });
   document.querySelectorAll('.s_pos').forEach((b) => { b.onclick = () => { const id = b.dataset.id, g = (c) => document.querySelector(`.${c}[data-id="${id}"]`).value.trim();
     fai(() => api(`/scene/${id}`, { method: 'PATCH', body: { indirizzo: g('s_ind'), lat: g('s_lat'), lng: g('s_lng') } }), 'Posizione salvata'); }; });
   document.querySelectorAll('.pp').forEach((i) => { i.onchange = () => { const d = cache.schede[i.dataset.id]; const p = { ...(d.parametri || {}) };
@@ -579,7 +588,7 @@ async function tLibreria() {
       ${direzione ? `<label style="display:inline-flex;gap:6px;align-items:center;font-size:15px;color:inherit;margin-left:10px"><input type="checkbox" id="vcom" ${conComitati ? 'checked' : ''}> Vedi anche schede dei comitati</label>` : ''}</p>
     <input id="pf" placeholder="Cerca (es. Ictus, frattura, Olimpiadi, Gara D)" style="margin-bottom:8px">
     ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:430px"></colgroup>${l.map((p) => `<tr class="pr" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + usiTesto(p)).toLowerCase())}"><td>${puntoGrav(p.gravita)}<strong>${esc(p.nome)}</strong>${p._sec ? ' <span class="tag">secondaria</span>' : ''} <span class="tag">${esc(p.sigla)}</span>
-      ${p.categoria2 ? `<span class="tag">+ ${esc(p.categoria2)}</span>` : ''}${p.bozza ? '<span class="tag no">Bozza' + (p.generata_ai ? ' AI' : '') + '</span>' : ''}${p.is_bls ? '<span class="tag">BLSD</span>' : ''}${p.is_diu ? '<span class="tag">DIU</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}${p.comitato ? `<span class="tag no">Privata · ${esc(p.comitato)}</span>` : ''}
+      ${p.categoria2 ? `<span class="tag">+ ${esc(p.categoria2)}</span>` : ''}${p.livello ? `<span class="tag">${p.livello}</span>` : ''}${p.bozza ? '<span class="tag no">Bozza' + (p.generata_ai ? ' AI' : '') + '</span>' : ''}${p.is_bls ? '<span class="tag">BLSD</span>' : ''}${p.is_diu ? '<span class="tag">DIU</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}${p.comitato ? `<span class="tag no">Privata · ${esc(p.comitato)}</span>` : ''}
 </td><td>${p.voci} voci</td>
       <td><div class="azioni">${p.bozza ? `<button class="b p pub" data-id="${p.id}">Pubblica</button>` : '<span></span>'}<button class="s p an" data-id="${p.id}">Anteprima</button>${modificabile(p) ? `<button class="s p ed" data-id="${p.id}">Modifica</button>` : `<button class="s p ed" data-id="${p.id}">Apri</button>`}<button class="s p cp" data-id="${p.id}">Copia</button>${modificabile(p) ? `<button class="x p del" data-id="${p.id}">Elimina</button>` : ''}</div></td></tr>`).join('')}</table></details>`).join('')}
     <p class="nota">Modificare una patologia non cambia le scene già create: ognuna ne conserva una copia.</p></div>
@@ -604,6 +613,23 @@ async function tLibreria() {
       <td>${c.scene ? c.scene + ' scene' : '–'}</td><td><button class="s p cv_pdf" data-id="${c.id}">Apri</button> ${admin() || (me.aree || []).includes('importa') ? `<button class="x p cv_del" data-id="${c.id}">Elimina</button>` : ''}</td></tr>`).join('')}</table>`
       : '<p class="nota">Nessun canovaccio. Si caricano da <strong>Importa</strong> (file .docx).</p>'}
     <p class="nota">Il canovaccio si collega a una scena dal tab Scene. Simulatori, manichini e truccatori sono calcolati dalla logistica del file.</p></div>`);
+  const dirPr = admin() || (me.aree || []).includes('schede');
+  const [prom, cond] = await Promise.all([api('/promozioni').catch(() => []), api('/scene-condivise').catch(() => [])]);
+  const stPr = { in_attesa: '<span class="tag">in attesa</span>', approvata: '<span class="tag ok">approvata</span>', rifiutata: '<span class="tag no">rifiutata</span>' };
+  if (prom.length || cond.length) $('#app').insertAdjacentHTML('beforeend', `${prom.length ? `<div class="card"><h3>Proposte di promozione${prom.filter((x) => x.stato === 'in_attesa').length ? ` (${prom.filter((x) => x.stato === 'in_attesa').length} da decidere)` : ''}</h3>
+    <table><tr><th>Scena</th><th>Cosa</th><th>Da</th><th>Stato</th><th></th></tr>${prom.map((x) => `<tr><td><strong>${esc(x.scena)}</strong> · ${esc(x.scena_titolo)}<br><small>${esc(x.evento)}${x.comitato ? ' · ' + esc(x.comitato) : ''}</small></td>
+      <td>${x.tipo === 'scena' ? 'Scena intera' : 'Solo schede'} (${x.schede}) → ${x.livello}${x.nota ? `<br><small>${esc(x.nota)}</small>` : ''}</td><td>${esc(x.proponente || '')}${x.automatica ? '<br><small>automatica</small>' : ''}</td>
+      <td>${stPr[x.stato]}${x.motivo ? `<br><small>${esc(x.motivo)}</small>` : ''}</td>
+      <td>${x.stato === 'in_attesa' && dirPr ? `<button class="b p pr_ok" data-id="${x.id}">Approva</button> <button class="x p pr_no" data-id="${x.id}">Rifiuta</button>` : ''}</td></tr>`).join('')}</table></div>` : ''}
+    ${cond.length ? `<div class="card"><h3>Scene condivise (${cond.length})</h3><table><tr><th>Scena</th><th>Livello</th><th>Schede</th><th></th></tr>${cond.map((x) => `<tr><td><strong>${esc(x.codice)}</strong> · ${esc(x.titolo)}<br><small>${esc(x.evento)}</small></td><td>${x.condivisa}</td><td>${x.schede}</td>
+      <td><button class="s p co_cp" data-id="${x.id}" data-t="${esc(x.titolo)}">Copia in un evento…</button></td></tr>`).join('')}</table></div>` : ''}`);
+  document.querySelectorAll('.pr_ok').forEach((b) => { b.onclick = () => fai(() => api(`/promozioni/${b.dataset.id}/approva`, { body: {} }), 'Promossa'); });
+  document.querySelectorAll('.pr_no').forEach((b) => { b.onclick = () => { const m = prompt('Motivo del rifiuto (facoltativo)'); if (m === null) return; fai(() => api(`/promozioni/${b.dataset.id}/rifiuta`, { body: { motivo: m } }), 'Proposta rifiutata'); }; });
+  document.querySelectorAll('.co_cp').forEach((b) => { b.onclick = () => {
+    dlg(`<h3>Copia «${esc(b.dataset.t)}» in un evento</h3><label>Evento</label><select id="cc_e">${eventi.filter((e) => !e.archiviato).map((e) => `<option value="${e.id}">${esc(e.codice)} – ${esc(e.nome)}</option>`).join('')}</select>
+      <label>Codice della nuova scena</label><input id="cc_c" maxlength="3" placeholder="A">
+      <p><button class="b" id="cc_ok">Copia</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+    $('#cc_ok').onclick = async () => { try { await api(`/scene-condivise/${b.dataset.id}/copia`, { body: { eventoDestId: $('#cc_e').value, nuovoCodice: $('#cc_c').value.trim().toUpperCase() } }); chiudi(); flash('Scena copiata nell\'evento'); } catch (e) { flash(e.message, false); } }; }; });
   document.querySelectorAll('.cv_pdf').forEach((b) => { b.onclick = () => anteprimaCanovaccio(canov.find((c) => c.id === b.dataset.id)); });
   document.querySelectorAll('.cv_del').forEach((b) => { b.onclick = () => { if (confirm('Eliminare il canovaccio? Le scene collegate restano, senza canovaccio.')) fai(() => api(`/canovacci/${b.dataset.id}`, { method: 'DELETE' }), 'Canovaccio eliminato'); }; });
   document.querySelectorAll('.an').forEach((b) => { b.onclick = async () => { const p = pat.find((x) => x.id === b.dataset.id); anteprimaScheda(p); }; });
