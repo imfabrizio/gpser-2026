@@ -1179,7 +1179,7 @@ test('AIO-2 import delle valutazioni dai file «All in one» compilati (x sui li
   d.getRow(9).values = ['RUOLO', 'Simulatore', 'Patologia', 'Coscienza', 'FR', 'FC', 'CUTE', 'Codice Scheda', 'Punteggio Massimo', 'Realizzato'];
   d.getRow(10).values = ['Master', 'M', 'Master', null, null, null, null, 'Z01M', 8, 6];     // 1 + 5
   d.getRow(11).values = ['Giudice 1', 1, 'Ferita', 'V', 20, 90, 'Pallida', 'Z0101', 13, 13];
-  const calc = (nome, righe) => { const w = wb.addWorksheet(nome); righe.forEach((r, i) => { const row = w.getRow(i + 2); row.getCell(2).value = r[0]; if (r[1]) r[1].forEach((v, k) => { if (v !== null) row.getCell([4, 7, 10, 13, 16][k]).value = v; }); if (r[2] !== undefined) row.getCell([5, 8, 11, 14, 17][r[2]]).value = 'x'; }); };
+  const calc = (nome, righe) => { const w = wb.addWorksheet(nome); righe.forEach((r, i) => { const row = w.getRow(i + 2); row.getCell(2).value = r[0]; if (r[1]) r[1].forEach((v, k) => { if (v !== null) row.getCell([4, 7, 10, 13, 16][k]).value = v; }); if (r[2] !== undefined) { row.getCell([5, 8, 11, 14, 17][r[2]]).value = 'x'; row.getCell([6, 9, 12, 15, 18][r[2]]).value = r[1][r[2]]; } }); };
   calc('Calcolo Master', [['SICUREZZA'], ['si guarda attorno', [3, null, 1, null, 0], 2], ['indossa i d.p.i.', [5, 4, 2, 1, 0], 0], ['Tot']]);
   calc('Calcolo Ferita', [['SCENA'], ['valuta i rischi', [5, 4, 2, 1, 0], 0], ['chiama entro 2 minuti', [0, null, null, null, -20], 0], ['ferma l\'emorragia', [8, null, null, null, 0], 0]]);
   const buf = Buffer.from(await wb.xlsx.writeBuffer());
