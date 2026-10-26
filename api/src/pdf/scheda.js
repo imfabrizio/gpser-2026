@@ -1,11 +1,12 @@
+import { fileURLToPath } from 'node:url';
 // Disegno della scheda A4 (stessa griglia delle schede Excel attuali).
 // Tutto in coordinate "px a 110 dpi" del PDF di riferimento, convertite in punti con K.
 import PDFDocument from 'pdfkit';
 import fs from 'node:fs';
 
 const K = 595.28 / 909;                     // px → pt
-const FONT_R = new URL('../../../assets/fonts/LiberationSans-Regular.ttf', import.meta.url).pathname;
-const FONT_B = new URL('../../../assets/fonts/LiberationSans-Bold.ttf', import.meta.url).pathname;
+const FONT_R = fileURLToPath(new URL('../../../assets/fonts/LiberationSans-Regular.ttf', import.meta.url));
+const FONT_B = fileURLToPath(new URL('../../../assets/fonts/LiberationSans-Bold.ttf', import.meta.url));
 const LOGO = fs.readFileSync(new URL('../../../assets/logo-cri.jpg', import.meta.url));
 const X0 = 27, X1 = 883, XL = 488;           // bordo sx, bordo dx, inizio colonne livelli
 const COLW = (X1 - XL) / 5;

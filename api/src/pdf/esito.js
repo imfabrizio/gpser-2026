@@ -1,10 +1,11 @@
+import { fileURLToPath } from 'node:url';
 // Esito di una scheda (esame, corso, allenamento): voci, livelli, punti, percentuale, soglia e firme.
 import PDFDocument from 'pdfkit';
 import fs from 'node:fs';
 import { valutaEsito } from '../esito.js';
 
-const FONT_R = new URL('../../../assets/fonts/LiberationSans-Regular.ttf', import.meta.url).pathname;
-const FONT_B = new URL('../../../assets/fonts/LiberationSans-Bold.ttf', import.meta.url).pathname;
+const FONT_R = fileURLToPath(new URL('../../../assets/fonts/LiberationSans-Regular.ttf', import.meta.url));
+const FONT_B = fileURLToPath(new URL('../../../assets/fonts/LiberationSans-Bold.ttf', import.meta.url));
 const LOGO = fs.readFileSync(new URL('../../../assets/logo-cri.jpg', import.meta.url));
 const ROSSO = '#C8102E';
 const LIV = { MB: 'Molto bene', BE: 'Bene', SU: 'Soddisfacente', IN: 'Insufficiente', NE: 'Non eseguito' };

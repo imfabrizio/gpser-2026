@@ -1,10 +1,11 @@
+import { fileURLToPath } from 'node:url';
 // Badge (cartellino) in PDF: una pagina per persona, nel formato scelto (larghezza × altezza in mm).
 import PDFDocument from 'pdfkit';
 import fs from 'node:fs';
 import { RUOLI_BADGE } from '../ruoli-gara.js';
 
-const FONT_R = new URL('../../../assets/fonts/LiberationSans-Regular.ttf', import.meta.url).pathname;
-const FONT_B = new URL('../../../assets/fonts/LiberationSans-Bold.ttf', import.meta.url).pathname;
+const FONT_R = fileURLToPath(new URL('../../../assets/fonts/LiberationSans-Regular.ttf', import.meta.url));
+const FONT_B = fileURLToPath(new URL('../../../assets/fonts/LiberationSans-Bold.ttf', import.meta.url));
 const LOGO = fs.readFileSync(new URL('../../../assets/logo-cri.jpg', import.meta.url));
 const mm = (v) => (Number(v) * 72) / 25.4;
 const ROSSO = '#C8102E';

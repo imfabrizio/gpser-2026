@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import pg from 'pg';
 import { buildApp } from '../src/app.js';
 import { creaPool, inTransazione } from '../src/db.js';
-import { hashPassword } from '../src/auth.js';
+import { hashPassword, firmaToken } from '../src/auth.js';
+import { fileURLToPath } from 'node:url';
 import { importaExcel } from '../src/services/import-excel.js';
 
 process.env.MFA_ORG = '0';   // i test storici usano utenti org senza MFA; i test MFA la riattivano
@@ -21,7 +22,7 @@ before(async () => {
   await adm.query('drop database if exists garecri_test'); await adm.query('create database garecri_test'); await adm.end();
   pool = creaPool(TEST_URL);
   await pool.query(fs.readFileSync(new URL('../../db/schema.sql', import.meta.url), 'utf8'));
-  const rep = await inTransazione(pool, (db) => importaExcel(db, new URL('./fixtures/scena-alfa.xlsx', import.meta.url).pathname,
+  const rep = await inTransazione(pool, (db) => importaExcel(db, fileURLToPath(new URL('./fixtures/scena-alfa.xlsx', import.meta.url)),
     { eventoCodice: 'T-1', nomeEvento: 'Test', titoloStampa: 'Gara Test', luogo: 'Piacenza', data: '2026-04-18' }));
   ev = rep.eventoId;
   for (const [email, ruolo, admin] of [['org@t', 'organizzazione', false], ['giu@t', 'giudice', false], ['adm@t', 'organizzazione', true]])
@@ -31,9 +32,70 @@ before(async () => {
 });
 after(async () => { await app.close(); await pool.end(); });
 
+test('SEC esami locali, inviti esterni revocabili e isolamento di prove e candidati', async () => {
+  const users = [];
+  for (const [email, comitato] of [['local@security.invalid', 'Modena'], ['peer@security.invalid', 'Modena'], ['external@security.invalid', 'Parma']]) {
+    const { rows: [u] } = await pool.query("insert into utente (email,nome,ruolo,password_hash) values ($1,$1,'istruttore',$2) returning id", [email, hashPassword('test-password')]);
+    await pool.query('insert into partecipante (nome,cognome,comitato,utente_id) values ($1,$1,$2,$3)', [email, comitato, u.id]);
+    users.push({ id: u.id, token: firmaToken({ id: u.id, via: 'sso' }) });
+  }
+  const [owner, peer, external] = users;
+  const create = async (u, nome) => {
+    const r = await chiama('POST', '/api/esami/sessioni', { token: u.token, body: { nome } });
+    assert.equal(r.statusCode, 200, r.body); return json(r);
+  };
+  const s = await create(owner, 'Security local'), other = await create(owner, 'Security private');
+  const base = `/api/esami/sessioni/${s.id}`;
+  assert.equal((await chiama('GET', base, peer)).statusCode, 200);
+  assert.equal((await chiama('GET', base, external)).statusCode, 403);
+  assert.ok(!json(await chiama('GET', '/api/esami/sessioni', external)).some((x) => x.id === s.id));
+  const ptc = (await pool.query("select id from patologia where codice='esame-ptc'")).rows[0];
+  const cp = await chiama('POST', base + '/prove', { token: owner.token, body: { patologiaId: ptc.id, candidati: [{ nome: 'Test candidate' }] } });
+  assert.equal(cp.statusCode, 200, cp.body);
+  const pid = json(cp).id;
+  const p = json(await chiama('GET', `/api/esami/prove/${pid}`, owner));
+  for (const url of [`/api/esami/prove/${pid}`, `/api/esami/prove/${pid}/esito.pdf`, base + '/riepilogo.pdf']) assert.equal((await chiama('GET', url, external)).statusCode, 403);
+  assert.equal((await chiama('PATCH', `/api/esami/candidati/${p.candidati[0].id}`, { token: external.token, body: { errore_grave: true } })).statusCode, 403);
+  const invite = await chiama('POST', base + '/inviti', { token: owner.token, body: { email: 'external@security.invalid' } });
+  assert.equal(invite.statusCode, 200, invite.body);
+  assert.equal((await chiama('GET', base, external)).statusCode, 200);
+  assert.equal((await chiama('GET', `/api/esami/sessioni/${other.id}`, external)).statusCode, 403);
+  assert.equal((await chiama('PUT', `/api/esami/prove/${pid}/risposte`, { token: external.token, body: { ordine: p.voci[0].ordine, livello: 'MB' } })).statusCode, 200);
+  assert.equal((await chiama('DELETE', `/api/esami/prove/${pid}`, external)).statusCode, 403);
+  assert.equal((await chiama('POST', base + '/inviti', { token: external.token, body: { email: 'peer@security.invalid' } })).statusCode, 403);
+  assert.equal((await chiama('DELETE', base + '/inviti/' + external.id, owner)).statusCode, 200);
+  assert.equal((await chiama('GET', `/api/esami/prove/${pid}`, external)).statusCode, 403);
+  assert.equal((await chiama('GET', base, { token: tok['adm@t'] })).statusCode, 200);
+  const migration = fs.readFileSync(new URL('../../db/migrazioni/045-esami-accesso-locale.sql', import.meta.url), 'utf8');
+  await pool.query(migration); await pool.query(migration);
+  assert.equal((await pool.query('select count(*)::int n from prova_esame where id=$1', [pid])).rows[0].n, 1);
+});
+
 test('login: password errata → 401, nessun token → 401', async () => {
   assert.equal((await chiama('POST', '/api/login', { body: { email: 'org@t', password: 'x' } })).statusCode, 401);
   assert.equal((await chiama('GET', '/api/eventi')).statusCode, 401);
+});
+
+test('SEC il corpo della richiesta non sostituisce la scena autorizzata; destinazione e avvisi sono vincolati all’evento', async () => {
+  const { rows: [u] } = await pool.query("insert into utente (email,nome,ruolo,password_hash,per_evento) values ('scope@security.invalid','Scope','organizzazione',$1,true) returning id", [hashPassword('test-only')]);
+  const { rows: [p] } = await pool.query("insert into partecipante (nome,cognome,utente_id) values ('Scope','Test',$1) returning id", [u.id]);
+  const evs = [];
+  for (const codice of ['SEC-A', 'SEC-B']) evs.push((await pool.query('insert into evento (codice,nome) values ($1,$1) returning id', [codice])).rows[0].id);
+  await pool.query("insert into iscrizione (evento_id,partecipante_id,ruolo) values ($1,$2,'organizzazione')", [evs[0],p.id]);
+  const scenes = [];
+  for (const eid of evs) scenes.push((await pool.query("insert into scena (evento_id,codice,titolo) values ($1,'S',$2) returning id", [eid,eid])).rows[0].id);
+  const token = firmaToken({ id: u.id, via: 'sso' });
+  const copied = await chiama('POST', `/api/scene/${scenes[0]}/duplica`, { token, body: { scenaId: scenes[1], eventoDestId: evs[0], nuovoCodice: 'D' } });
+  assert.equal(copied.statusCode, 200, copied.body);
+  assert.equal(json(copied).evento_id, evs[0]);
+  assert.equal(json(copied).titolo, evs[0]);
+  assert.equal((await chiama('POST', `/api/scene/${scenes[0]}/duplica`, { token, body: { eventoDestId: evs[1], nuovoCodice: 'E' } })).statusCode, 403);
+  const ptc = (await pool.query("select id from patologia where codice='esame-ptc'")).rows[0].id;
+  const sch = await chiama('POST', `/api/scene/${scenes[0]}/schede`, { token, body: { scenaId: scenes[1], patologiaId: ptc, slot: 0, simulatore: 'M' } });
+  assert.equal(sch.statusCode, 200, sch.body); assert.equal(json(sch).scena_id, scenes[0]);
+  for (const evento_id of [evs[1], null]) assert.equal((await chiama('POST', '/api/avvisi', { token, body: { titolo: 'Test', evento_id } })).statusCode, 403);
+  const avviso = (await pool.query("insert into avviso (titolo,evento_id) values ('Test',$1) returning id", [evs[1]])).rows[0];
+  assert.equal((await chiama('DELETE', `/api/avvisi/${avviso.id}`, { token })).statusCode, 403);
 });
 
 test('le classifiche coincidono con quelle dell\'Excel (359 / 386 / 191)', async () => {
@@ -647,7 +709,19 @@ test('SSO-1 Google/Microsoft: ticket monouso, solo utenti già registrati, email
   assert.match((await via('google', (n) => gOk(n, { email_verified: false, sub: 'g-3' }))).headers.location, /sso-errore=email_non_verificata/);
   assert.match((await via('google', (n) => gOk('altro-nonce', { sub: 'g-4' }))).headers.location, /sso-errore=token/);
   const mOk = (nonce, extra = {}) => ({ iss: `https://login.microsoftonline.com/${TEN}/v2.0`, aud: 'mid', exp: Date.now() / 1000 + 600, nonce, sub: 'm-1', tid: TEN, email: 'org@t', ...extra });
-  assert.match((await via('microsoft', (n) => mOk(n))).headers.location, /#sso=/);
+  const ms = await via('microsoft', (n) => mOk(n));
+  assert.match(ms.headers.location, /#sso=/);
+  const pending = json(await a2.inject({ method: 'POST', url: '/api/auth/ticket', payload: { ticket: ms.headers.location.split('#sso=')[1] } }));
+  assert.equal(pending.utente.in_attesa, true);
+  assert.equal((await pool.query("select count(*)::int n from utente_identita where provider='microsoft'")).rows[0].n, 0);
+  const rq = (await pool.query("select id from richiesta_accesso where provider='microsoft' and sub='m-1'")).rows[0];
+  const orgId = (await pool.query("select id from utente where email='org@t'")).rows[0].id;
+  assert.equal((await chiama('POST', `/api/richieste/${rq.id}/collega`, { token: tok['giu@t'], body: { utente_id: orgId, conferma_identita: true } })).statusCode, 403);
+  const linked = await chiama('POST', `/api/richieste/${rq.id}/collega`, { token: tok['adm@t'], body: { utente_id: orgId, conferma_identita: true } });
+  assert.equal(linked.statusCode, 200, linked.body);
+  const msAgain = await via('microsoft', (n) => mOk(n));
+  const signed = json(await a2.inject({ method: 'POST', url: '/api/auth/ticket', payload: { ticket: msAgain.headers.location.split('#sso=')[1] } }));
+  assert.equal(signed.utente.id, orgId);
   assert.match((await via('microsoft', (n) => mOk(n, { tid: 'altro-tenant', sub: 'm-2' }))).headers.location, /sso-errore=tenant/);
   // stato non corrispondente (CSRF)
   const i = await a2.inject({ method: 'GET', url: '/api/auth/google/inizio' });

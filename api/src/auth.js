@@ -13,6 +13,7 @@ export function hashPassword(pw) {
   return `scrypt$${salt.toString('hex')}$${h.toString('hex')}`;
 }
 export function verificaPassword(pw, stored) {
+  if (typeof pw !== 'string' || typeof stored !== 'string' || !/^scrypt\$[0-9a-f]{32}\$[0-9a-f]{64}$/.test(stored)) return false;
   const [alg, salt, h] = stored.split('$');
   if (alg !== 'scrypt') return false;
   const calc = crypto.scryptSync(pw, Buffer.from(salt, 'hex'), 32);
@@ -24,12 +25,16 @@ export function firmaToken(payload, ore = 12) {
   return `${body}.${sig}`;
 }
 export function leggiToken(token) {
-  const [body, sig] = (token || '').split('.');
-  if (!body || !sig) return null;
+  if (typeof token !== 'string' || token.length > 8192) return null;
+  const parti = token.split('.');
+  if (parti.length !== 2 || parti.some((p) => !/^[A-Za-z0-9_-]+$/.test(p))) return null;
+  const [body, sig] = parti;
   const ok = crypto.createHmac('sha256', secret()).update(body).digest('base64url');
   if (sig.length !== ok.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(ok))) return null;
-  const p = JSON.parse(Buffer.from(body, 'base64url').toString());
-  return p.exp > Date.now() ? p : null;
+  try {
+    const p = JSON.parse(Buffer.from(body, 'base64url').toString());
+    return p && typeof p === 'object' && !Array.isArray(p) && Number.isFinite(p.exp) && p.exp > Date.now() ? p : null;
+  } catch { return null; }
 }
 
 // limite ai tentativi di login: 8 errori ogni 15 minuti per coppia ip+email (in memoria, per un solo processo)

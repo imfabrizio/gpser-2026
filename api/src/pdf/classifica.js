@@ -1,9 +1,10 @@
+import { fileURLToPath } from 'node:url';
 // Classifica in PDF: titolo della gara, tabella con i primi tre evidenziati.
 import PDFDocument from 'pdfkit';
 import fs from 'node:fs';
 
-const FONT_R = new URL('../../../assets/fonts/LiberationSans-Regular.ttf', import.meta.url).pathname;
-const FONT_B = new URL('../../../assets/fonts/LiberationSans-Bold.ttf', import.meta.url).pathname;
+const FONT_R = fileURLToPath(new URL('../../../assets/fonts/LiberationSans-Regular.ttf', import.meta.url));
+const FONT_B = fileURLToPath(new URL('../../../assets/fonts/LiberationSans-Bold.ttf', import.meta.url));
 const LOGO = fs.readFileSync(new URL('../../../assets/logo-cri.jpg', import.meta.url));
 const ROSSO = '#C8102E';
 const PODIO = ['#F6E27A', '#DADDE2', '#E6B48A'];   // oro, argento, bronzo

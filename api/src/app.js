@@ -9,7 +9,7 @@ import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
 import { registraTurni } from './routes-turni.js';
 import { calcolaAvanzamento } from './services/avanzamento.js';
-import { enteUtente, regioneDelComitato, puoVedereEvento, accessoEvento, èApprovatore } from './enti.js';
+import { enteUtente, regioneDelComitato, puoVedereEvento, accessoEvento, verificaAccessoEvento, èApprovatore } from './enti.js';
 import { trovaDoppioni, unisci, ignora } from './services/accorpamenti.js';
 import { confronta, revisioni, proposteRaggruppamento, raggruppa, salvaRevisioneDaScena } from './services/revisioni.js';
 import { proponi, approva, rifiuta, tutteLeRegioni, impostaCondivisione } from './services/promozioni.js';
@@ -46,6 +46,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
 
   // ── sicurezza: intestazioni ──
   app.addHook('onSend', async (req, reply) => {
+    if (req.routeOptions?.url?.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
     reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; object-src 'none'; frame-src blob:; base-uri 'none'; frame-ancestors 'self'");
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'no-referrer');
@@ -72,7 +73,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const api = rotta.startsWith('/api/') || decodificato.startsWith('/api/');
     if (!api || ['/api/login', '/api/login/mfa', '/api/pubblico', '/api/registrati/inizia'].includes(rotta) || rotta.startsWith('/api/auth/')) return;
     const t = leggiToken((req.headers.authorization || '').replace(/^Bearer /, ''));
-    if (!t) throw httpErr(401, 'non autenticato');
+    // I ticket di secondo fattore e i cookie SSO non sono sessioni API.
+    if (!t || t.t || t.p || (!t.id && !t.rid)) throw httpErr(401, 'non autenticato');
     if (t.rid) {                                   // sessione di chi non è ancora registrato: solo il modulo di richiesta
       const { rows: [r] } = await pool.query('select * from richiesta_accesso where id=$1 and scade_il > now()', [t.rid]);
       if (!r) throw httpErr(401, 'richiesta scaduta: accedi di nuovo per ripresentarla');
@@ -101,11 +103,11 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/me/') || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta)) || ((u.aree || []).includes('accompagnatore') && /\/(accompagnatore|attesa)$/.test(rotta))))
       throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
     if (!RUOLI_ORG.includes(req.utente.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
-      const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);
+      const m = rotta.startsWith('/api/eventi/:id') ? [null, req.params.id] : null;
       if (m && m[1].toLowerCase() !== u.evento_id) throw httpErr(403, 'gara non assegnata');
     }
     if (!RUOLI_ORG.includes(req.utente.ruolo) && !u.evento_id && !(u.aree || []).includes('valutazione') && (u.ev_ruoli || []).length) {   // accesso solo per le gare a cui è iscritto
-      const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);
+      const m = rotta.startsWith('/api/eventi/:id') ? [null, req.params.id] : null;
       if (m && !req.utente.eventi_ammessi.includes(m[1].toLowerCase())) throw httpErr(403, 'gara non assegnata');
     }
   });
@@ -113,6 +115,11 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   const soloAdmin = async (req) => { if (req.utente.ruolo !== 'admin') throw httpErr(403, 'solo admin'); };
   // il giudice accede solo alle schede che gli sono assegnate
   const accessoScheda = async (utente, schedaId) => {
+    if (utente.ruolo === 'organizzazione') {
+      const { rows: [s] } = await pool.query('select sc.evento_id from scena_scheda s join scena sc on sc.id=s.scena_id where s.id=$1', [schedaId]);
+      if (!s) throw httpErr(404, 'scheda inesistente');
+      await verificaAccessoEvento(pool, utente, s.evento_id, false);
+    }
     if (RUOLI_ORG.includes(utente.ruolo)) return;
     const { rowCount } = await pool.query(
       `select 1 from assegnazione where scheda_id=$1 and utente_id=$2
@@ -167,11 +174,19 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   });
   app.post('/api/avvisi', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {}, amb = b.ambito === 'formazione' ? 'formazione' : 'gare';
+    if (b.evento_id) await verificaAccessoEvento(pool, req.utente, b.evento_id);
+    else if (req.utente.per_evento && !req.utente.admin) throw httpErr(403, 'non puoi pubblicare avvisi globali');
     if (!b.titolo || !String(b.titolo).trim()) throw httpErr(400, 'titolo obbligatorio');
     return (await pool.query('insert into avviso (evento_id, titolo, testo, pubblico, ambito) values ($1,$2,$3,$4,$5) returning *',
       [b.evento_id || null, String(b.titolo).trim(), b.testo || null, b.pubblico === true && amb === 'gare', amb])).rows[0];
   });
-  app.delete('/api/avvisi/:id', { preHandler: soloOrg }, async (req) => { await pool.query('delete from avviso where id=$1', [req.params.id]); return { ok: true }; });
+  app.delete('/api/avvisi/:id', { preHandler: soloOrg }, async (req) => {
+    const { rows: [a] } = await pool.query('select evento_id from avviso where id=$1', [req.params.id]);
+    if (!a) throw httpErr(404, 'avviso inesistente');
+    if (a.evento_id) await verificaAccessoEvento(pool, req.utente, a.evento_id);
+    else if (req.utente.per_evento && !req.utente.admin) throw httpErr(403, 'non puoi eliminare avvisi globali');
+    await pool.query('delete from avviso where id=$1', [req.params.id]); return { ok: true };
+  });
 
   // ── eventi, squadre, scene ──
   app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
@@ -379,6 +394,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.post('/api/scene-condivise/:id/copia', { preHandler: soloOrg }, async (req) => {
     const { eventoDestId, nuovoCodice } = req.body || {};
     if (!eventoDestId || !CODICE_SCENA.test(nuovoCodice || '')) throw httpErr(400, 'scegli l\'evento e un codice scena (1-3 caratteri maiuscoli o cifre)');
+    await verificaAccessoEvento(pool, req.utente, eventoDestId);
     const reg = await regioneMia(req), appr = èApprovatore(req.utente);
     const { rows: [s] } = await pool.query(`select s.id from scena s where s.id=$1 and s.regione is not null and ($2::boolean or exists (select 1 from condivisione c where c.tipo='scena' and c.risorsa_id=s.id and c.regione=$3::text and ($4::boolean or c.comitati)))`, [req.params.id, !!req.utente.admin, reg, appr]);
     if (!s) throw httpErr(404, 'scena non disponibile');
@@ -442,11 +458,17 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (!titolo || titolo.length > 120) throw httpErr(400, 'titolo obbligatorio (max 120 caratteri)');
     return creaScena(pool, { eventoId: req.params.id, codice, titolo, ordine, sosta: !!sosta });
   });
-  app.post('/api/scene/:id/duplica', { preHandler: soloOrg }, async (req) =>
-    inTransazione(pool, (db) => duplicaScena(db, { scenaId: req.params.id, ...req.body })));
+  app.post('/api/scene/:id/duplica', { preHandler: soloOrg }, async (req) => {
+    const { eventoDestId, nuovoCodice } = req.body || {};
+    await verificaAccessoEvento(pool, req.utente, eventoDestId);
+    return inTransazione(pool, (db) => duplicaScena(db, { scenaId: req.params.id, eventoDestId, nuovoCodice }));
+  });
   app.post('/api/scene/:id/elenco-pazienti', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => aggiornaElencoPazienti(db, req.params.id)));
-  app.post('/api/scene/:id/schede', { preHandler: soloOrg }, async (req) =>
-    inTransazione(pool, (db) => aggiungiSchedaDaPatologia(db, { scenaId: req.params.id, ...req.body })));
+  app.post('/api/scene/:id/schede', { preHandler: soloOrg }, async (req) => {
+    const { slot, patologiaId, simulatore, parametri, titolo, overrides } = req.body || {};
+    await controllaScheda(pool, req.utente, patologiaId, { modifica: false });
+    return inTransazione(pool, (db) => aggiungiSchedaDaPatologia(db, { scenaId: req.params.id, slot, patologiaId, simulatore, parametri, titolo, overrides }));
+  });
   app.get('/api/schede/:id', async (req) => {
     const { rows: [s] } = await pool.query('select * from scena_scheda where id=$1', [req.params.id]);
     if (!s) throw httpErr(404, 'scheda inesistente');
@@ -699,6 +721,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   // ── importazione di una scena da file Excel (formato GareCRI): un file per chiamata, in un'unica transazione ──
   app.post('/api/import/excel', { preHandler: soloOrg, bodyLimit: 12 * 1024 * 1024 }, async (req) => {
     const b = req.body || {};
+    if (b.evento_id) await verificaAccessoEvento(pool, req.utente, b.evento_id);
+    else if (req.utente.per_evento && req.utente.ruolo !== 'admin') throw httpErr(403, 'non puoi creare eventi: chiedi a un admin');
     if (typeof b.dati !== 'string' || b.dati.length < 100) throw httpErr(400, 'file mancante');
     const buf = Buffer.from(b.dati, 'base64');
     if (buf.subarray(0, 2).toString() !== 'PK') throw httpErr(400, 'non è un file .xlsx');

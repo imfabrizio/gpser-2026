@@ -5,6 +5,10 @@ import { canonico } from './comitati.js';
 import { valutaEsito } from './esito.js';
 import { generaEsitoPdf } from './pdf/esito.js';
 import { generaRiepilogoEsamiPdf } from './pdf/riepilogo-esami.js';
+import { accessoSessione } from './esami-accesso.js';
+import { enteUtente, verificaAccessoEvento } from './enti.js';
+import { controllaScheda } from './libreria-ambito.js';
+import { inTransazione } from './db.js';
 
 const UUID = /^[0-9a-f-]{36}$/i;
 const SOGLIA_DEFAULT = 75;       // senza fasce proprie della scheda
@@ -29,6 +33,28 @@ export function esitoCandidato(prova, cand, risposte) {
 }
 
 export function registraEsami(app, pool, { soloOrg }) {
+  const autorizza = async (req, sessioneId, gestione = false) => {
+    const { rows: [s] } = await pool.query('select * from sessione_esame where id=$1', [id(sessioneId)]);
+    if (!s) throw httpErr(404, 'sessione inesistente');
+    const accesso = await accessoSessione(pool, req.utente, s);
+    if (!accesso || (gestione && accesso !== 'gestione')) throw httpErr(403, 'sessione non consentita');
+    return { ...s, gestione: accesso === 'gestione' };
+  };
+  app.addHook('preHandler', async (req) => {
+    const route = req.routeOptions?.url || '';
+    if (!route.startsWith('/api/esami/')) return;
+    await soloOrg(req);
+    let sid;
+    if (route.startsWith('/api/esami/sessioni/:id')) sid = id(req.params.id);
+    else if (route.startsWith('/api/esami/prove/:id') || route.startsWith('/api/esami/candidati/:id')) {
+      const sql = route.startsWith('/api/esami/prove/') ? 'select sessione_id from prova_esame where id=$1'
+        : 'select p.sessione_id from candidato_esame c join prova_esame p on p.id=c.prova_id where c.id=$1';
+      const { rows: [p] } = await pool.query(sql, [id(req.params.id)]);
+      if (!p) throw httpErr(404, 'prova o candidato inesistente');
+      sid = p.sessione_id;
+    }
+    if (sid) req.sessioneEsame = await autorizza(req, sid, req.method === 'DELETE' || route.includes('/inviti'));
+  });
   const carica = async (provaId) => {
     const { rows: [p] } = await pool.query('select * from prova_esame where id=$1', [provaId]);
     if (!p) throw httpErr(404, 'prova inesistente');
@@ -41,15 +67,23 @@ export function registraEsami(app, pool, { soloOrg }) {
   const leggero = (p) => ({ id: p.id, titolo: p.titolo, stato: p.stato, valutatore: p.valutatore, errore_grave: p.errore_grave,
     candidati: p.candidati.map((c) => ({ id: c.id, nome: c.nome, comitato: c.comitato, ruolo: c.ruolo, esito: { punti: c.esito.punti, massimo: c.esito.massimo, giudizio: c.esito.giudizio, superato: c.esito.superato, completa: c.esito.completa, erroreGrave: c.esito.erroreGrave } })) });
 
-  app.get('/api/esami/sessioni', { preHandler: soloOrg }, async () => (await pool.query(
-    `select s.id, s.nome, to_char(s.data,'YYYY-MM-DD') as data, s.luogo, s.evento_id, (select coalesce(e.codice_gaia || ' · ', '') || e.nome from evento e where e.id = s.evento_id) as corso, (select count(*)::int from prova_esame p where p.sessione_id=s.id) as prove
-       from sessione_esame s order by s.data desc nulls last, s.created_at desc`)).rows);
+  app.get('/api/esami/sessioni', { preHandler: soloOrg }, async (req) => {
+    const { rows } = await pool.query(`select s.id, s.nome, to_char(s.data,'YYYY-MM-DD') as data, s.luogo, s.evento_id, s.creato_da, s.comitato,
+      (select coalesce(e.codice_gaia || ' · ', '') || e.nome from evento e where e.id=s.evento_id) as corso,
+      (select count(*)::int from prova_esame p where p.sessione_id=s.id) as prove from sessione_esame s order by s.data desc nulls last, s.created_at desc`);
+    const visibili = [];
+    for (const s of rows) { const a = await accessoSessione(pool, req.utente, s); if (a) visibili.push({ ...s, gestione: a === 'gestione' }); }
+    return visibili;
+  });
   app.post('/api/esami/sessioni', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {}, nome = String(b.nome || '').trim();
     if (!nome || nome.length > 150) throw httpErr(400, 'nome obbligatorio (max 150 caratteri)');
     if (b.data && !/^\d{4}-\d{2}-\d{2}$/.test(b.data)) throw httpErr(400, 'data non valida');
-    return (await pool.query('insert into sessione_esame (nome, data, luogo, creato_da, evento_id) values ($1,$2,$3,$4,$5) returning id, nome, luogo, evento_id',
-      [nome, b.data || null, String(b.luogo || '').trim() || null, req.utente.id, UUIDRE.test(b.evento_id || '') ? b.evento_id : null])).rows[0];
+    if (b.evento_id) await verificaAccessoEvento(pool, req.utente, id(b.evento_id));
+    else if (req.utente.per_evento && !req.utente.admin) throw httpErr(403, 'scegli un evento assegnato');
+    const comitato = (await enteUtente(pool, req.utente)).comitato;
+    return (await pool.query('insert into sessione_esame (nome, data, luogo, creato_da, evento_id, comitato) values ($1,$2,$3,$4,$5,$6) returning id, nome, luogo, evento_id',
+      [nome, b.data || null, String(b.luogo || '').trim() || null, req.utente.id, b.evento_id || null, comitato])).rows[0];
   });
   app.delete('/api/esami/sessioni/:id', { preHandler: soloOrg }, async (req) => {
     const { rowCount } = await pool.query('delete from sessione_esame where id=$1', [id(req.params.id)]);
@@ -59,8 +93,27 @@ export function registraEsami(app, pool, { soloOrg }) {
     const { rows: [s] } = await pool.query(`select id, nome, to_char(data,'YYYY-MM-DD') as data, luogo, evento_id from sessione_esame where id=$1`, [id(req.params.id)]);
     if (!s) throw httpErr(404, 'sessione inesistente');
     const { rows } = await pool.query('select id from prova_esame where sessione_id=$1 order by ordine, created_at', [s.id]);
-    return { sessione: s, prove: (await Promise.all(rows.map((r) => carica(r.id)))).map(leggero) };
+    return { sessione: { ...s, gestione: req.sessioneEsame.gestione }, prove: (await Promise.all(rows.map((r) => carica(r.id)))).map(leggero) };
   });
+  app.get('/api/esami/sessioni/:id/inviti', { preHandler: soloOrg }, async (req) =>
+    (await pool.query('select u.id, u.nome, u.email from sessione_esame_invito i join utente u on u.id=i.utente_id where i.sessione_id=$1 order by u.nome', [req.params.id])).rows);
+  app.post('/api/esami/sessioni/:id/inviti', { preHandler: soloOrg }, async (req) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email || email.length > 160) throw httpErr(400, 'email non valida');
+    const { rows: [u] } = await pool.query(`select u.id from utente u where lower(u.email)=$1 and u.attivo and
+      (u.admin or exists (select 1 from ruolo r where 'esami'=any(r.aree) and (r.codice=u.ruolo or r.codice in (select ruolo from utente_ruolo_extra where utente_id=u.id))))`, [email]);
+    if (!u) throw httpErr(400, 'serve un account attivo già abilitato all’area Esami');
+    return inTransazione(pool, async (db) => {
+      await db.query('insert into sessione_esame_invito (sessione_id,utente_id,invitato_da) values ($1,$2,$3) on conflict do nothing', [req.params.id,u.id,req.utente.id]);
+      await db.query("insert into audit_log (utente_id,azione,entita,entita_id,dettaglio) values ($1,'invito_esame','sessione_esame',$2,$3)", [req.utente.id, req.params.id, JSON.stringify({ utente_id: u.id })]);
+      return { ok: true };
+    });
+  });
+  app.delete('/api/esami/sessioni/:id/inviti/:utente', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    await db.query('delete from sessione_esame_invito where sessione_id=$1 and utente_id=$2', [req.params.id,id(req.params.utente)]);
+    await db.query("insert into audit_log (utente_id,azione,entita,entita_id,dettaglio) values ($1,'revoca_invito_esame','sessione_esame',$2,$3)", [req.utente.id, req.params.id, JSON.stringify({ utente_id: req.params.utente })]);
+    return { ok: true };
+  }));
   // schede della libreria utilizzabili negli esami: a tre livelli (non eseguito / sufficiente / corretto)
   app.get('/api/esami/schede', { preHandler: soloOrg }, async () => (await pool.query(
     `select p.id, p.nome, p.categoria from patologia p where p.comitato is null and not p.bozza
@@ -68,14 +121,20 @@ export function registraEsami(app, pool, { soloOrg }) {
        and not exists (select 1 from patologia_voce pv join scala_punteggio sp on sp.id=pv.scala_id where pv.patologia_id=p.id and (sp.be is not null or sp."in" is not null))
      order by p.categoria nulls last, p.nome`)).rows);
   app.get('/api/esami/persone', { preHandler: soloOrg }, async (req) => {
+    const s = await autorizza(req, req.query.sessione);
     const q = String(req.query.q || '').trim();
     if (q.length < 2) return [];
-    return (await pool.query(`select id, nome, cognome, comitato from partecipante where (cognome || ' ' || nome) ilike '%' || $1 || '%' or (nome || ' ' || cognome) ilike '%' || $1 || '%' order by cognome, nome limit 15`, [q])).rows;
+    return (await pool.query(`select id, nome, cognome, comitato from partecipante where ($2::boolean or lower(trim(comitato))=lower(trim($3::text))) and ((cognome || ' ' || nome) ilike '%' || $1 || '%' or (nome || ' ' || cognome) ilike '%' || $1 || '%') order by cognome, nome limit 15`, [q, !!req.utente.admin, s.comitato])).rows;
   });
   app.post('/api/esami/sessioni/:id/prove', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {}, sid = id(req.params.id);
+    await controllaScheda(pool, req.utente, id(b.patologiaId, 'scheda'), { modifica: false });
     const cands = Array.isArray(b.candidati) ? b.candidati.filter((c) => c && String(c.nome || '').trim()) : [];
     if (cands.length < 1 || cands.length > 3) throw httpErr(400, 'da 1 a 3 candidati (il primo è il principale)');
+    for (const c of cands) if (c.partecipanteId) {
+      const { rowCount } = await pool.query('select 1 from partecipante where id=$1 and ($2::boolean or lower(trim(comitato))=lower(trim($3::text)))', [id(c.partecipanteId), !!req.utente.admin, req.sessioneEsame.comitato]);
+      if (!rowCount) throw httpErr(403, 'persona non disponibile: inserisci il candidato senza collegarlo all’anagrafica');
+    }
     const { rows: [sess] } = await pool.query('select 1 from sessione_esame where id=$1', [sid]);
     if (!sess) throw httpErr(404, 'sessione inesistente');
     const { rows: [pat] } = await pool.query('select * from patologia where id=$1', [id(b.patologiaId, 'scheda')]);

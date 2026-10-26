@@ -13,6 +13,11 @@
     "test": "node --test api/test/*.test.js",
     "start": "node api/src/server.js"
   },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
+  },
   "dependencies": {
     "@fastify/static": "^10.1.6",
     "codice-fiscale-js": "^2.4.0",
