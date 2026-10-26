@@ -1,6 +1,7 @@
 // Svolgimento della gara: rotazione (scena di partenza di ogni squadra) e turni (il giudice master apre e chiude la scena per una squadra).
 import { inTransazione } from './db.js';
 import { httpErr } from './services/compilazioni.js';
+import { calcolaAvanzamento } from './services/avanzamento.js';
 
 const ORG = ['admin', 'organizzazione'];
 const CHIUSE = ['completata', 'verificata'];
@@ -64,7 +65,8 @@ export function registraTurni(app, pool, { soloOrg }) {
   app.get('/api/scene/:id/turno', async (req) => {
     const sc = await scenaDi(pool, req.params.id); await comanda(pool, req.utente, sc.id);
     const { rows: [t] } = await pool.query(`select t.squadra_id, sq.numero, sq.nome, t.aperta_at from scena_turno t join squadra sq on sq.id=t.squadra_id where t.scena_id=$1 and t.stato='aperta'`, [sc.id]);
-    return { scena: sc.codice, modalita: sc.modalita, turno: t || null, schede: t ? await schedeDelTurno(pool, sc.id, t.squadra_id) : [] };
+    const { rows: attesa } = await pool.query(`select t.squadra_id, sq.numero, sq.nome from scena_turno t join squadra sq on sq.id=t.squadra_id where t.scena_id=$1 and t.stato='attesa' order by t.attesa_at`, [sc.id]);
+    return { scena: sc.codice, modalita: sc.modalita, turno: t || null, in_attesa: attesa, schede: t ? await schedeDelTurno(pool, sc.id, t.squadra_id) : [] };
   });
   app.post('/api/scene/:id/apri', async (req) => inTransazione(pool, async (db) => {
     const sc = await scenaDi(db, req.params.id); await comanda(db, req.utente, sc.id);
@@ -92,4 +94,47 @@ export function registraTurni(app, pool, { soloOrg }) {
     await db.query(`update scena_turno set stato='chiusa', chiusa_at=now(), chiusa_da=$3 where scena_id=$1 and squadra_id=$2`, [sc.id, t.squadra_id, req.utente.id]);
     return { ok: true, squadra: t.numero };
   }));
+
+  // ── accompagnatore: segna dallo smartphone che una squadra è in attesa davanti a una scena ──
+  const èAccompagnatore = (u) => ORG.includes(u.ruolo) || u.ruolo === 'giudice_master' || !!u.admin || (u.aree || []).includes('accompagnatore');
+  const soloAccompagnatore = (req) => { if (!èAccompagnatore(req.utente)) throw httpErr(403, 'riservato a organizzazione, giudici master e accompagnatori'); };
+
+  // per ogni scena di gioco: chi è in attesa e chi dovrebbe arrivare (da rotazione)
+  app.get('/api/eventi/:id/accompagnatore', async (req) => {
+    soloAccompagnatore(req);
+    const d = await calcolaAvanzamento(pool, req.params.id);
+    const { rows: aperti } = await pool.query(`select scena_id, squadra_id from scena_turno where stato='aperta' and scena_id in (select id from scena where evento_id=$1)`, [req.params.id]);
+    const stato = (q, sc) => d.celle[q.numero]?.[sc.codice]?.stato;
+    return { modalita: d.modalita, aggiornato: d.aggiornato, scene: d.scene.filter((sc) => !sc.sosta).map((sc) => ({
+      id: sc.id, codice: sc.codice, titolo: sc.titolo,
+      in_corso: d.squadre.filter((q) => aperti.some((a) => a.scena_id === sc.id && a.squadra_id === q.id)).map(({ id, numero, nome }) => ({ id, numero, nome })),
+      in_attesa: d.squadre.filter((q) => stato(q, sc) === 'attesa').map(({ id, numero, nome }) => ({ id, numero, nome })),
+      attese: d.squadre.filter((q) => stato(q, sc) === 'prossima').map(({ id, numero, nome }) => ({ id, numero, nome })) })),
+      squadre: d.squadre.map(({ id, numero, nome }) => ({ id, numero, nome })) };
+  });
+  app.post('/api/scene/:id/attesa', async (req) => inTransazione(pool, async (db) => {
+    soloAccompagnatore(req);
+    const sc = await scenaDi(db, req.params.id);
+    if (sc.sosta) throw httpErr(409, 'una sosta non ha una valutazione');
+    let sq = req.body?.squadra_id;
+    if (!sq) {                                              // la squadra attesa dalla rotazione
+      const d = await calcolaAvanzamento(db, sc.evento_id), sce = d.scene.find((x) => x.id === sc.id);
+      const cand = d.squadre.filter((q) => d.celle[q.numero]?.[sce.codice]?.stato === 'prossima');
+      if (cand.length !== 1) throw httpErr(409, cand.length ? 'più squadre potrebbero arrivare: scegli la squadra' : 'nessuna squadra attesa da questa scena: scegli la squadra');
+      sq = cand[0].id;
+    }
+    const { rows: [q] } = await db.query('select id, numero, nome from squadra where id=$1 and evento_id=$2 and attiva', [sq, sc.evento_id]);
+    if (!q) throw httpErr(400, 'squadra non valida');
+    const { rows: [t] } = await db.query('select stato from scena_turno where scena_id=$1 and squadra_id=$2', [sc.id, q.id]);
+    if (t?.stato === 'aperta') throw httpErr(409, `la squadra ${q.numero} è già in valutazione`);
+    if (t?.stato === 'chiusa') throw httpErr(409, `la squadra ${q.numero} ha già fatto questa scena`);
+    await db.query(`insert into scena_turno (scena_id, squadra_id, stato, attesa_at) values ($1,$2,'attesa',now()) on conflict (scena_id, squadra_id) do update set stato='attesa', attesa_at=now()`, [sc.id, q.id]);
+    return { ok: true, squadra: { id: q.id, numero: q.numero, nome: q.nome } };
+  }));
+  app.delete('/api/scene/:id/attesa', async (req) => {          // l'accompagnatore ha sbagliato scena o squadra
+    soloAccompagnatore(req);
+    const sq = req.body?.squadra_id ?? req.query?.squadra_id;
+    const r = await pool.query(`delete from scena_turno where scena_id=$1 and squadra_id=$2 and stato='attesa'`, [req.params.id, sq]);
+    return { ok: true, tolte: r.rowCount };
+  });
 }

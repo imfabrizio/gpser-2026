@@ -1672,3 +1672,32 @@ test('REV-3: gare e olimpiadi non si riuniscono mai in revisioni', async () => {
   assert.equal(prop.some((x) => [x.a.id, x.b.id].includes(g.id) && [x.a.id, x.b.id].includes(o.id)), false);
   assert.equal((await chiama('POST', '/api/libreria/raggruppamenti', { token: org, body: { base: g.id, revisione: o.id } })).statusCode, 409);
 });
+
+test('ACC-1: l\'accompagnatore segna le squadre in attesa; il master le vede; il monitor le mostra', async () => {
+  const org = tok['org@t'];
+  const e = json(await chiama('POST', '/api/eventi', { token: org, body: { codice: 'ACC-T', nome: 'Gara accompagnatore' } }));
+  const q = []; for (const nome of ['Uno', 'Due']) q.push(json(await chiama('POST', `/api/eventi/${e.id}/squadre`, { token: org, body: { nome } })));
+  const A = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: org, body: { codice: 'AA', titolo: 'Scena A', ordine: 1 } }));
+  const B = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: org, body: { codice: 'AB', titolo: 'Scena B', ordine: 2 } }));
+  await chiama('PUT', `/api/eventi/${e.id}/rotazione`, { token: org, body: { modalita: 'online', auto: true } });
+  await nuovoUtente('acc@t', 'accompagnatore');
+  const acc = tok['acc@t'];
+  assert.equal((await chiama('GET', `/api/eventi/${e.id}/accompagnatore`, { token: tok['giu@t'] })).statusCode, 403);
+  const el = json(await chiama('GET', `/api/eventi/${e.id}/accompagnatore`, { token: acc }));
+  assert.equal(el.scene.length, 2); assert.equal(el.scene.find((s) => s.codice === 'AA').attese[0].id, q[0].id);   // la squadra 1 parte da A
+  // un solo tocco: la squadra attesa dalla rotazione
+  assert.equal((await chiama('POST', `/api/scene/${A.id}/attesa`, { token: acc, body: {} })).statusCode, 200);
+  assert.equal(json(await chiama('GET', `/api/eventi/${e.id}/accompagnatore`, { token: acc })).scene.find((s) => s.codice === 'AA').in_attesa[0].id, q[0].id);
+  assert.equal(json(await chiama('GET', `/api/eventi/${e.id}/avanzamento`, { token: org })).celle[q[0].numero].AA.stato, 'attesa');
+  assert.equal(json(await chiama('GET', `/api/scene/${A.id}/turno`, { token: org })).in_attesa[0].squadra_id, q[0].id);
+  // il master apre la scena per la squadra in attesa: diventa in corso
+  assert.equal((await chiama('POST', `/api/scene/${A.id}/apri`, { token: org, body: { squadra_id: q[0].id } })).statusCode, 200);
+  assert.equal((await chiama('POST', `/api/scene/${A.id}/attesa`, { token: acc, body: { squadra_id: q[0].id } })).statusCode, 409);
+  assert.equal(json(await chiama('GET', `/api/eventi/${e.id}/avanzamento`, { token: org })).celle[q[0].numero].AA.stato, 'in_corso');
+  // annullamento di un'attesa sbagliata
+  assert.equal((await chiama('POST', `/api/scene/${B.id}/attesa`, { token: acc, body: { squadra_id: q[1].id } })).statusCode, 200);
+  assert.equal((await chiama('DELETE', `/api/scene/${B.id}/attesa?squadra_id=${q[1].id}`, { token: acc })).statusCode, 200);
+  assert.equal(json(await chiama('GET', `/api/eventi/${e.id}/accompagnatore`, { token: acc })).scene.find((s) => s.codice === 'AB').in_attesa.length, 0);
+  // l'accompagnatore non entra nella gestione
+  assert.equal((await chiama('GET', `/api/eventi/${e.id}/avanzamento`, { token: acc })).statusCode, 403);
+});

@@ -371,8 +371,9 @@ async function vistaHome() {
   const avvisi = await api(`/avvisi?evento=${ev.id}`).catch(() => []);
   const scene = await api(`/eventi/${ev.id}/scene`).catch(() => []);
   const tipoGara = TIPO_EV[ev.tipo] || 'Gara';
-  const gestioneGara = org() && aree.some((a) => !['valutazione', 'esami', 'formazione_esame'].includes(a));
+  const gestioneGara = org() && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame'].includes(a));
   const tileGara = (aree.includes('valutazione') ? tileF('#valutazione', 'valutazione', 'Valutazione', esc(ev.nome)) : '')
+    + (aree.includes('accompagnatore') || org() || master() ? tileF('#accompagnatore', 'monitor', 'Accompagnatore', 'Segna le squadre in attesa davanti alle scene') : '')
     + (gestioneGara ? tileF('/admin.html#hub:gara', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '')
     + (gestioneGara && aree.includes('classifiche') ? tileF('#monitor', 'monitor', 'Monitor', 'Avanzamento delle schede') : '');
   $('#app').innerHTML = `${cambia}<div class="banner"><small>${tipoGara} ${statoGara(ev)}</small><h2>${esc(ev.nome)}</h2>
@@ -440,8 +441,8 @@ function selezioneOnline(ev, scAvail, squadre) {
       for (const sc of scAvail) {
         let t; try { t = await api(`/scene/${sc.id}/turno`); } catch { continue; }
         if (!t.turno) {
-          html += `<div class="avviso"><b>${esc(sc.codice)} – ${esc(sc.titolo)}</b><br><small>Nessuna squadra in corso.</small><br>
-            <select class="onlSq" data-s="${sc.id}">${squadre.map((q) => `<option value="${q.id}">${nomeSq(q)}</option>`).join('')}</select>
+          html += `<div class="avviso"><b>${esc(sc.codice)} – ${esc(sc.titolo)}</b><br><small>Nessuna squadra in corso.${t.in_attesa.length ? ' <b>In attesa:</b> ' + t.in_attesa.map((q) => esc(q.numero)).join(', ') : ''}</small><br>
+            <select class="onlSq" data-s="${sc.id}">${squadre.map((q) => `<option value="${q.id}" ${t.in_attesa[0]?.squadra_id === q.id ? 'selected' : ''}>${nomeSq(q)}${t.in_attesa.some((a) => a.squadra_id === q.id) ? ' (in attesa)' : ''}</option>`).join('')}</select>
             <button class="btn onlApri" data-s="${sc.id}" type="button">Apri valutazione</button></div>`;
         } else {
           const ok = (k) => k.stato === 'completata' || k.stato === 'verificata';
@@ -463,6 +464,47 @@ function selezioneOnline(ev, scAvail, squadre) {
   };
   if (!comanda) $('#sc').addEventListener('change', disegna);
   disegna(); clearInterval(turniTimer); turniTimer = setInterval(() => disegna().catch(() => {}), 5000);
+}
+
+
+// ── accompagnatore: un grosso pulsante per scena; segna che la squadra è in posizione ──
+let accTimer = null;
+async function vistaAccompagnatore() {
+  $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'Accompagnatore';
+  const { ev } = await garaCorrente();
+  if (!ev) { location.hash = ''; return; }
+  const stile = '<style>.acc{display:flex;flex-direction:column;gap:12px}.acc button{width:100%;min-height:92px;border:0;border-radius:16px;font-size:20px;text-align:left;padding:14px 18px;background:#e8edf3;color:#1d2733}.acc button b{font-size:26px;display:block}.acc button small{display:block;font-size:15px;margin-top:4px}.acc button.att{background:#3AA6E0;color:#fff}.acc button.cor{background:#F5B800;color:#3a2c00}.acc button[disabled]{opacity:.8}</style>';
+  $('#app').innerHTML = stile + `<div class="card"><strong>${esc(ev.nome)}</strong><br><small>Premi la scena davanti alla quale la squadra è pronta. Per toglierla, premi di nuovo.</small></div><div class="acc" id="accL"><p>Carico…</p></div>`;
+  let scelta = null;     // squadra scelta a mano quando la rotazione non basta
+  const disegna = async () => {
+    if (location.hash.slice(1).split('/')[0] !== 'accompagnatore') { clearInterval(accTimer); return; }
+    const box = $('#accL'); if (!box) { clearInterval(accTimer); return; }
+    let d; try { d = await api(`/eventi/${ev.id}/accompagnatore`); } catch (e) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
+    const nome = (q) => `${q.numero} ${esc(q.nome || '')}`;
+    box.innerHTML = d.scene.map((sc) => {
+      const cor = sc.in_corso[0], att = sc.in_attesa[0], prox = sc.attese[0];
+      const cls = cor ? 'cor' : att ? 'att' : '';
+      const riga = cor ? `In valutazione: squadra ${nome(cor)}` : att ? `In attesa: squadra ${nome(att)} · premi per annullare` : prox ? `Attesa: squadra ${nome(prox)}` : 'Premi e scegli la squadra';
+      return `<button type="button" class="${cls}" data-s="${sc.id}" ${cor ? 'disabled' : ''}><b>Scena ${esc(sc.codice)}</b>${esc(sc.titolo || '')}<small>${riga}</small></button>`;
+    }).join('') || '<div class="card">Questa gara non ha scene.</div>';
+    box.querySelectorAll('button').forEach((b) => { b.onclick = async () => {
+      const sc = d.scene.find((x) => x.id === b.dataset.s); if (!sc) return;
+      try {
+        if (sc.in_attesa.length) { await api(`/scene/${sc.id}/attesa?squadra_id=${sc.in_attesa[0].id}`, { method: 'DELETE' }); }
+        else {
+          try { await api(`/scene/${sc.id}/attesa`, { body: {} }); }
+          catch (e) {
+            if (e.stato !== 409) throw e;
+            const q = prompt(`${e.message}\nScrivi il numero della squadra davanti alla scena ${sc.codice}:`); if (!q) return;
+            const s = d.squadre.find((x) => String(x.numero) === q.trim()); if (!s) return alert('Squadra non trovata');
+            await api(`/scene/${sc.id}/attesa`, { body: { squadra_id: s.id } });
+          }
+        }
+        disegna();
+      } catch (e) { alert(e.message); }
+    }; });
+  };
+  await disegna(); clearInterval(accTimer); accTimer = setInterval(() => disegna().catch(() => {}), 5000);
 }
 
 // ── coda di salvataggio locale (modulo /coda.js, con test automatici) ──
@@ -634,6 +676,7 @@ async function route() {
     if (v === 'valuta') return await vistaValuta(a, b);
     if (v === 'sicurezza' || v === 'account') return await vistaSicurezza();
     if (v === 'valutazione') return await vistaSelezione();
+    if (v === 'accompagnatore') return await vistaAccompagnatore();
     if (v === 'classifica') { location.href = '/admin.html#classifiche'; return; }
     if (v === 'monitor') return await vistaMonitor();
     if (v === 'documenti') return await vistaDocumenti();

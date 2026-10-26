@@ -8,6 +8,7 @@ import { generaPdfSchede } from './services/stampa.js';
 import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
 import { registraTurni } from './routes-turni.js';
+import { calcolaAvanzamento } from './services/avanzamento.js';
 import { enteUtente, regioneDelComitato, puoVedereEvento, accessoEvento, èApprovatore } from './enti.js';
 import { trovaDoppioni, unisci, ignora } from './services/accorpamenti.js';
 import { confronta, revisioni, proposteRaggruppamento, raggruppa, salvaRevisioneDaScena } from './services/revisioni.js';
@@ -97,7 +98,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       if (idEv) { const { rows: [e] } = await pool.query('select id, tipo, livello, comitato, regione from evento where id=$1', [idEv]);
         if (e) { const acc = await accessoEvento(pool, req.utente, e); if (!acc) throw httpErr(403, 'evento di un altro ente'); if (acc === 'lettura' && req.method !== 'GET') throw httpErr(403, 'il tuo comitato è invitato: puoi consultare l\'allenamento ma non modificarlo'); } }
     }
-    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/me/') || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta))))
+    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/me/') || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta)) || ((u.aree || []).includes('accompagnatore') && /\/(accompagnatore|attesa)$/.test(rotta))))
       throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
     if (!RUOLI_ORG.includes(req.utente.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
       const m = req.url.match(/^\/api\/eventi\/([0-9a-f-]{36})/i);
@@ -665,42 +666,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="classifica.pdf"').send(pdf);
   });
   // avanzamento della gara: per ogni squadra e scena, grigio (non iniziata), giallo (in corso), verde (fatta); le soste non hanno schede
-  app.get('/api/eventi/:id/avanzamento', { preHandler: soloOrg }, async (req) => {
-    const id = req.params.id;
-    const [{ rows: scene }, { rows: squadre }, { rows: righe }, { rows: turni }, { rows: [ev] }] = await Promise.all([
-      pool.query('select id, codice, titolo, sosta, ordine from scena where evento_id=$1 order by ordine, codice', [id]),
-      pool.query('select numero, nome, partenza_scena_id from squadra where evento_id=$1 and attiva order by numero', [id]),
-      pool.query(`select sc.codice as scena, sq.numero as squadra, c.stato from scena sc join scena_scheda s on s.scena_id=sc.id
-                    join squadra sq on sq.evento_id=sc.evento_id and sq.attiva left join compilazione c on c.scheda_id=s.id and c.squadra_id=sq.id where sc.evento_id=$1`, [id]),
-      pool.query(`select sc.codice as scena, sq.numero as squadra, t.stato from scena_turno t join scena sc on sc.id=t.scena_id join squadra sq on sq.id=t.squadra_id where sc.evento_id=$1`, [id]),
-      pool.query('select modalita from evento where id=$1', [id])]);
-    const celle = {};
-    for (const r of righe) {
-      const c = ((celle[r.squadra] ??= {})[r.scena] ??= { totali: 0, fatte: 0, iniziate: 0 });
-      c.totali++; if (r.stato) c.iniziate++; if (r.stato === 'completata' || r.stato === 'verificata') c.fatte++;
-    }
-    for (const sq of Object.values(celle)) for (const c of Object.values(sq)) c.stato = c.fatte === c.totali ? 'fatta' : c.iniziate ? 'in_corso' : 'da_fare';
-    // gara online: il turno aperto dal master è «in corso», quello chiuso è «fatta»
-    for (const t of turni) {
-      const c = ((celle[t.squadra] ??= {})[t.scena] ??= { totali: 0, fatte: 0, iniziate: 0, stato: 'da_fare' });
-      if (t.stato === 'aperta') c.stato = 'in_corso'; else if (t.stato === 'chiusa') c.stato = 'fatta'; else if (t.stato === 'attesa' && c.stato === 'da_fare') c.stato = 'attesa';
-    }
-    // rotazione: dalla scena di partenza si procede in ordine; le soste sono «passate» o «ora», la prossima scena di gioco è «prossima»
-    const n = scene.length;
-    for (const q of squadre) {
-      const p0 = scene.findIndex((s) => s.id === q.partenza_scena_id); if (p0 < 0) continue;
-      const seq = scene.map((_, i) => scene[(p0 + i) % n]);
-      let k = 0;
-      seq.forEach((s, i) => { if (!s.sosta && celle[q.numero]?.[s.codice]?.stato === 'fatta') k = i + 1; });
-      const riga = (celle[q.numero] ??= {});
-      for (const [i, s] of seq.entries()) {
-        const c = (riga[s.codice] ??= { totali: 0, fatte: 0, iniziate: 0, stato: 'da_fare' });
-        if (s.sosta) c.stato = i < k ? 'passata' : i === k && !seq.some((x) => riga[x.codice]?.stato === 'in_corso') ? 'ora' : 'da_fare';
-        else if (c.stato === 'da_fare' && i >= k && !seq.slice(k, i).some((x) => !x.sosta)) c.stato = 'prossima';
-      }
-    }
-    return { modalita: ev?.modalita || 'cartacea', scene: scene.map(({ codice, titolo, sosta, ordine }) => ({ codice, titolo, sosta, ordine })), squadre: squadre.map(({ numero, nome }) => ({ numero, nome })), celle, aggiornato: new Date().toISOString() };
-  });
+  app.get('/api/eventi/:id/avanzamento', { preHandler: soloOrg }, async (req) => calcolaAvanzamento(pool, req.params.id));
   app.get('/api/eventi/:id/monitor', { preHandler: soloOrg }, async (req) =>
     (await pool.query('select * from v_monitor where evento_id=$1 order by scena, squadra, slot', [req.params.id])).rows);
   app.get('/api/eventi/:id/stampa.pdf', { preHandler: soloOrg }, async (req, reply) => {

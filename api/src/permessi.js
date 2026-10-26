@@ -1,11 +1,11 @@
 // Ruoli e aree della Gestione. Un utente ha un ruolo (con le sue aree) e, se serve, la spunta "admin" che dà accesso a tutto.
 export const AREE = {
   gara: 'Gara', scene: 'Scene', schede: 'Schede', squadre: 'Squadre', notizie: 'Notizie', anagrafiche: 'Anagrafiche',
-  classifiche: 'Classifiche', stampa: 'Stampa', importa: 'Importa', approvazione: 'Approvazione', segreteria: 'Segreteria', valutazione: 'Valutazione', documentazione: 'Documentazione', formazione_esame: 'Formazione d\'esame', esami: 'Esami',
+  classifiche: 'Classifiche', stampa: 'Stampa', importa: 'Importa', approvazione: 'Approvazione', segreteria: 'Segreteria', valutazione: 'Valutazione', accompagnatore: 'Accompagnatore', documentazione: 'Documentazione', formazione_esame: 'Formazione d\'esame', esami: 'Esami',
 };   // Utenti, Ruoli e Richieste restano riservati agli admin
 
 // ruolo "efficace" usato dai controlli: admin > staff (ruolo con almeno un'area) > giudice / giudice master > partecipante (nessun potere)
-const gestione = (u) => (u.aree || []).filter((a) => a !== 'valutazione');   // «valutazione» da sola non dà accesso alla Gestione
+const gestione = (u) => (u.aree || []).filter((a) => a !== 'valutazione' && a !== 'accompagnatore');   // «valutazione» da sola non dà accesso alla Gestione
 export const eStaff = (u) => !!u.admin || gestione(u).length > 0;
 export const ruoloEffettivo = (u) => u.admin ? 'admin' : gestione(u).length ? 'organizzazione'
   : (u.aree || []).includes('valutazione') ? (u.ruolo === 'giudice_master' || (u.ruoli_extra || []).includes('giudice_master') ? 'giudice_master' : 'giudice')
