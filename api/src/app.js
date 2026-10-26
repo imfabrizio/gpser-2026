@@ -7,6 +7,7 @@ import { sincronizza, riapri, httpErr } from './services/compilazioni.js';
 import { generaPdfSchede } from './services/stampa.js';
 import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
+import { registraTurni } from './routes-turni.js';
 import { enteUtente, regioneDelComitato, puoVedereEvento, accessoEvento, èApprovatore } from './enti.js';
 import { trovaDoppioni, unisci, ignora } from './services/accorpamenti.js';
 import { proponi, approva, rifiuta, tutteLeRegioni, impostaCondivisione } from './services/promozioni.js';
@@ -147,7 +148,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const visibile = `not e.archiviato and e.tipo in ('gara','olimpiadi') and (e.livello is null or (e.livello <> 'comitato' and e.attivo))
       and (e.attivo or coalesce(e.data_fine, e.data) between current_date - $1::int and current_date + $1::int)`;
     const { rows: eventi } = await pool.query(
-      `select e.id, e.nome, e.tipo, e.luogo, to_char(e.data,'YYYY-MM-DD') as data, to_char(e.data_fine,'YYYY-MM-DD') as data_fine, e.attivo, e.mappa_url, coalesce(e.luogo_regione, e.regione) as regione, e.lat, e.lng, e.segreteria_lat, e.segreteria_lng
+      `select e.id, e.nome, e.tipo, e.luogo, to_char(e.data,'YYYY-MM-DD') as data, to_char(e.data_fine,'YYYY-MM-DD') as data_fine, e.attivo, e.modalita, e.mappa_url, coalesce(e.luogo_regione, e.regione) as regione, e.lat, e.lng, e.segreteria_lat, e.segreteria_lng
          from evento e where ${visibile} order by e.data desc nulls last limit 30`, [FINESTRA_GIORNI]);
     const { rows: scene } = await pool.query(
       `select s.evento_id, s.codice, s.titolo, s.indirizzo, s.lat, s.lng from scena s join evento e on e.id=s.evento_id
@@ -174,7 +175,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
     const org = RUOLI_ORG.includes(req.utente.ruolo);
     const righe = (await pool.query(
-      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, to_char(data_fine,'YYYY-MM-DD') as data_fine, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, comitato, livello, regione, lat, lng, comune_istat, luogo_provincia, luogo_regione, segreteria_lat, segreteria_lng
+      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, to_char(data_fine,'YYYY-MM-DD') as data_fine, attivo, archiviato, modalita, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, comitato, livello, regione, lat, lng, comune_istat, luogo_provincia, luogo_regione, modalita, segreteria_lat, segreteria_lng
          from evento where ($1 or id = $2 or id = any($3::uuid[]) or ($2::uuid is null and not cardinality($3::uuid[]) > 0 and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id, req.utente.eventi_ammessi])).rows;
     if (req.utente.ruolo === 'organizzazione' && req.utente.per_evento) return righe.filter((e) => req.utente.eventi_org.includes(e.id));
@@ -277,7 +278,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     return { ok: true };
   }));
   app.get('/api/eventi/:id/squadre', async (req) =>
-    (await pool.query('select id, numero, nome, comitato, attiva from squadra where evento_id=$1 order by numero', [req.params.id])).rows);
+    (await pool.query('select id, numero, nome, comitato, attiva, partenza_scena_id from squadra where evento_id=$1 order by numero', [req.params.id])).rows);
   app.post('/api/eventi/:id/squadre', { preHandler: soloOrg }, async (req) => {
     // il numero non si riusa mai (nel vecchio sistema Max+1 poteva riprendere un ID cancellato)
     return (await pool.query(
@@ -657,18 +658,39 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   // avanzamento della gara: per ogni squadra e scena, grigio (non iniziata), giallo (in corso), verde (fatta); le soste non hanno schede
   app.get('/api/eventi/:id/avanzamento', { preHandler: soloOrg }, async (req) => {
     const id = req.params.id;
-    const [{ rows: scene }, { rows: squadre }, { rows: righe }] = await Promise.all([
-      pool.query('select codice, titolo, sosta, ordine from scena where evento_id=$1 order by ordine, codice', [id]),
-      pool.query('select numero, nome from squadra where evento_id=$1 and attiva order by numero', [id]),
+    const [{ rows: scene }, { rows: squadre }, { rows: righe }, { rows: turni }, { rows: [ev] }] = await Promise.all([
+      pool.query('select id, codice, titolo, sosta, ordine from scena where evento_id=$1 order by ordine, codice', [id]),
+      pool.query('select numero, nome, partenza_scena_id from squadra where evento_id=$1 and attiva order by numero', [id]),
       pool.query(`select sc.codice as scena, sq.numero as squadra, c.stato from scena sc join scena_scheda s on s.scena_id=sc.id
-                    join squadra sq on sq.evento_id=sc.evento_id and sq.attiva left join compilazione c on c.scheda_id=s.id and c.squadra_id=sq.id where sc.evento_id=$1`, [id])]);
+                    join squadra sq on sq.evento_id=sc.evento_id and sq.attiva left join compilazione c on c.scheda_id=s.id and c.squadra_id=sq.id where sc.evento_id=$1`, [id]),
+      pool.query(`select sc.codice as scena, sq.numero as squadra, t.stato from scena_turno t join scena sc on sc.id=t.scena_id join squadra sq on sq.id=t.squadra_id where sc.evento_id=$1`, [id]),
+      pool.query('select modalita from evento where id=$1', [id])]);
     const celle = {};
     for (const r of righe) {
       const c = ((celle[r.squadra] ??= {})[r.scena] ??= { totali: 0, fatte: 0, iniziate: 0 });
       c.totali++; if (r.stato) c.iniziate++; if (r.stato === 'completata' || r.stato === 'verificata') c.fatte++;
     }
     for (const sq of Object.values(celle)) for (const c of Object.values(sq)) c.stato = c.fatte === c.totali ? 'fatta' : c.iniziate ? 'in_corso' : 'da_fare';
-    return { scene, squadre, celle, aggiornato: new Date().toISOString() };
+    // gara online: il turno aperto dal master è «in corso», quello chiuso è «fatta»
+    for (const t of turni) {
+      const c = ((celle[t.squadra] ??= {})[t.scena] ??= { totali: 0, fatte: 0, iniziate: 0, stato: 'da_fare' });
+      if (t.stato === 'aperta') c.stato = 'in_corso'; else if (t.stato === 'chiusa') c.stato = 'fatta'; else if (t.stato === 'attesa' && c.stato === 'da_fare') c.stato = 'attesa';
+    }
+    // rotazione: dalla scena di partenza si procede in ordine; le soste sono «passate» o «ora», la prossima scena di gioco è «prossima»
+    const n = scene.length;
+    for (const q of squadre) {
+      const p0 = scene.findIndex((s) => s.id === q.partenza_scena_id); if (p0 < 0) continue;
+      const seq = scene.map((_, i) => scene[(p0 + i) % n]);
+      let k = 0;
+      seq.forEach((s, i) => { if (!s.sosta && celle[q.numero]?.[s.codice]?.stato === 'fatta') k = i + 1; });
+      const riga = (celle[q.numero] ??= {});
+      for (const [i, s] of seq.entries()) {
+        const c = (riga[s.codice] ??= { totali: 0, fatte: 0, iniziate: 0, stato: 'da_fare' });
+        if (s.sosta) c.stato = i < k ? 'passata' : i === k && !seq.some((x) => riga[x.codice]?.stato === 'in_corso') ? 'ora' : 'da_fare';
+        else if (c.stato === 'da_fare' && i >= k && !seq.slice(k, i).some((x) => !x.sosta)) c.stato = 'prossima';
+      }
+    }
+    return { modalita: ev?.modalita || 'cartacea', scene: scene.map(({ codice, titolo, sosta, ordine }) => ({ codice, titolo, sosta, ordine })), squadre: squadre.map(({ numero, nome }) => ({ numero, nome })), celle, aggiornato: new Date().toISOString() };
   });
   app.get('/api/eventi/:id/monitor', { preHandler: soloOrg }, async (req) =>
     (await pool.query('select * from v_monitor where evento_id=$1 order by scena, squadra, slot', [req.params.id])).rows);
@@ -710,6 +732,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   });
 
   registraGestione(app, pool, { soloOrg, soloAdmin });
+  registraTurni(app, pool, { soloOrg });
   registraAuth(app, pool, { fetchImpl, soloAdmin });
   registraRichieste(app, pool, { soloAdmin, fetchImpl });
   registraNotifiche(app, pool);

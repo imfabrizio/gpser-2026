@@ -222,6 +222,22 @@ const selettoreEvento = () => { const l = eventiFam(), opt = (e) => `<option val
 const legaSelettore = () => { const s = $('#selev'); if (s) s.onchange = () => { ev = eventi.find((e) => e.id === s.value); localStorage.setItem('ev_' + fam, ev.id); render(); }; };
 
 // ───────── EVENTO ─────────
+async function caricaRotazione() {
+  const box = $('#rotaz'); if (!box) return;
+  try {
+    const d = await api(`/eventi/${ev.id}/rotazione`);
+    const opz = (sel) => '<option value="">— non indicata —</option>' + d.scene.map((s) => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.codice)}${s.sosta ? ' (sosta)' : ''} · ${esc(s.titolo || '')}</option>`).join('');
+    box.innerHTML = `<h3>Svolgimento della gara</h3>
+      <div class="riga"><div><label>Modalità</label><select id="r_mod"><option value="cartacea" ${d.modalita === 'cartacea' ? 'selected' : ''}>Cartacea: le schede si inseriscono dopo</option><option value="online" ${d.modalita === 'online' ? 'selected' : ''}>Online: il giudice master apre e chiude ogni scena</option></select></div></div>
+      <p class="nota">Scegli la modalità prima di iniziare e non cambiarla a gara avviata. Quanti giudici servono in una scena lo decidi nelle schede della scena: togli le schede che non servono.</p>
+      <p class="nota"><b>Scena di partenza di ogni squadra.</b> Le squadre poi ruotano in ordine di scena; le soste contano come posizioni. Due squadre non possono partire dalla stessa scena.</p>
+      ${d.squadre.length ? `<table><tr><th>Squadra</th><th>Parte dalla scena</th></tr>${d.squadre.map((q) => `<tr><td><b>${esc(q.numero)}</b> ${esc(q.nome || '')}</td><td><select class="r_p" data-q="${q.id}">${opz(q.partenza_scena_id)}</select></td></tr>`).join('')}</table>` : '<p>Non ci sono ancora squadre.</p>'}
+      <p><button class="b" id="r_salva">Salva</button> <button class="s" id="r_auto">Assegna in ordine</button></p>`;
+    $('#r_mod').onchange = async () => { try { await api(`/eventi/${ev.id}/rotazione`, { method: 'PUT', body: { modalita: $('#r_mod').value } }); flash('Modalità salvata'); } catch (e) { flash(e.message, false); caricaRotazione(); } };
+    $('#r_salva').onclick = async () => { const partenze = {}; document.querySelectorAll('.r_p').forEach((x) => { partenze[x.dataset.q] = x.value || null; }); try { await api(`/eventi/${ev.id}/rotazione`, { method: 'PUT', body: { partenze } }); flash('Partenze salvate'); } catch (e) { flash(e.message, false); } };
+    $('#r_auto').onclick = async () => { try { await api(`/eventi/${ev.id}/rotazione`, { method: 'PUT', body: { auto: true } }); flash('Squadre assegnate in ordine'); caricaRotazione(); } catch (e) { flash(e.message, false); } };
+  } catch (e) { box.innerHTML = `<h3>Svolgimento della gara</h3><p>${esc(e.message)}</p>`; }
+}
 async function tEvento() {
   const regioni = me.ruolo === 'admin' ? await api('/regioni').catch(() => []) : [];
   $('#app').innerHTML = selettoreEvento() + (ev ? `
@@ -250,7 +266,8 @@ async function tEvento() {
   <div class="card"><h3>Mappa del percorso</h3><label>Incorporamento Google My Maps (facoltativo)</label>
     <input id="e_map" value="${esc(ev.mappa_url || '')}" placeholder="https://www.google.com/maps/d/embed?mid=…">
     <p class="nota">Crea la mappa su Google My Maps con i punti delle scene, poi Condividi → Incorpora mappa e incolla qui solo l'indirizzo (src). Gli indirizzi o le coordinate delle singole scene si inseriscono in Scene.</p>
-    <p><button class="b" id="e_map_ok">Salva mappa</button></p></div>` : '') + `
+    <p><button class="b" id="e_map_ok">Salva mappa</button></p></div>
+  ${fam === 'corsi' ? '' : '<div class="card" id="rotaz"><h3>Svolgimento della gara</h3><p>Carico…</p></div>'}` : '') + `
   <div class="card"><h3>${fam === 'corsi' ? 'Nuovo evento' : 'Nuova gara'}</h3><div class="riga">
     <div><label>Nome</label><input id="n_nome" placeholder="GPSER 2027"></div><div><label>Codice (se vuoto, ricavato dal nome)</label><input id="n_cod" placeholder="GPSER-2027"></div>
     <div><label>Tipo</label><select id="n_tipo">${fam === 'corsi' ? '<option value="corso">corso</option><option value="megacode">mega code (formativo)</option><option value="esame">esame (soglia 75%)</option>' : '<option value="gara">gara</option><option value="olimpiadi">olimpiadi</option><option value="allenamento">allenamento</option><option value="corso_giudici">corso giudici</option>'}</select></div>
@@ -259,6 +276,7 @@ async function tEvento() {
     ${fam !== 'corsi' ? '' : `<div><label>Corso di riferimento (Mega Code, esami)</label><select id="n_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato).map((x) => `<option value="${x.id}">${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div>`}</div>
     <p class="nota" style="margin:8px 0 0"><b>Luogo</b> (comune dell'evento)</p>${htmlComune('nc')}
     <p><button class="b" id="n_crea">Crea evento</button></p></div>`;
+  if (ev && fam !== 'corsi') caricaRotazione();
   if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});
   legaSelettore();
   if (ev && ev.tipo === 'allenamento') {

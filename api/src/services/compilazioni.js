@@ -32,7 +32,7 @@ export async function sincronizza(db, utente, payload) {
   const isMasterRuolo = utente.ruolo === 'giudice_master';
 
   const { rows: [ctx] } = await db.query(
-    `select s.id as scheda, sc.evento_id as ev_scheda, sq.evento_id as ev_squadra, sq.attiva, e.archiviato
+    `select s.id as scheda, sc.evento_id as ev_scheda, sq.evento_id as ev_squadra, sq.attiva, e.archiviato, e.modalita, sc.id as scena_id
        from scena_scheda s join scena sc on sc.id = s.scena_id
        join squadra sq on sq.id = $2
        join evento e on e.id = sc.evento_id
@@ -47,6 +47,11 @@ export async function sincronizza(db, utente, payload) {
       `select 1 from scena_master m join scena_scheda s on s.scena_id = m.scena_id where s.id=$1 and m.utente_id=$2`, [scheda_id, utente.id])).rowCount > 0;
     const { rowCount } = await db.query('select 1 from assegnazione where scheda_id=$1 and utente_id=$2', [scheda_id, utente.id]);
     if (!rowCount && !isMasterScena) throw httpErr(403, 'scheda non assegnata a questo giudice');
+  }
+  // gara online: il giudice compila solo se il master ha aperto la scena per quella squadra
+  if (ctx.modalita === 'online' && !isOrg && !isMasterScena) {
+    const { rowCount } = await db.query(`select 1 from scena_turno where scena_id=$1 and squadra_id=$2 and stato='aperta'`, [ctx.scena_id, squadra_id]);
+    if (!rowCount) throw httpErr(409, 'la scena non è aperta per questa squadra: attendi il giudice master');
   }
   const prioritario = isOrg || isMasterScena;   // le scritture di organizzazione e giudice master prevalgono su quelle dei giudici
 

@@ -421,6 +421,48 @@ async function vistaSelezione() {
   }
   $('#sc').onchange = () => { aggSchede(); salvaSel(); }; $('#sk').onchange = salvaSel; $('#sq').onchange = salvaSel;
   $('#avvia').onclick = () => { salvaSel(); location.hash = `#valuta/${$('#sk').value}/${$('#sq').value}/${ev.id}`; };
+  if (ev.modalita === 'online') selezioneOnline(ev, scAvail, squadre.filter((x) => x.attiva));
+}
+
+// gara online: il giudice master apre la scena per una squadra e la chiude a schede consegnate; il giudice vede solo la squadra aperta
+let turniTimer = null;
+function selezioneOnline(ev, scAvail, squadre) {
+  const comanda = org() || master();
+  const nomeSq = (q) => `${q.numero} – ${esc(q.nome || '')}`;
+  $('#app').insertAdjacentHTML('beforeend', '<div class="card" id="onl"><strong>Gara online</strong><div id="onlC"><small>Carico…</small></div></div>');
+  const sceltaSq = () => $('#sq');
+  const disegna = async () => {
+    if (location.hash.slice(1).split('/')[0] !== 'valutazione') { clearInterval(turniTimer); return; }
+    const box = $('#onlC'); if (!box) { clearInterval(turniTimer); return; }
+    if (comanda) {
+      if (box.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return;   // non chiudere il menu mentre il master sceglie
+      let html = '';
+      for (const sc of scAvail) {
+        let t; try { t = await api(`/scene/${sc.id}/turno`); } catch { continue; }
+        if (!t.turno) {
+          html += `<div class="avviso"><b>${esc(sc.codice)} – ${esc(sc.titolo)}</b><br><small>Nessuna squadra in corso.</small><br>
+            <select class="onlSq" data-s="${sc.id}">${squadre.map((q) => `<option value="${q.id}">${nomeSq(q)}</option>`).join('')}</select>
+            <button class="btn onlApri" data-s="${sc.id}" type="button">Apri valutazione</button></div>`;
+        } else {
+          const ok = (k) => k.stato === 'completata' || k.stato === 'verificata';
+          html += `<div class="avviso"><b>${esc(sc.codice)} – ${esc(sc.titolo)}</b> · squadra <b>${esc(t.turno.numero)} ${esc(t.turno.nome || '')}</b>
+            <ul style="margin:6px 0">${t.schede.map((k) => `<li>${ok(k) ? '✔' : '◐'} ${esc(k.titolo)}${k.giudici ? ' – ' + esc(k.giudici) : ''}${ok(k) ? '' : ' <small>(da consegnare)</small>'}</li>`).join('')}</ul>
+            <button class="btn onlChiudi" data-s="${sc.id}" type="button">Chiudi scena</button></div>`;
+        }
+      }
+      box.innerHTML = html || '<small>Nessuna scena da gestire.</small>';
+      box.querySelectorAll('.onlApri').forEach((b) => { b.onclick = async () => { try { await api(`/scene/${b.dataset.s}/apri`, { body: { squadra_id: box.querySelector(`.onlSq[data-s="${b.dataset.s}"]`).value } }); disegna(); } catch (e) { alert(e.message); } }; });
+      box.querySelectorAll('.onlChiudi').forEach((b) => { b.onclick = async () => { try { await api(`/scene/${b.dataset.s}/chiudi`, { body: {} }); disegna(); } catch (e) { alert(e.message); } }; });
+    } else {
+      const aperti = await api(`/eventi/${ev.id}/turni`).catch(() => null); if (!aperti) return;
+      const sc = scAvail[$('#sc').value];
+      const t = aperti.find((x) => x.scena_id === sc?.id && x.stato === 'aperta');
+      if (t) { sceltaSq().innerHTML = `<option value="${t.squadra_id}">${t.numero} – ${esc(t.nome || '')}</option>`; sceltaSq().disabled = false; $('#avvia').disabled = false; box.innerHTML = `<small>La scena è aperta per la squadra ${esc(t.numero)}.</small>`; }
+      else { sceltaSq().innerHTML = '<option value="">—</option>'; sceltaSq().disabled = true; $('#avvia').disabled = true; box.innerHTML = '<small>In attesa che il giudice master apra la scena.</small>'; }
+    }
+  };
+  if (!comanda) $('#sc').addEventListener('change', disegna);
+  disegna(); clearInterval(turniTimer); turniTimer = setInterval(() => disegna().catch(() => {}), 5000);
 }
 
 // ── coda di salvataggio locale (modulo /coda.js, con test automatici) ──
@@ -547,20 +589,20 @@ async function vistaMonitor() {
   let ev = tutti.find((e) => e.id === id) || window.__ev && tutti.find((e) => e.id === window.__ev.id) || tutti.find((e) => e.attivo) || tutti[0];
   if (!ev) { $('#app').innerHTML = '<div class="card">Non ci sono gare da seguire. <a class="btn sec" href="/admin.html#hub:gara">Vai alla Gestione</a></div>'; return; }
   const stile = '<style>.mon td,.mon th{text-align:center;padding:6px 8px}.mon td.sq,.mon th.sq{text-align:left;white-space:nowrap}.mon .p{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;font-weight:700;font-size:15px;color:#fff}'
-    + '.mon .p.da_fare{background:#d3d8e0;color:#5b6472}.mon .p.in_corso{background:#F5B800;color:#3a2c00}.mon .p.fatta{background:#2E9E5B}.mon .p.sosta{background:repeating-linear-gradient(45deg,#e6edf7,#e6edf7 4px,#d3deef 4px,#d3deef 8px);color:#4b5d7a;border-radius:8px;width:30px}.mon th small{display:block;font-weight:400;color:#5b6472}'
+    + '.mon .p.da_fare{background:#d3d8e0;color:#5b6472}.mon .p.in_corso{background:#F5B800;color:#3a2c00}.mon .p.fatta{background:#2E9E5B}.mon .p.attesa{background:#3AA6E0}.mon .p.prossima{background:#fff;color:#8a6a00;box-shadow:inset 0 0 0 3px #F5B800}.mon .p.sosta.passata{opacity:.4}.mon .p.sosta.ora{box-shadow:inset 0 0 0 3px #3AA6E0;color:#0b4f78}.mon .p.sosta{background:repeating-linear-gradient(45deg,#e6edf7,#e6edf7 4px,#d3deef 4px,#d3deef 8px);color:#4b5d7a;border-radius:8px;width:30px}.mon th small{display:block;font-weight:400;color:#5b6472}'
     + '.mon .leg span{margin-right:14px;white-space:nowrap}.mon .barra{height:6px;background:#e3e5ea;border-radius:3px;min-width:60px}.mon .barra i{display:block;height:6px;background:#2E9E5B;border-radius:3px}body.schermo .mon td,body.schermo .mon th{font-size:20px;padding:10px 12px}body.schermo .mon .p{width:44px;height:44px;font-size:22px}</style>';
   const disegna = async () => {
     const d = await api(`/eventi/${ev.id}/avanzamento`);
     const gioco = d.scene.filter((x) => !x.sosta);
-    const simbolo = { da_fare: '·', in_corso: '◐', fatta: '✔' };
-    const cella = (n, sc) => { if (sc.sosta) return `<span class="p sosta" title="Sosta: ${esc(sc.titolo)}">S</span>`; const c = d.celle[n]?.[sc.codice]; const st = c?.stato || 'da_fare';
+    const simbolo = { da_fare: '·', in_corso: '◐', fatta: '✔', attesa: '⏳', prossima: '→' };
+    const cella = (n, sc) => { if (sc.sosta) { const so = d.celle[n]?.[sc.codice]?.stato; return `<span class="p sosta ${so === 'passata' || so === 'ora' ? so : ''}" title="Sosta: ${esc(sc.titolo)}${so === 'ora' ? ' (la squadra è qui)' : ''}">S</span>`; } const c = d.celle[n]?.[sc.codice]; const st = c?.stato || 'da_fare';
       return `<span class="p ${st}" title="${esc(sc.titolo)}: ${c ? c.fatte + '/' + c.totali + ' schede chiuse' : 'nessuna scheda'}">${simbolo[st]}</span>`; };
     const fatteSq = (n) => gioco.filter((sc) => d.celle[n]?.[sc.codice]?.stato === 'fatta').length;
     const fatteSc = (sc) => d.squadre.filter((q) => d.celle[q.numero]?.[sc.codice]?.stato === 'fatta').length;
     $('#monGriglia').innerHTML = !d.scene.length ? '<p>Questa gara non ha ancora scene.</p>' : `<div style="overflow:auto"><table class="mon"><tr><th class="sq">Squadra</th>${d.scene.map((sc) => `<th>${esc(sc.codice)}<small>${esc(sc.sosta ? 'sosta · ' + sc.titolo : sc.titolo)}</small></th>`).join('')}<th>Avanzamento</th></tr>
       ${d.squadre.map((q) => { const f = fatteSq(q.numero); return `<tr><td class="sq"><b>${esc(q.numero)}</b> ${esc(q.nome || '')}</td>${d.scene.map((sc) => `<td>${cella(q.numero, sc)}</td>`).join('')}<td>${f}/${gioco.length}<div class="barra"><i style="width:${gioco.length ? Math.round(100 * f / gioco.length) : 0}%"></i></div></td></tr>`; }).join('')}
       <tr><td class="sq"><small>Squadre che hanno finito</small></td>${d.scene.map((sc) => `<td><small>${sc.sosta ? '' : fatteSc(sc) + '/' + d.squadre.length}</small></td>`).join('')}<td></td></tr></table></div>
-      <p class="leg"><small><span><b class="p da_fare" style="width:16px;height:16px;font-size:10px"></b> non ancora</span><span><b class="p in_corso" style="width:16px;height:16px;font-size:10px"></b> in corso (scheda aperta)</span><span><b class="p fatta" style="width:16px;height:16px;font-size:10px"></b> fatta (schede chiuse)</span><span><b class="p sosta" style="width:16px;height:16px;font-size:10px"></b> sosta</span> · aggiornato alle ${new Date(d.aggiornato).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small></p>`;
+      <p class="leg"><small><span><b class="p da_fare" style="width:16px;height:16px;font-size:10px"></b> non ancora</span><span><b class="p in_corso" style="width:16px;height:16px;font-size:10px"></b> in corso (scheda aperta)</span><span><b class="p fatta" style="width:16px;height:16px;font-size:10px"></b> fatta (schede chiuse)</span>${d.modalita === 'online' ? '<span><b class="p prossima" style="width:16px;height:16px;font-size:10px"></b> prossima scena</span><span><b class="p attesa" style="width:16px;height:16px;font-size:10px"></b> in attesa nell\'area</span>' : ''}<span><b class="p sosta" style="width:16px;height:16px;font-size:10px"></b> sosta</span> · aggiornato alle ${new Date(d.aggiornato).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small></p>`;
   };
   $('#app').classList.add('largo');
   $('#app').innerHTML = stile + `<div class="card"><div class="riga" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap"><div><label>Gara</label><select id="monEv">${tutti.map((e) => `<option value="${e.id}" ${e.id === ev.id ? 'selected' : ''}>${esc(e.nome)}${e.attivo ? ' (attiva)' : ''}</option>`).join('')}</select></div>

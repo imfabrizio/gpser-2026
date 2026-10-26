@@ -1541,3 +1541,48 @@ test('TIP-1: tipologia delle schede in libreria (gara, olimpiadi, megacode, skil
   const senza = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'TIP_PROVA2', nome: 'Senza tipo', sigla: 'TP2', voci: [] } }));
   assert.deepEqual(senza.tipologie, ['gara']);
 });
+
+test('TURNI-1: rotazione, gara online (apri/chiudi scena) e stati di avanzamento', async () => {
+  const org = tok['org@t'], giu = tok['giu@t'];
+  const e = json(await chiama('POST', '/api/eventi', { token: org, body: { codice: 'TURNI-T', nome: 'Gara a turni' } }));
+  const q = [];
+  for (const nome of ['Uno', 'Due']) q.push(json(await chiama('POST', `/api/eventi/${e.id}/squadre`, { token: org, body: { nome } })));
+  const pat = json(await chiama('GET', '/api/libreria/patologie', { token: org })).find((p) => !p.bozza && !p.is_master);
+  const A = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: org, body: { codice: 'TA', titolo: 'Scena A', ordine: 1 } }));
+  const S = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: org, body: { codice: 'TS', titolo: 'Sosta', ordine: 2, sosta: true } }));
+  const kA = json(await chiama('POST', `/api/scene/${A.id}/schede`, { token: org, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } }));
+  const { rows: [g] } = await pool.query(`select id from utente where email='giu@t'`);
+  await chiama('PUT', `/api/schede/${kA.id}/assegnazioni`, { token: org, body: { utenti: [g.id] } });
+  // rotazione: cartacea di default, partenze automatiche, niente due squadre sulla stessa scena
+  assert.equal(json(await chiama('GET', `/api/eventi/${e.id}/rotazione`, { token: org })).modalita, 'cartacea');
+  assert.equal((await chiama('GET', `/api/eventi/${e.id}/rotazione`, { token: giu })).statusCode, 403);
+  const auto = json(await chiama('PUT', `/api/eventi/${e.id}/rotazione`, { token: org, body: { auto: true } }));
+  assert.equal(auto.squadre[0].partenza_scena_id, A.id); assert.equal(auto.squadre[1].partenza_scena_id, S.id);
+  assert.equal((await chiama('PUT', `/api/eventi/${e.id}/rotazione`, { token: org, body: { partenze: { [q[0].id]: A.id, [q[1].id]: A.id } } })).statusCode, 400);
+  // cartacea: non si apre la scena
+  assert.equal((await chiama('POST', `/api/scene/${A.id}/apri`, { token: org, body: { squadra_id: q[0].id } })).statusCode, 409);
+  assert.equal((await chiama('PUT', `/api/eventi/${e.id}/rotazione`, { token: org, body: { modalita: 'online' } })).statusCode, 200);
+  // online: il giudice non può compilare finché il master non apre la scena
+  const comp = (sq) => ({ id: crypto.randomUUID(), scheda_id: kA.id, squadra_id: sq, risposte: [] });
+  assert.equal((await chiama('POST', '/api/sync', { token: giu, body: comp(q[0].id) })).statusCode, 409);
+  assert.equal((await chiama('POST', `/api/scene/${A.id}/apri`, { token: giu, body: { squadra_id: q[0].id } })).statusCode, 403);
+  assert.equal((await chiama('POST', `/api/scene/${S.id}/apri`, { token: org, body: { squadra_id: q[1].id } })).statusCode, 409);   // sosta
+  assert.equal((await chiama('POST', `/api/scene/${A.id}/apri`, { token: org, body: { squadra_id: q[0].id } })).statusCode, 200);
+  assert.equal((await chiama('POST', `/api/scene/${A.id}/apri`, { token: org, body: { squadra_id: q[1].id } })).statusCode, 409);   // scena occupata
+  const turni = json(await chiama('GET', `/api/eventi/${e.id}/turni`, { token: giu }));
+  assert.equal(turni.length, 1); assert.equal(turni[0].squadra_id, q[0].id);
+  assert.equal(json(await chiama('GET', `/api/eventi/${e.id}/avanzamento`, { token: org })).celle[q[0].numero].TA.stato, 'in_corso');
+  assert.equal((await chiama('POST', '/api/sync', { token: giu, body: comp(q[1].id) })).statusCode, 409);   // altra squadra: no
+  const mia = comp(q[0].id); assert.equal((await chiama('POST', '/api/sync', { token: giu, body: mia })).statusCode, 200);
+  // chiusura rifiutata finché la scheda non è consegnata, con l'elenco di cosa manca
+  const no = await chiama('POST', `/api/scene/${A.id}/chiudi`, { token: org, body: {} });
+  assert.equal(no.statusCode, 409); assert.match(json(no).errore, /mancano/);
+  await pool.query(`update compilazione set stato='verificata' where scheda_id=$1 and squadra_id=$2`, [kA.id, q[0].id]);
+  assert.equal((await chiama('POST', `/api/scene/${A.id}/chiudi`, { token: org, body: {} })).statusCode, 200);
+  const av = json(await chiama('GET', `/api/eventi/${e.id}/avanzamento`, { token: org }));
+  assert.equal(av.modalita, 'online'); assert.equal(av.celle[q[0].numero].TA.stato, 'fatta');
+  assert.equal(av.celle[q[0].numero].TS.stato, 'ora');           // dopo la scena A, la squadra 1 è alla sosta
+  assert.equal(av.celle[q[1].numero].TS.stato, 'ora');           // la squadra 2 parte dalla sosta
+  assert.equal(av.celle[q[1].numero].TA.stato, 'prossima');
+  assert.equal((await chiama('POST', `/api/scene/${A.id}/apri`, { token: org, body: { squadra_id: q[0].id } })).statusCode, 409);   // già fatta
+});
