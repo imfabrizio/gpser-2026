@@ -42,6 +42,11 @@
   table.punteggi .num { width:100% !important; max-width:56px; margin:0 auto; display:block; }
   table.punteggi input[type=checkbox] { display:block; margin:0 auto; }
   .griglia { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; }
+  .scena { border-left:6px solid var(--rosso); padding:0; overflow:hidden } .scena.sosta { border-left-color:#7a8cab }
+  .scena .sc-testa { display:flex; align-items:center; gap:10px; padding:12px 14px; background:#f6f7f9; flex-wrap:wrap } .scena .sc-testa h3 { margin:0; flex:1 1 280px } .scena .sc-t { border:0; background:#fff; border:1px solid var(--bordo); border-radius:8px; width:36px; height:36px; font-size:18px; cursor:pointer } .scena .sc-sint { color:#555 }
+  .scena .sc-corpo { padding:14px; border-top:1px solid var(--bordo) } .scena .sc-corpo[hidden] { display:none }
+  @media (min-width:900px) { body.laterale #tabs { position:fixed; left:0; top:85px; z-index:3; bottom:0; width:210px; flex-direction:column; overflow-y:auto; border-right:1px solid var(--bordo); border-bottom:0; padding:10px 8px; gap:2px }
+    body.laterale #tabs button { text-align:left; white-space:normal } body.laterale main { margin:0 auto 0 220px; max-width:1100px } }
   #tabs[hidden] { display:none !important; }
   header .logo { height:34px; background:#fff; border-radius:8px; padding:2px 4px; }
   .navbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; } .navbar a, .navbar button { background:#fff; color:#222; border:1px solid var(--bordo); padding:10px 14px; border-radius:10px; font-size:14px; text-decoration:none; cursor:pointer; font-family:inherit; }
@@ -174,7 +179,7 @@ const vai = (t, daHash) => { if (t === 'monitor') { location.href = '/#monitor';
 function disegnaTabs() {
   if (!TABS.some(([k]) => k === tab)) tab = 'menu';
   const g = tab === 'menu' ? null : mondoCorrente(), vis = g && tab !== 'hub' ? figliVisibili(g) : [];
-  $('#tabs').hidden = vis.length < 2;               // le linguette del mondo in cui si è entrati
+  $('#tabs').hidden = vis.length < 2; document.body.classList.toggle('laterale', vis.length >= 2);               // le linguette del mondo in cui si è entrati
   $('#tabs').innerHTML = vis.map((k) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${nomeTab(k)}</button>`).join('');
   equipaggi($('#tabs'));
   $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) { vai(b.dataset.t); } };
@@ -525,6 +530,7 @@ function formPersona(p) {
 }
 
 // ───────── SCENE E SCHEDE ─────────
+const scAperte = new Set();
 async function tScene() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima un evento.</div>'; return; }
   const [scene, pat, ass, mas, macro, canov] = await Promise.all([api(`/eventi/${ev.id}/scene`), api('/libreria/patologie'), api(`/eventi/${ev.id}/assegnazioni`), api(`/eventi/${ev.id}/master`), api('/libreria/macro'), api('/canovacci').catch(() => [])]);
@@ -534,7 +540,8 @@ async function tScene() {
   for (const s of scene) for (const k of s.schede || []) schede[k.id] = (await api(`/schede/${k.id}`));
   cache = { schede, giudici: null, macro };
   const nomiAss = (id) => ass.filter((a) => a.scheda_id === id).map((a) => esc(a.nome)).join(', ') || '<em>nessuno</em>';
-  $('#app').innerHTML = selettoreEvento() + (canov.length && scene.some((x) => !x.canovaccio_id) ? `<div class="card"><p>Ci sono ${canov.filter((c) => c.versione === verEv).length} canovacci ${verEv === 'olimpiadi' ? 'delle Olimpiadi' : 'delle gare'} in libreria. <button class="b" id="cv_auto">Collega i canovacci alle scene (stessa lettera)</button></p></div>` : '') + (!canov.length ? `<div class="card"><p class="nota">Nessun canovaccio caricato: importali da <strong>Importa → Importa canovacci (.docx)</strong>, poi qui potrai collegarli alle scene.</p></div>` : '') + scene.map((s) => `<div class="card"><h3>${s.sosta ? 'Sosta' : 'Scena'} ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
+  $('#app').innerHTML = selettoreEvento() + (canov.length && scene.some((x) => !x.canovaccio_id) ? `<div class="card"><p>Ci sono ${canov.filter((c) => c.versione === verEv).length} canovacci ${verEv === 'olimpiadi' ? 'delle Olimpiadi' : 'delle gare'} in libreria. <button class="b" id="cv_auto">Collega i canovacci alle scene (stessa lettera)</button></p></div>` : '') + (!canov.length ? `<div class="card"><p class="nota">Nessun canovaccio caricato: importali da <strong>Importa → Importa canovacci (.docx)</strong>, poi qui potrai collegarli alle scene.</p></div>` : '') + (scene.length > 1 ? '<div class="navbar"><button id="sc_apri">Apri tutte</button><button id="sc_chiudi">Chiudi tutte</button></div>' : '') + scene.map((s) => `<div class="card scena ${s.sosta ? 'sosta' : ''}" data-id="${s.id}"><div class="sc-testa"><button class="sc-t" data-id="${s.id}" aria-expanded="${scAperte.has(s.id)}" title="Apri o chiudi">${scAperte.has(s.id) ? '▾' : '▸'}</button><h3>${s.sosta ? 'Sosta' : 'Scena'} ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
+    <small class="sc-sint">${s.sosta ? 'sosta · senza schede' : (s.schede || []).length + ' schede · master: ' + (mas.filter((m) => m.scena_id === s.id).map((m) => esc(m.nome)).join(', ') || 'nessuno')}</small></div><div class="sc-corpo" ${scAperte.has(s.id) ? '' : 'hidden'}>
     <p>Giudice master: <strong>${mas.filter((m) => m.scena_id === s.id).map((m) => esc(m.nome)).join(', ') || '<em>nessuno</em>'}</strong> <button class="s p mas-b" data-id="${s.id}">Giudice master…</button></p>
     <div class="riga"><div style="flex:3"><label>Indirizzo della scena (per la mappa)</label><input class="s_ind" data-id="${s.id}" value="${esc(s.indirizzo || '')}" placeholder="Via Roma 1, Piacenza"></div>
       <div><label>Latitudine</label><input class="s_lat" data-id="${s.id}" value="${s.lat ?? ''}" placeholder="45.0526"></div><div><label>Longitudine</label><input class="s_lng" data-id="${s.id}" value="${s.lng ?? ''}" placeholder="9.6930"></div>
@@ -558,12 +565,14 @@ async function tScene() {
       <div><label>Patologia</label><select class="a_pat">${opzioniPatologie(pat)}</select></div>
       <div><label>Slot</label><input class="a_slot num" type="number" min="0" value="${(s.schede || []).length}"></div>
       <div><label>Simulatore</label><input class="a_sim" value="${(s.schede || []).length === 0 ? 'M' : String((s.schede || []).length).padStart(2, '0')}"></div>
-      <div class="stretto"><button class="b a_ok" data-id="${s.id}">Aggiungi</button></div></div></div></div>`).join('') + `
+      <div class="stretto"><button class="b a_ok" data-id="${s.id}">Aggiungi</button></div></div></div></div></div>`).join('') + `
   <div class="card"><h3>Nuova scena</h3><div class="riga"><div><label>Codice</label><input id="ns_cod" placeholder="A" maxlength="3"></div>
     <div style="flex:3"><label>Titolo (per una sosta, il nome dell'attività)</label><input id="ns_tit"></div>
     <div class="stretto"><label style="white-space:nowrap"><input type="checkbox" id="ns_sosta" style="width:auto"> Scena di sosta</label></div><div class="stretto"><button class="b" id="ns_ok">Crea</button></div></div>
     <p class="nota">Una sosta è una posizione senza schede, per le squadre che aspettano (attività ludica o riposo): usa un codice che finisce con S, per esempio 1S o AS.</p></div>`;
   legaSelettore();
+  document.querySelectorAll('.sc-t').forEach((b) => { b.onclick = () => { const c = b.closest('.scena'), corpo = c.querySelector('.sc-corpo'); corpo.hidden = !corpo.hidden; b.textContent = corpo.hidden ? '▸' : '▾'; b.setAttribute('aria-expanded', String(!corpo.hidden)); corpo.hidden ? scAperte.delete(b.dataset.id) : scAperte.add(b.dataset.id); }; });
+  if ($('#sc_apri')) { $('#sc_apri').onclick = () => { scene.forEach((x) => scAperte.add(x.id)); tScene(); }; $('#sc_chiudi').onclick = () => { scAperte.clear(); tScene(); }; }
   document.querySelectorAll('.t_sc').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { titolo: i.value } }), 'Titolo aggiornato'); });
   if ($('#cv_auto')) $('#cv_auto').onclick = () => fai(async () => { const r = await api(`/eventi/${ev.id}/collega-canovacci`, { body: {} }); flash(r.collegate.length ? 'Collegate le scene: ' + r.collegate.join(', ') : 'Nessuna scena con la stessa lettera di un canovaccio', r.collegate.length > 0); });
   document.querySelectorAll('.s_cv').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { canovaccio_id: i.value } }), 'Canovaccio collegato'); });
