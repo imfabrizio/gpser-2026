@@ -6,11 +6,11 @@ import { httpErr } from './compilazioni.js';
 const RIGHE_MAX = 62;   // limite di una pagina A4 (voci + intestazioni di sezione)
 export const CODICE_SCENA = /^[A-Z0-9]{1,3}$/;
 
-export async function creaScena(db, { eventoId, codice, titolo, ordine = 0 }) {
+export async function creaScena(db, { eventoId, codice, titolo, ordine = 0, sosta = false }) {
   if (!CODICE_SCENA.test(codice || '')) throw httpErr(400, 'codice scena: 1-3 caratteri maiuscoli o cifre');
   const { rows } = await db.query(
-    `insert into scena (evento_id, codice, titolo, ordine) values ($1,$2,$3,$4) returning *`,
-    [eventoId, codice, titolo, ordine]);
+    `insert into scena (evento_id, codice, titolo, ordine, sosta) values ($1,$2,$3,$4,$5) returning *`,
+    [eventoId, codice, titolo, ordine, !!sosta]);
   return rows[0];
 }
 

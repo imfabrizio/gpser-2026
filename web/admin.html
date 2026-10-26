@@ -4,7 +4,7 @@
 <link rel="icon" href="data:,">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GareCRI – Gestione</title>
+<title>GPSER-2026 – Gestione</title>
 <style>
   :root { --rosso:#E3001B; --bg:#f4f4f6; --card:#fff; --testo:#1c1c1e; --bordo:#d6d6da; --grigio:#e7e6e6; }
   * { box-sizing: border-box; }
@@ -70,7 +70,7 @@
 <body>
 <script src="comitati.js"></script>
 <script src="barra.js"></script>
-<header><img class="logo" src="/logo-cri.jpg" alt="CRI"><a class="home" href="/" title="Torna alla Home" aria-label="Home"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></a><h1>GareCRI · Gestione</h1><a id="chi" href="/#account" title="Il mio account">Il mio account</a><button id="esci">Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="CRI"><a class="home" href="/" title="Torna alla Home" aria-label="Home"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></a><h1 id="tit">GPSER-2026</h1><a id="chi" href="/#account" title="Il mio account">Il mio account</a><button id="esci">Esci</button></header>
 <nav id="tabs" hidden></nav>
 <main id="app"></main>
 <dialog id="dlg"></dialog>
@@ -534,7 +534,7 @@ async function tScene() {
   for (const s of scene) for (const k of s.schede || []) schede[k.id] = (await api(`/schede/${k.id}`));
   cache = { schede, giudici: null, macro };
   const nomiAss = (id) => ass.filter((a) => a.scheda_id === id).map((a) => esc(a.nome)).join(', ') || '<em>nessuno</em>';
-  $('#app').innerHTML = selettoreEvento() + (canov.length && scene.some((x) => !x.canovaccio_id) ? `<div class="card"><p>Ci sono ${canov.filter((c) => c.versione === verEv).length} canovacci ${verEv === 'olimpiadi' ? 'delle Olimpiadi' : 'delle gare'} in libreria. <button class="b" id="cv_auto">Collega i canovacci alle scene (stessa lettera)</button></p></div>` : '') + (!canov.length ? `<div class="card"><p class="nota">Nessun canovaccio caricato: importali da <strong>Importa → Importa canovacci (.docx)</strong>, poi qui potrai collegarli alle scene.</p></div>` : '') + scene.map((s) => `<div class="card"><h3>Scena ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
+  $('#app').innerHTML = selettoreEvento() + (canov.length && scene.some((x) => !x.canovaccio_id) ? `<div class="card"><p>Ci sono ${canov.filter((c) => c.versione === verEv).length} canovacci ${verEv === 'olimpiadi' ? 'delle Olimpiadi' : 'delle gare'} in libreria. <button class="b" id="cv_auto">Collega i canovacci alle scene (stessa lettera)</button></p></div>` : '') + (!canov.length ? `<div class="card"><p class="nota">Nessun canovaccio caricato: importali da <strong>Importa → Importa canovacci (.docx)</strong>, poi qui potrai collegarli alle scene.</p></div>` : '') + scene.map((s) => `<div class="card"><h3>${s.sosta ? 'Sosta' : 'Scena'} ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
     <p>Giudice master: <strong>${mas.filter((m) => m.scena_id === s.id).map((m) => esc(m.nome)).join(', ') || '<em>nessuno</em>'}</strong> <button class="s p mas-b" data-id="${s.id}">Giudice master…</button></p>
     <div class="riga"><div style="flex:3"><label>Indirizzo della scena (per la mappa)</label><input class="s_ind" data-id="${s.id}" value="${esc(s.indirizzo || '')}" placeholder="Via Roma 1, Piacenza"></div>
       <div><label>Latitudine</label><input class="s_lat" data-id="${s.id}" value="${s.lat ?? ''}" placeholder="45.0526"></div><div><label>Longitudine</label><input class="s_lng" data-id="${s.id}" value="${s.lng ?? ''}" placeholder="9.6930"></div>
@@ -560,7 +560,9 @@ async function tScene() {
       <div><label>Simulatore</label><input class="a_sim" value="${(s.schede || []).length === 0 ? 'M' : String((s.schede || []).length).padStart(2, '0')}"></div>
       <div class="stretto"><button class="b a_ok" data-id="${s.id}">Aggiungi</button></div></div></div></div>`).join('') + `
   <div class="card"><h3>Nuova scena</h3><div class="riga"><div><label>Codice</label><input id="ns_cod" placeholder="A" maxlength="3"></div>
-    <div style="flex:3"><label>Titolo</label><input id="ns_tit"></div><div class="stretto"><button class="b" id="ns_ok">Crea</button></div></div></div>`;
+    <div style="flex:3"><label>Titolo (per una sosta, il nome dell'attività)</label><input id="ns_tit"></div>
+    <div class="stretto"><label style="white-space:nowrap"><input type="checkbox" id="ns_sosta" style="width:auto"> Scena di sosta</label></div><div class="stretto"><button class="b" id="ns_ok">Crea</button></div></div>
+    <p class="nota">Una sosta è una posizione senza schede, per le squadre che aspettano (attività ludica o riposo): usa un codice che finisce con S, per esempio 1S o AS.</p></div>`;
   legaSelettore();
   document.querySelectorAll('.t_sc').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { titolo: i.value } }), 'Titolo aggiornato'); });
   if ($('#cv_auto')) $('#cv_auto').onclick = () => fai(async () => { const r = await api(`/eventi/${ev.id}/collega-canovacci`, { body: {} }); flash(r.collegate.length ? 'Collegate le scene: ' + r.collegate.join(', ') : 'Nessuna scena con la stessa lettera di un canovaccio', r.collegate.length > 0); });
@@ -589,7 +591,7 @@ async function tScene() {
     fai(() => api(`/scene/${b.dataset.id}/schede`, { body: { patologiaId: c.querySelector('.a_pat').value, slot: Number(c.querySelector('.a_slot').value), simulatore: c.querySelector('.a_sim').value.trim() } }), 'Scheda aggiunta'); }; });
   $('#ns_ok').onclick = () => { const c = $('#ns_cod').value.trim().toUpperCase(), t = $('#ns_tit').value.trim(); if (!c || !t) return flash('Scrivi il codice (es. A) e il titolo della scena', false);
     if (scene.some((x) => x.codice === c)) return flash(`La scena ${c} esiste già in questa gara: scegli un altro codice`, false);
-    fai(() => api(`/eventi/${ev.id}/scene`, { body: { codice: c, titolo: t, ordine: scene.length } }), 'Scena creata'); };
+    fai(() => api(`/eventi/${ev.id}/scene`, { body: { codice: c, titolo: t, ordine: scene.length, sosta: $('#ns_sosta').checked } }), 'Scena creata'); };
   document.querySelectorAll('.dup').forEach((b) => { b.onclick = () => dlg(`<h3>Duplica scena</h3><label>Evento di destinazione</label>
     <select id="d_ev">${eventi.map((e) => `<option value="${e.id}">${esc(e.codice)} – ${esc(e.nome)}</option>`).join('')}</select>
     <label>Codice nella destinazione</label><input id="d_cod" maxlength="3">
@@ -1160,6 +1162,7 @@ async function render() {
     else if (tab === 'persone') await tPersone(); else if (tab === 'comitati') await tComitati(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   const mo = mondoCorrente(), molti = mondiVisibili().length > 1;
+  { const t = $('#tit'); if (t) t.textContent = 'GPSER-2026 – ' + (tab === 'menu' || !mo ? 'Portale' : mo[1]); }
   const briciole = tab === 'menu' ? '' : `<a href="#" id="dv_g">${molti ? 'Portale' : esc(mo[1])}</a>${molti && mo ? ` › <a href="#" id="dv_m">${esc(mo[1])}</a>` : ''}${tab !== 'hub' ? ` › <b>${esc(nomeTab(tab))}</b>` : ''}`;
   if (tab !== 'menu') $('#app').insertAdjacentHTML('afterbegin', `<div class="dove">${briciole}</div><div class="navbar"><button id="nv_g">← ${tab === 'hub' ? (molti ? 'Portale' : 'Menu') : 'Torna a ' + esc(mo[1])}</button><a href="/#">Torna alla Home</a></div>`);
   if ($('#nv_g')) $('#nv_g').onclick = () => vai(tab === 'hub' && molti ? 'menu' : 'hub');

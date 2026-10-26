@@ -292,7 +292,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
 
   app.get('/api/eventi/:id/scene', async (req) => {
     const { rows } = await pool.query(
-      `select sc.id, sc.codice, sc.titolo, sc.indirizzo, sc.lat, sc.lng, sc.canovaccio_id,
+      `select sc.id, sc.codice, sc.titolo, sc.indirizzo, sc.lat, sc.lng, sc.canovaccio_id, sc.sosta,
          (select json_agg(json_build_object('id', s.id, 'slot', s.slot, 'titolo', s.titolo, 'simulatore', s.simulatore) order by s.slot)
             from scena_scheda s
             where s.scena_id = sc.id
@@ -410,10 +410,10 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   });
   app.delete('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => { await pool.query('delete from canovaccio where id=$1', [req.params.id]); return { ok: true }; });
   app.post('/api/eventi/:id/scene', { preHandler: soloOrg }, async (req) => {
-    const { codice, titolo, ordine } = req.body || {};
+    const { codice, titolo, ordine, sosta } = req.body || {};
     if (!/^[A-Z0-9]{1,3}$/.test(codice || '')) throw httpErr(400, 'codice scena: 1-3 caratteri maiuscoli o cifre');
     if (!titolo || titolo.length > 120) throw httpErr(400, 'titolo obbligatorio (max 120 caratteri)');
-    return creaScena(pool, { eventoId: req.params.id, codice, titolo, ordine });
+    return creaScena(pool, { eventoId: req.params.id, codice, titolo, ordine, sosta: !!sosta });
   });
   app.post('/api/scene/:id/duplica', { preHandler: soloOrg }, async (req) =>
     inTransazione(pool, (db) => duplicaScena(db, { scenaId: req.params.id, ...req.body })));
@@ -601,6 +601,22 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (!evento) throw httpErr(404, 'gara inesistente');
     const pdf = await generaClassificaPdf({ evento, nomeClassifica: c.nome, righe: c.classifica, max: c.max ? Number(c.max) : null });
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="classifica.pdf"').send(pdf);
+  });
+  // avanzamento della gara: per ogni squadra e scena, grigio (non iniziata), giallo (in corso), verde (fatta); le soste non hanno schede
+  app.get('/api/eventi/:id/avanzamento', { preHandler: soloOrg }, async (req) => {
+    const id = req.params.id;
+    const [{ rows: scene }, { rows: squadre }, { rows: righe }] = await Promise.all([
+      pool.query('select codice, titolo, sosta, ordine from scena where evento_id=$1 order by ordine, codice', [id]),
+      pool.query('select numero, nome from squadra where evento_id=$1 and attiva order by numero', [id]),
+      pool.query(`select sc.codice as scena, sq.numero as squadra, c.stato from scena sc join scena_scheda s on s.scena_id=sc.id
+                    join squadra sq on sq.evento_id=sc.evento_id and sq.attiva left join compilazione c on c.scheda_id=s.id and c.squadra_id=sq.id where sc.evento_id=$1`, [id])]);
+    const celle = {};
+    for (const r of righe) {
+      const c = ((celle[r.squadra] ??= {})[r.scena] ??= { totali: 0, fatte: 0, iniziate: 0 });
+      c.totali++; if (r.stato) c.iniziate++; if (r.stato === 'completata' || r.stato === 'verificata') c.fatte++;
+    }
+    for (const sq of Object.values(celle)) for (const c of Object.values(sq)) c.stato = c.fatte === c.totali ? 'fatta' : c.iniziate ? 'in_corso' : 'da_fare';
+    return { scene, squadre, celle, aggiornato: new Date().toISOString() };
   });
   app.get('/api/eventi/:id/monitor', { preHandler: soloOrg }, async (req) =>
     (await pool.query('select * from v_monitor where evento_id=$1 order by scena, squadra, slot', [req.params.id])).rows);

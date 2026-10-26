@@ -1490,3 +1490,19 @@ test('GEO-1: pagina pubblica solo gare/olimpiadi nella finestra di tre mesi; coo
   assert.equal(nuovoCom.luogo, 'Piacenza (PC)'); assert.equal(Number(nuovoCom.lat), pc.lat);
   assert.equal(Number(json(await chiama('GET', '/api/pubblico')).eventi.find((e) => e.nome === 'GEO-VICINA').lat), pc.lat);
 });
+
+test('MON-1: avanzamento con scene di sosta; scheda aperta = in corso, tutte chiuse = fatta', async () => {
+  const org = tok['org@t'];
+  assert.equal((await chiama('POST', `/api/eventi/${ev}/scene`, { token: org, body: { codice: '1S', titolo: 'Gioco di squadra', ordine: 99, sosta: true } })).statusCode, 200);
+  const d = json(await chiama('GET', `/api/eventi/${ev}/avanzamento`, { token: org }));
+  assert.ok(d.scene.some((s) => s.codice === '1S' && s.sosta === true));
+  assert.ok(d.squadre.length > 0 && d.scene.some((s) => !s.sosta));
+  const { rows: [r] } = await pool.query(`select s.id as scheda, sc.codice, sq.id as squadra, sq.numero from scena_scheda s join scena sc on sc.id=s.scena_id join squadra sq on sq.evento_id=sc.evento_id and sq.attiva where sc.evento_id=$1 order by sq.numero, sc.codice, s.slot limit 1`, [ev]);
+  await pool.query(`delete from compilazione where squadra_id=$1 and scheda_id in (select s.id from scena_scheda s join scena sc on sc.id=s.scena_id where sc.codice=$2 and sc.evento_id=$3)`, [r.squadra, r.codice, ev]);
+  await pool.query(`insert into compilazione (scheda_id, squadra_id, stato) values ($1,$2,'bozza')`, [r.scheda, r.squadra]);
+  assert.equal(json(await chiama('GET', `/api/eventi/${ev}/avanzamento`, { token: org })).celle[r.numero][r.codice].stato, 'in_corso');
+  await pool.query(`update compilazione set stato='completata' where scheda_id=$1 and squadra_id=$2`, [r.scheda, r.squadra]);
+  const c = json(await chiama('GET', `/api/eventi/${ev}/avanzamento`, { token: org })).celle[r.numero][r.codice];
+  assert.equal(c.stato, c.totali === 1 ? 'fatta' : 'in_corso');
+  assert.equal((await chiama('GET', `/api/eventi/${ev}/avanzamento`, { token: tok['giu@t'] })).statusCode, 403);
+});

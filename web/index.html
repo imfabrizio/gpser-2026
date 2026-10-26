@@ -4,7 +4,7 @@
 <link rel="icon" href="data:,">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GareCRI</title>
+<title>GPSER-2026</title>
 <style>
   :root { --rosso:#E3001B; --bg:#f4f4f6; --card:#fff; --testo:#1c1c1e; --bordo:#d6d6da;
           --mb:#15803D; --be:#84CC16; --su:#FACC15; --in:#F97316; --ne:#B91C1C; }   /* semaforo a cinque toni ben distinti: verde, lime, giallo, arancio, rosso */   /* dal verde smeraldo (molto bene) al rosso (non eseguito) */
@@ -64,7 +64,7 @@
 <script src="barra.js"></script>
 </head>
 <body>
-<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GareCRI</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#account" hidden title="Il mio account">Il mio account</a><button id="esci" hidden>Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GPSER-2026</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#account" hidden title="Il mio account">Il mio account</a><button id="esci" hidden>Esci</button></header>
 <main id="app"></main>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
@@ -335,7 +335,7 @@ function menuGare(eventi, corrente) {
   return `<select id="selgara">${gruppi.filter(([, l]) => l.length).map(([n, l]) => `<optgroup label="${n}">${l.map((e) => `<option value="${e.id}" ${corrente && e.id === corrente.id ? 'selected' : ''}>${esc(e.nome)} · ${esc(e.luogo || '')} ${esc(e.data || '')}</option>`).join('')}</optgroup>`).join('')}</select>`;
 }
 async function vistaHome() {
-  $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'GareCRI';
+  $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'GPSER-2026';
   const aree = me.aree || [];
   const soloFormazione = org() && !me.admin && aree.every((a) => ['esami', 'formazione_esame', 'valutazione'].includes(a)) && !aree.includes('valutazione');   // es. istruttore con solo Esami
   const tileF = (href, ico, titolo, desc) => `<a class="tile" href="${href}"><i class="ico">${ICONE[ico]}</i><b>${titolo}</b><span>${desc}</span></a>`;
@@ -538,16 +538,39 @@ async function vistaDocumenti() {
   $('#app').innerHTML = blocchi.length ? blocchi.map(([n, l]) => `<div class="card"><h3>${esc(n)}</h3>${l.map((x) => `<div class="avv"><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(x.titolo)}</b></a>${x.descrizione ? `<br><small>${esc(x.descrizione)}</small>` : ''}</div>`).join('')}</div>`).join('')
     : '<div class="card">Non ci sono ancora documenti. Li pubblica l\'organizzazione.</div>';
 }
+let monTimer = null;
 async function vistaMonitor() {
-  const ev = window.__ev || (await api('/eventi')).find(e => e.attivo);
-  $('#titolo').textContent = 'Monitor';
-  const righe = await api(`/eventi/${ev.id}/monitor`);
-  const sq = [...new Set(righe.map(r => r.squadra))];
-  const schede = [...new Set(righe.map(r => `${r.scena}${r.slot}`))];
-  const cella = (r) => !r.stato ? '·' : r.stato === 'bozza' ? `${r.voci_compilate}/${r.voci_totali}` : '✔';
-  $('#app').innerHTML = `<div class="card"><table><tr><th>Squadra</th>${schede.map(s => `<th>${esc(s)}</th>`).join('')}</tr>
-    ${sq.map(n => `<tr><td>${n}</td>${schede.map(s => `<td>${cella(righe.find(r => r.squadra === n && `${r.scena}${r.slot}` === s))}</td>`).join('')}</tr>`).join('')}</table>
-    <small>· non iniziata · n/m in compilazione · ✔ chiusa</small><br><a class="btn sec" href="#">Home</a></div>`;
+  $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'GPSER-2026 – Monitor';
+  const tutti = (await api('/eventi')).filter((e) => !e.archiviato && ['gara', 'olimpiadi', 'allenamento', 'corso_giudici'].includes(e.tipo));
+  let id; try { id = localStorage.getItem('monEv'); } catch { /* niente */ }
+  let ev = tutti.find((e) => e.id === id) || window.__ev && tutti.find((e) => e.id === window.__ev.id) || tutti.find((e) => e.attivo) || tutti[0];
+  if (!ev) { $('#app').innerHTML = '<div class="card">Non ci sono gare da seguire. <a class="btn sec" href="/admin.html#hub:gara">Vai alla Gestione</a></div>'; return; }
+  const stile = '<style>.mon td,.mon th{text-align:center;padding:6px 8px}.mon td.sq,.mon th.sq{text-align:left;white-space:nowrap}.mon .p{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;font-weight:700;font-size:15px;color:#fff}'
+    + '.mon .p.da_fare{background:#d3d8e0;color:#5b6472}.mon .p.in_corso{background:#F5B800;color:#3a2c00}.mon .p.fatta{background:#2E9E5B}.mon .p.sosta{background:repeating-linear-gradient(45deg,#e6edf7,#e6edf7 4px,#d3deef 4px,#d3deef 8px);color:#4b5d7a;border-radius:8px;width:30px}.mon th small{display:block;font-weight:400;color:#5b6472}'
+    + '.mon .leg span{margin-right:14px;white-space:nowrap}.mon .barra{height:6px;background:#e3e5ea;border-radius:3px;min-width:60px}.mon .barra i{display:block;height:6px;background:#2E9E5B;border-radius:3px}body.schermo .mon td,body.schermo .mon th{font-size:20px;padding:10px 12px}body.schermo .mon .p{width:44px;height:44px;font-size:22px}</style>';
+  const disegna = async () => {
+    const d = await api(`/eventi/${ev.id}/avanzamento`);
+    const gioco = d.scene.filter((x) => !x.sosta);
+    const simbolo = { da_fare: '·', in_corso: '◐', fatta: '✔' };
+    const cella = (n, sc) => { if (sc.sosta) return `<span class="p sosta" title="Sosta: ${esc(sc.titolo)}">S</span>`; const c = d.celle[n]?.[sc.codice]; const st = c?.stato || 'da_fare';
+      return `<span class="p ${st}" title="${esc(sc.titolo)}: ${c ? c.fatte + '/' + c.totali + ' schede chiuse' : 'nessuna scheda'}">${simbolo[st]}</span>`; };
+    const fatteSq = (n) => gioco.filter((sc) => d.celle[n]?.[sc.codice]?.stato === 'fatta').length;
+    const fatteSc = (sc) => d.squadre.filter((q) => d.celle[q.numero]?.[sc.codice]?.stato === 'fatta').length;
+    $('#monGriglia').innerHTML = !d.scene.length ? '<p>Questa gara non ha ancora scene.</p>' : `<div style="overflow:auto"><table class="mon"><tr><th class="sq">Squadra</th>${d.scene.map((sc) => `<th>${esc(sc.codice)}<small>${esc(sc.sosta ? 'sosta · ' + sc.titolo : sc.titolo)}</small></th>`).join('')}<th>Avanzamento</th></tr>
+      ${d.squadre.map((q) => { const f = fatteSq(q.numero); return `<tr><td class="sq"><b>${esc(q.numero)}</b> ${esc(q.nome || '')}</td>${d.scene.map((sc) => `<td>${cella(q.numero, sc)}</td>`).join('')}<td>${f}/${gioco.length}<div class="barra"><i style="width:${gioco.length ? Math.round(100 * f / gioco.length) : 0}%"></i></div></td></tr>`; }).join('')}
+      <tr><td class="sq"><small>Squadre che hanno finito</small></td>${d.scene.map((sc) => `<td><small>${sc.sosta ? '' : fatteSc(sc) + '/' + d.squadre.length}</small></td>`).join('')}<td></td></tr></table></div>
+      <p class="leg"><small><span><b class="p da_fare" style="width:16px;height:16px;font-size:10px"></b> non ancora</span><span><b class="p in_corso" style="width:16px;height:16px;font-size:10px"></b> in corso (scheda aperta)</span><span><b class="p fatta" style="width:16px;height:16px;font-size:10px"></b> fatta (schede chiuse)</span><span><b class="p sosta" style="width:16px;height:16px;font-size:10px"></b> sosta</span> · aggiornato alle ${new Date(d.aggiornato).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small></p>`;
+  };
+  $('#app').classList.add('largo');
+  $('#app').innerHTML = stile + `<div class="card"><div class="riga" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap"><div><label>Gara</label><select id="monEv">${tutti.map((e) => `<option value="${e.id}" ${e.id === ev.id ? 'selected' : ''}>${esc(e.nome)}${e.attivo ? ' (attiva)' : ''}</option>`).join('')}</select></div>
+    <a class="btn sec" href="/admin.html#hub:gara">← Gestione</a><button class="btn sec" id="monFs" type="button">Schermo intero</button></div>
+    <div id="monGriglia" style="margin-top:12px"><p>Carico…</p></div></div>`;
+  $('#monEv').onchange = () => { try { localStorage.setItem('monEv', $('#monEv').value); } catch { /* niente */ } route(); };
+  $('#monFs').onclick = () => { document.body.classList.toggle('schermo'); if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {}); else document.exitFullscreen?.(); };
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.body.classList.remove('schermo'); });
+  await disegna();
+  clearInterval(monTimer);
+  monTimer = setInterval(() => { if (location.hash.slice(1).split('/')[0] !== 'monitor') { clearInterval(monTimer); document.body.classList.remove('schermo'); return; } disegna().catch(() => {}); }, 10000);
 }
 
 async function route() {
@@ -563,7 +586,7 @@ async function route() {
   if (me.mfa_da_configurare) return vistaSicurezza();
   if (!coda) { try { await preparaCoda(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
   const [v, a, b] = location.hash.slice(1).split('/');
-  $('#app').classList.toggle('largo', v === 'valuta'); if (v !== 'valuta') $('#app').classList.remove('sola-lettura');
+  $('#app').classList.toggle('largo', v === 'valuta' || v === 'monitor'); if (v !== 'valuta') $('#app').classList.remove('sola-lettura');
   try {
     if (v === 'valuta') return await vistaValuta(a, b);
     if (v === 'sicurezza' || v === 'account') return await vistaSicurezza();
