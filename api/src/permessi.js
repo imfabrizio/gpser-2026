@@ -14,6 +14,10 @@ export const ruoloEffettivo = (u) => u.admin ? 'admin' : gestione(u).length ? 'o
 // quali aree aprono quali rotte (metodo, pattern della rotta Fastify) — basta averne una
 const R = (m, rotta, aree) => [new RegExp(`^(${m})$`), new RegExp(`^${rotta}$`), aree];
 const REGOLE = [
+  R('GET', '/api/scene/:id/turno', ['gara', 'scene', 'valutazione']),
+  R('POST', '/api/scene/:id/(apri|chiudi)', ['gara', 'scene', 'valutazione']),
+  R('POST', '/api/compilazioni/:id/riapri', ['valutazione']),
+  R('PUT', '/api/persone/:id/qualifiche', ['anagrafiche']),
   R('POST|DELETE', '/api/avvisi(/:id)?', ['notizie']),
   R('POST|PATCH', '/api/eventi(/:id)?', ['gara', 'esami']), R('POST', '/api/eventi/:id/attiva', ['gara']), R('PUT', '/api/eventi/:id/(ente|data-fine|posizione)', ['gara', 'esami']), R('GET|POST', '/api/eventi/:id/(inviti|invitabili)', ['gara', 'esami']), R('DELETE', '/api/eventi/:id/inviti/:utente', ['gara', 'esami']),
   R('POST', '/api/eventi/:id/squadre', ['squadre']), R('POST', '/api/eventi/:id/collega-canovacci', ['scene']), R('PATCH', '/api/squadre/:id', ['squadre']), R('GET|PUT', '/api/squadre/:id/membri', ['squadre', 'anagrafiche']),

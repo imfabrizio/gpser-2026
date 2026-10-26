@@ -1,6 +1,20 @@
 // Enti proprietari del materiale: comitato → regione (per il Trentino-Alto Adige la singola provincia autonoma) → nazionale.
 import { canonico, norm } from './comitati.js';
 
+// Usato anche dalle operazioni con identificatori nel corpo/query, fuori dalle rotte /eventi/:id.
+export async function verificaAccessoEvento(db, utente, eventoId, scrittura = true) {
+  if (utente.ruolo !== 'organizzazione') return; // admin; giudici verificati dalle assegnazioni
+  const nega = () => { throw Object.assign(new Error('evento non consentito'), { statusCode: 403 }); };
+  if (utente.per_evento) {
+    if (!(utente.eventi_org || []).includes(eventoId)) nega();
+    return;
+  }
+  const { rows: [evento] } = await db.query('select id, tipo, livello, comitato, regione from evento where id=$1', [eventoId]);
+  if (!evento) throw Object.assign(new Error('evento inesistente'), { statusCode: 404 });
+  const accesso = await accessoEvento(db, utente, evento);
+  if (!accesso || (scrittura && accesso !== 'scrittura')) nega();
+}
+
 // chiave dell'ente regionale di un comitato (null se il comitato non è in elenco)
 export const chiaveRegione = (c) => (!c?.regione ? null : (/^trentino/i.test(c.regione) && c.provincia ? `${c.regione} · ${c.provincia}` : c.regione));
 

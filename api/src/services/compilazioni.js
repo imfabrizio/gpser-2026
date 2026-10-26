@@ -1,4 +1,5 @@
 // Cuore dell'inserimento: upsert a blocchi, idempotente, pronto per l'offline.
+import { verificaAccessoEvento } from '../enti.js';
 const RANGO = { bozza: 0, completata: 1, verificata: 2 };
 const LIV = ['MB', 'BE', 'SU', 'IN', 'NE'];
 const ORIGINI = ['carta', 'tablet_online', 'tablet_offline'];
@@ -38,6 +39,7 @@ export async function sincronizza(db, utente, payload) {
        join evento e on e.id = sc.evento_id
       where s.id = $1`, [scheda_id, squadra_id]);
   if (!ctx) throw httpErr(404, 'scheda o squadra inesistente');
+  await verificaAccessoEvento(db, utente, ctx.ev_scheda);
   if (ctx.ev_scheda !== ctx.ev_squadra) throw httpErr(400, 'scheda e squadra appartengono a eventi diversi');
   if (!ctx.attiva) throw httpErr(409, 'squadra disattivata');
   if (ctx.archiviato) throw httpErr(409, 'evento archiviato');
@@ -117,6 +119,11 @@ export async function sincronizza(db, utente, payload) {
 
 export async function riapri(db, utente, compilazioneId) {
   if (!UUID.test(compilazioneId || '')) throw httpErr(400, 'id non valido');
+  if (utente.ruolo === 'organizzazione') {
+    const { rows: [c] } = await db.query('select sc.evento_id from compilazione c join scena_scheda s on s.id=c.scheda_id join scena sc on sc.id=s.scena_id where c.id=$1', [compilazioneId]);
+    if (!c) throw httpErr(404, 'compilazione inesistente');
+    await verificaAccessoEvento(db, utente, c.evento_id);
+  }
   if (!ORG.includes(utente.ruolo)) {       // il giudice master può riaprire solo le schede della propria scena
     const ok = utente.ruolo === 'giudice_master' && (await db.query(
       `select 1 from compilazione c join scena_scheda s on s.id = c.scheda_id join scena_master m on m.scena_id = s.scena_id

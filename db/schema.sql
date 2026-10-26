@@ -2922,3 +2922,17 @@ insert into ruolo (codice, nome, sistema, aree) values ('accompagnatore', 'Accom
 alter table canovaccio add column if not exists gara_codice text;
 alter table canovaccio drop constraint if exists canovaccio_codice_versione_key;
 create unique index if not exists canovaccio_gara_scena_versione_uq on canovaccio ((coalesce(gara_codice, '')), codice, versione);
+-- Nessun dato viene eliminato. Sessioni senza proprietario riconoscibile: solo admin.
+alter table sessione_esame add column if not exists comitato text;
+update sessione_esame s set comitato = (
+  select p.comitato from partecipante p where p.utente_id=s.creato_da and p.comitato is not null order by p.created_at, p.id limit 1
+) where s.comitato is null;
+create table if not exists sessione_esame_invito (
+  sessione_id uuid not null references sessione_esame(id) on delete cascade,
+  utente_id uuid not null references utente(id) on delete cascade,
+  invitato_da uuid references utente(id) on delete set null,
+  created_at timestamptz not null default now(),
+  primary key (sessione_id, utente_id)
+);
+create index if not exists sessione_esame_invito_utente_idx on sessione_esame_invito (utente_id);
+insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql') on conflict do nothing;

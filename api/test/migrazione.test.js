@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -36,12 +37,12 @@ test('migrazione 001 su un database con lo schema "vecchio": applica tutto, è i
   const prima = await stato();
   assert.deepEqual([prima.indice, prima.chk, prima.da_org, prima.nullable, prima.attivi], [0, 0, 0, 'NO', 2]);
   const env = { ...process.env, DATABASE_URL: URL_MIG };
-  const out1 = execFileSync('node', [new URL('../../tools/db-init.js', import.meta.url).pathname], { env }).toString();
+  const out1 = execFileSync('node', [fileURLToPath(new URL('../../tools/db-init.js', import.meta.url))], { env }).toString();
   assert.match(out1, /migrazione applicata: 001-revisione\.sql/);
   const dopo = await stato();
   assert.deepEqual([dopo.indice, dopo.chk, dopo.da_org, dopo.nullable, dopo.attivi], [1, 1, 1, 'YES', 1]);
   assert.match(dopo.fk, /^r+$/);                                                             // tutte restrict
-  const out2 = execFileSync('node', [new URL('../../tools/db-init.js', import.meta.url).pathname], { env }).toString();
+  const out2 = execFileSync('node', [fileURLToPath(new URL('../../tools/db-init.js', import.meta.url))], { env }).toString();
   assert.match(out2, /già aggiornato/);                                                      // idempotente
   await db.query('drop view v_classifica');   // 004 l'ha ampliata: 001 la ricrea nella forma originale
   await db.query(fs.readFileSync(new URL('../../db/migrazioni/001-revisione.sql', import.meta.url), 'utf8'));   // rilancio diretto
@@ -57,7 +58,7 @@ test('preparaDatabase: su un database vuoto crea lo schema, poi non fa nulla; su
   const log = []; const l = (m) => log.push(m);
   await preparaDatabase(pool, l); await preparaDatabase(pool, l);
   assert.deepEqual(log, ['schema creato', 'schema già aggiornato']);
-  assert.equal((await pool.query('select count(*)::int n from schema_migrazioni')).rows[0].n, 44);
+  assert.deepEqual((await pool.query('select nome from schema_migrazioni order by nome')).rows.map((r) => r.nome), fs.readdirSync(new URL('../../db/migrazioni/', import.meta.url)).filter((f) => f.endsWith('.sql')).sort());
   assert.equal((await pool.query(`select count(*)::int n from pg_enum e join pg_type t on t.oid=e.enumtypid where t.typname='ruolo_utente' and enumlabel='giudice_master'`)).rows[0].n, 1);
   await Promise.all([preparaDatabase(pool, l), preparaDatabase(pool, l)]);   // due avvii contemporanei non si pestano i piedi
   await pool.end();

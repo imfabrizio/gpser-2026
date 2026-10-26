@@ -68,7 +68,7 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
     if (prov === 'google' && !(idt.email_verified === true || idt.email_verified === 'true')) return errore('email_non_verificata');
     // 1) identità già collegata; 2) altrimenti l'utente registrato con quella email (l'admin deve averlo creato prima)
     let { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.attivo and u.id = (select utente_id from utente_identita where provider=$1 and sub=$2)', [prov, idt.sub]);
-    if (!u && email) {
+    if (!u && email && prov === 'google') {
       ({ rows: [u] } = await pool.query(SQL_UTENTE + ' where lower(u.email)=$1 and u.attivo', [email]));
       if (u) await pool.query('insert into utente_identita (provider, sub, utente_id, email) values ($1,$2,$3,$4) on conflict do nothing', [prov, idt.sub, u.id, email]);
     }
@@ -79,6 +79,7 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
         `insert into richiesta_accesso (provider, sub, email, nome, cognome) values ($1,$2,$3,$4,$5)
          on conflict (provider, sub) do update set email=excluded.email returning id`,
         [prov, idt.sub, email, String(idt.given_name || '').slice(0, 80) || null, String(idt.family_name || '').slice(0, 80) || null]);
+      if (prov === 'microsoft') await pool.query('update richiesta_accesso set compilata=true where id=$1 and exists (select 1 from utente where lower(email)=$2)', [r.id, email]);
       const tr = b64u(crypto.randomBytes(24)); ticket.set(tr, { rid: r.id, exp: Date.now() + 60e3 });
       return reply.header('Set-Cookie', 'sso=; Path=/api/auth; Max-Age=0').redirect(`/#sso=${tr}`);
     }
@@ -92,7 +93,11 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
     if (t.rid) return { token: firmaToken({ rid: t.rid, via: 'sso' }, 48), utente: { in_attesa: true } };
     const { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.id=$1 and u.attivo', [t.id]);
     if (!u) throw httpErr(401, 'utente non valido');
-    return creaSessione(u, process.env.SSO_RICHIEDE_MFA === '1' && u.mfa_attiva ? 'pwd' : 'sso');
+    if (process.env.SSO_RICHIEDE_MFA === '1') {
+      if (u.mfa_attiva) return { mfa: true, ticket: firmaToken({ id: u.id, t: 'mfa' }, 0.1) };
+      return creaSessione(u, 'pwd');
+    }
+    return creaSessione(u, 'sso');
   });
 
   // ── secondo fattore dopo la password ──
@@ -105,7 +110,9 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
     let ok = verificaTotp(decifra(u.mfa_secret), cod);
     if (!ok) {                                           // codice di recupero: si può usare una sola volta
       const h = hashRecupero(cod);
-      if (u.mfa_recupero.includes(h)) { ok = true; await pool.query('update utente set mfa_recupero = array_remove(mfa_recupero, $2) where id=$1', [u.id, h]); }
+      // Il consumo è atomico: due richieste concorrenti non riutilizzano il codice.
+      const { rowCount } = await pool.query('update utente set mfa_recupero = array_remove(mfa_recupero, $2) where id=$1 and $2 = any(mfa_recupero)', [u.id, h]);
+      ok = rowCount === 1;
     }
     if (!ok) { registraFallimento(chiave); throw httpErr(401, 'codice non valido'); }
     azzeraFallimenti(chiave);

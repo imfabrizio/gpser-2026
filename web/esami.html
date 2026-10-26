@@ -82,12 +82,24 @@ async function sessione(sid) {
       <div style="margin-top:10px">${cr(0)}${cr(1)}${cr(2)}</div><p class="nota">La scheda si compila una volta sola e vale per tutti i candidati; potrai dare un valore diverso a un singolo candidato.</p>
       <button class="b" id="p_ok">Crea prova</button></div><datalist id="pers"></datalist>`;
   if ($('#riep')) $('#riep').onclick = () => pdf(`/esami/sessioni/${sid}/riepilogo.pdf`);
+  if (d.sessione.gestione) {
+    const box = document.createElement('div'); box.className = 'card';
+    box.innerHTML = `<h3>Inviti esterni</h3><p>Invita per email un account già registrato e abilitato all’area Esami. Potrà consultare e compilare questa sessione, senza gestire inviti o eliminare prove. Non viene inviata un’email.</p><label>Email</label><input id="inv_email" type="email"><button class="b" id="inv_add">Aggiungi invito</button><div id="inv_elenco"></div>`;
+    $('#app').append(box);
+    const inviti = async () => {
+      const l = await api(`/esami/sessioni/${sid}/inviti`);
+      $('#inv_elenco').innerHTML = l.map((u) => `<p>${esc(u.nome)} · ${esc(u.email)} <button class="s revoca" data-id="${u.id}">Revoca</button></p>`).join('') || '<p>Nessun invito.</p>';
+      box.querySelectorAll('.revoca').forEach((b) => { b.onclick = () => fai(async () => { await api(`/esami/sessioni/${sid}/inviti/${b.dataset.id}`, { method: 'DELETE' }); await inviti(); }, 'Invito revocato'); });
+    };
+    $('#inv_add').onclick = () => fai(async () => { await api(`/esami/sessioni/${sid}/inviti`, { body: { email: $('#inv_email').value } }); $('#inv_email').value = ''; await inviti(); }, 'Invito aggiunto');
+    await inviti();
+  } else document.querySelectorAll('.delp').forEach((b) => b.remove());
   document.querySelectorAll('.delp').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la prova con tutte le valutazioni?')) fai(async () => { await api('/esami/prove/' + b.dataset.id, { method: 'DELETE' }); sessione(sid); }, 'Prova eliminata'); }; });
   // suggerimenti dall'anagrafica
   let mappa = {}, t; const dl = $('#pers');
   document.querySelectorAll('.c_c').forEach((i) => legaComitato(i));
   document.querySelectorAll('.c_n').forEach((i) => { i.oninput = () => { clearTimeout(t); t = setTimeout(async () => {
-    const r = await api('/esami/persone?q=' + encodeURIComponent(i.value)).catch(() => []);
+    const r = await api('/esami/persone?sessione=' + sid + '&q=' + encodeURIComponent(i.value)).catch(() => []);
     mappa = Object.fromEntries(r.map((p) => [`${p.cognome} ${p.nome}`, p])); dl.innerHTML = Object.keys(mappa).map((n) => `<option value="${esc(n)}">`).join(''); }, 250);
     const m = mappa[i.value]; if (m) { const c = i.closest('.riga').querySelector('.c_c'); if (!c.value) c.value = m.comitato || ''; i.dataset.pid = m.id; } }; });
   $('#p_ok').onclick = () => { const candidati = [...document.querySelectorAll('.riga .c_n')].map((i) => ({ nome: i.value.trim(), comitato: i.closest('.riga').querySelector('.c_c').value.trim(), partecipanteId: i.dataset.pid || null })).filter((c) => c.nome);

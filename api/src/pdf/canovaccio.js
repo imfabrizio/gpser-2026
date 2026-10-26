@@ -1,8 +1,9 @@
+import { fileURLToPath } from 'node:url';
 // Canovaccio di scena in PDF: copertina rossa con la lettera, riquadri per briefing/avvisi, triage a pillole, una scheda per paziente, fabbisogno.
 import PDFDocument from 'pdfkit';
 
-const FONT_R = new URL('../../../assets/fonts/LiberationSans-Regular.ttf', import.meta.url).pathname;
-const FONT_B = new URL('../../../assets/fonts/LiberationSans-Bold.ttf', import.meta.url).pathname;
+const FONT_R = fileURLToPath(new URL('../../../assets/fonts/LiberationSans-Regular.ttf', import.meta.url));
+const FONT_B = fileURLToPath(new URL('../../../assets/fonts/LiberationSans-Bold.ttf', import.meta.url));
 const C = { rosso: '#D8232A', inchiostro: '#1E2430', grigio: '#667085', linea: '#D9DEE5', fondo: '#F5F6F8', carta: '#FFFFFF', ambra: '#FFF4D6', ambraBordo: '#E0A800', azzurro: '#EAF0F7', azzurroBordo: '#5B7C99', rosa: '#FCEEEE' };
 const GRAV = { rosso: { c: '#D64545', t: 'ROSSO · T1' }, giallo: { c: '#E3A91B', t: 'GIALLO · T2' }, verde: { c: '#3E9A5B', t: 'VERDE · T3' }, bianco: { c: '#9AA3AF', t: 'BIANCO' } };
 const W = 595.28, H = 841.89, M = 42, LARG = W - 2 * M, FONDO_PAG = 792;

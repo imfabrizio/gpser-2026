@@ -126,13 +126,29 @@ export function registraRichieste(app, pool, { soloAdmin, fetchImpl = fetch }) {
     await eliminaRichiesteScadute(pool);
     return (await pool.query(
       `select r.id, r.email, r.nome, r.cognome, r.cf_cifrato, r.cf_coerente, r.comitato, r.provincia, r.ruolo_gara, r.codice_ruolo, r.created_at, r.scade_il, r.provider, r.tipo_registrazione, to_char(r.data_nascita,'YYYY-MM-DD') as data_nascita, r.luogo_nascita, r.qualifiche, r.cf_avvisi,
-              s.nome as squadra, e.nome as evento, r.squadra_id
+              s.nome as squadra, e.nome as evento, r.squadra_id,
+              (select u.id from utente u where lower(u.email)=lower(r.email) and u.attivo) as utente_esistente_id
          from richiesta_accesso r left join squadra s on s.id=r.squadra_id left join evento e on e.id=s.evento_id where r.compilata order by r.scade_il`)).rows;
   };
   app.get('/api/richieste', { preHandler: soloAdmin }, async () =>
     (await elenco()).map(({ cf_cifrato, ...r }) => ({ ...r, codice_fiscale: cf_cifrato ? decifra(cf_cifrato) : null,
       ruolo_proposto: r.qualifiche?.includes('giudice_master') ? 'giudice_master' : r.qualifiche?.includes('giudice') ? 'giudice' : (RUOLO_APP[r.ruolo_gara] || 'partecipante'), tipo_nome: TIPI_REGISTRAZIONE[r.tipo_registrazione] || null, ruolo_gara_nome: RUOLI_GARA[r.ruolo_gara] || r.ruolo_gara })));
   app.get('/api/richieste/conteggio', { preHandler: soloAdmin }, async () => ({ n: (await elenco()).length }));
+
+  // Microsoft non garantisce che l'email sia un identificatore verificato: collegamento esplicito dell'admin.
+  app.post('/api/richieste/:id/collega', { preHandler: soloAdmin }, async (req) => {
+    if (req.body?.conferma_identita !== true) throw httpErr(400, 'verifica prima l’identità della persona');
+    return inTransazione(pool, async (db) => {
+      const { rows: [r] } = await db.query("select * from richiesta_accesso where id=$1 and provider='microsoft' and compilata and scade_il>now() for update", [req.params.id]);
+      if (!r) throw httpErr(404, 'richiesta Microsoft inesistente o scaduta');
+      const { rows: [u] } = await db.query('select id from utente where id=$1 and lower(email)=lower($2) and attivo for update', [req.body.utente_id, r.email]);
+      if (!u) throw httpErr(400, 'utente attivo non corrispondente');
+      await db.query('insert into utente_identita (provider,sub,utente_id,email) values ($1,$2,$3,$4)', [r.provider,r.sub,u.id,r.email]);
+      await db.query("insert into audit_log (utente_id,azione,entita,entita_id) values ($1,'identita_microsoft_collegata','utente',$2)", [req.utente.id,u.id]);
+      await db.query('delete from richiesta_accesso where id=$1', [r.id]);
+      return { ok: true };
+    });
+  });
 
   app.post('/api/richieste/:id/approva', { preHandler: soloAdmin }, async (req) => {
     const ruolo = req.body?.ruolo;
