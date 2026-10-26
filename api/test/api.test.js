@@ -1640,7 +1640,7 @@ test('REV-2: proposte di raggruppamento tra schede simili e unione in revisioni'
   const org = tok['org@t'];
   const voci = (extra) => ['Si guarda attorno', 'Valuta la coscienza', 'Chiama il 112', 'Controlla il respiro', 'Posiziona il paziente', 'Rileva i parametri', 'Riferisce al team leader', ...extra].map((testo) => ({ sezione: 'G', testo, scala: 'Standard' }));
   const a = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'RAGG_A', nome: 'Ragg uno', sigla: 'RGA', voci: voci([]) } }));
-  const b = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'RAGG_B', nome: 'Ragg due', sigla: 'RGB', voci: voci(['Toglie il cellulare']).reverse() } }));
+  const b = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'RAGG_B', nome: 'Ragg due', sigla: 'RGA', voci: voci(['Toglie il cellulare']).reverse() } }));
   const prop = json(await chiama('GET', '/api/libreria/raggruppamenti', { token: org })).find((x) => [x.a.id, x.b.id].includes(a.id) && [x.a.id, x.b.id].includes(b.id));
   assert.ok(prop); assert.equal(prop.esito, 'stessa'); assert.equal(prop.riepilogo.ordine_diverso, true);
   assert.equal((await chiama('POST', '/api/libreria/raggruppamenti', { token: org, body: { base: a.id, revisione: b.id, allinea: true } })).statusCode, 200);
@@ -1667,7 +1667,7 @@ test('REV-3: gare e olimpiadi non si riuniscono mai in revisioni', async () => {
   const org = tok['org@t'];
   const voci = ['Si guarda attorno', 'Valuta la coscienza', 'Chiama il 112', 'Controlla il respiro', 'Posiziona il paziente', 'Rileva i parametri', 'Riferisce al team leader'].map((testo) => ({ sezione: 'G', testo, scala: 'Standard' }));
   const g = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'TIPO_G', nome: 'Stessa gara', sigla: 'STG', tipologie: ['gara'], voci } }));
-  const o = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'TIPO_O', nome: 'Stessa olimpiadi', sigla: 'STO', tipologie: ['olimpiadi'], voci } }));
+  const o = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'TIPO_O', nome: 'Stessa olimpiadi', sigla: 'STG', tipologie: ['olimpiadi'], voci } }));
   const prop = json(await chiama('GET', '/api/libreria/raggruppamenti', { token: org }));
   assert.equal(prop.some((x) => [x.a.id, x.b.id].includes(g.id) && [x.a.id, x.b.id].includes(o.id)), false);
   assert.equal((await chiama('POST', '/api/libreria/raggruppamenti', { token: org, body: { base: g.id, revisione: o.id } })).statusCode, 409);
@@ -1721,4 +1721,13 @@ test('CAN-2: canovacci per gara — la stessa lettera in gare diverse non si sov
   assert.ok(json(await chiama('POST', '/api/canovacci/codici-mancanti', { token: org, body: {} })).compilati >= 1);
   assert.equal((await pool.query('select gara_codice from canovaccio where id=$1', [senza])).rows[0].gara_codice, 'GPSER-2033');
   assert.equal((await chiama('PATCH', `/api/canovacci/${conA}`, { token: tok['giu@t'], body: { gara_codice: 'X' } })).statusCode, 403);
+});
+
+test('REV-4: patologie diverse con molte voci generiche in comune (sigla diversa) non vengono proposte come revisioni', async () => {
+  const org = tok['org@t'];
+  const voci = ['Si guarda attorno', 'Valuta la coscienza', 'Chiama il 112', 'Controlla il respiro', 'Posiziona il paziente', 'Rileva i parametri', 'Riferisce al team leader'].map((testo) => ({ sezione: 'G', testo, scala: 'Standard' }));
+  const x = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'DIV_X', nome: 'Ferita prova', sigla: 'FEP', voci } }));
+  const y = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'DIV_Y', nome: 'Lipotimia prova', sigla: 'LIP', voci } }));
+  const prop = json(await chiama('GET', '/api/libreria/raggruppamenti', { token: org }));
+  assert.equal(prop.some((p) => [p.a.id, p.b.id].includes(x.id) && [p.a.id, p.b.id].includes(y.id)), false);
 });
