@@ -45,8 +45,13 @@
   .scena { border-left:6px solid var(--rosso); padding:0; overflow:hidden } .scena.sosta { border-left-color:#7a8cab }
   .scena .sc-testa { display:flex; align-items:center; gap:10px; padding:12px 14px; background:#f6f7f9; flex-wrap:wrap } .scena .sc-testa h3 { margin:0; flex:1 1 280px } .scena .sc-t { border:0; background:#fff; border:1px solid var(--bordo); border-radius:8px; width:36px; height:36px; font-size:18px; cursor:pointer } .scena .sc-sint { color:#555 }
   .scena .sc-corpo { padding:14px; border-top:1px solid var(--bordo) } .scena .sc-corpo[hidden] { display:none }
+  #rail { display:none }
   @media (min-width:900px) { body.laterale #tabs { position:fixed; left:0; top:85px; z-index:3; bottom:0; width:210px; flex-direction:column; overflow-y:auto; border-right:1px solid var(--bordo); border-bottom:0; padding:10px 8px; gap:2px }
-    body.laterale #tabs button { text-align:left; white-space:normal } body.laterale main { margin:0 auto 0 220px; max-width:1100px } }
+    body.laterale #tabs button { text-align:left; white-space:normal } body.laterale main { margin:0 0 0 210px; max-width:none } body.laterale main > * { max-width:900px; margin-left:auto; margin-right:auto } }
+  @media (min-width:1100px) { body.laterale main { margin-right:210px } body.laterale #rail { display:block; position:fixed; right:0; top:85px; bottom:0; width:210px; overflow-y:auto; border-left:1px solid var(--bordo); background:#fff; padding:14px 12px; z-index:3 } }
+  #rail .w { background:#f6f7f9; border-radius:12px; padding:12px; margin-bottom:12px; font-size:14px } #rail .w h4 { margin:0 0 6px; font-size:13px; color:#555; font-weight:600 }
+  #rail .w b.n { display:block; font-size:18px; line-height:1.2; margin-bottom:4px } #rail .w small { color:#555 } #rail .w a { display:block; padding:7px 0; color:var(--rosso); font-weight:600; text-decoration:none }
+  #rail .logo-r { display:block; margin:4px auto 14px; width:84px; opacity:.9 } #rail .barra { height:8px; background:#e3e5ea; border-radius:4px; margin:6px 0 2px } #rail .barra i { display:block; height:8px; background:#2E9E5B; border-radius:4px }
   #tabs[hidden] { display:none !important; }
   header .logo { height:34px; background:#fff; border-radius:8px; padding:2px 4px; }
   .navbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; } .navbar a, .navbar button { background:#fff; color:#222; border:1px solid var(--bordo); padding:10px 14px; border-radius:10px; font-size:14px; text-decoration:none; cursor:pointer; font-family:inherit; }
@@ -78,6 +83,7 @@
 <header><img class="logo" src="/logo-cri.jpg" alt="CRI"><a class="home" href="/" title="Torna alla Home" aria-label="Home"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></a><h1 id="tit">GPSER-2026</h1><a id="chi" href="/#account" title="Il mio account">Il mio account</a><button id="esci">Esci</button></header>
 <nav id="tabs" hidden></nav>
 <main id="app"></main>
+<aside id="rail" aria-label="Riepilogo"></aside>
 <dialog id="dlg"></dialog>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
@@ -1164,6 +1170,27 @@ async function tRuoli() {
   $('#nr_ok').onclick = () => { const n = $('#nr_n').value.trim(); if (!n) return alert('Scrivi il nome del ruolo'); fai(() => api('/ruoli', { body: { nome: n, aree: scelte($('#nr_ok').closest('.card')) } }), 'Ruolo creato'); };
 }
 
+
+// Colonna di destra (schermi larghi): riepilogo della gara scelta e scorciatoie
+async function aggiornaRail() {
+  const r = $('#rail'); if (!r) return;
+  if (tab === 'menu' || tab === 'hub' || !ev || fam === 'comune') { r.innerHTML = ''; return; }
+  const link = (t, k) => `<a href="#" data-v="${k}">${t}</a>`;
+  r.innerHTML = `<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w"><h4>${fam === 'corsi' ? 'Evento scelto' : 'Gara scelta'}</h4><b class="n">${esc(ev.nome)}</b><small>${esc([dataIt(ev.data), ev.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small>${ev.attivo ? '<br><span class="tag ok">attivo</span>' : ''}</div>
+    <div class="w" id="rail_av"><h4>Avanzamento</h4><small>Carico…</small></div>
+    <div class="w"><h4>Scorciatoie</h4>${link('Scene', 'scene')}${link('Squadre', 'squadre')}${link('Classifiche', 'classifiche')}${link('Monitor', 'monitor')}</div>`;
+  r.querySelectorAll('[data-v]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); vai(a.dataset.v); }; });
+  if (fam === 'corsi') { $('#rail_av').remove(); return; }
+  const id = ev.id;
+  try {
+    const d = await api(`/eventi/${id}/avanzamento`); if (ev.id !== id || !$('#rail_av')) return;
+    const gioco = d.scene.filter((x) => !x.sosta), tot = gioco.length * d.squadre.length;
+    const fatte = d.squadre.reduce((n, q) => n + gioco.filter((sc) => d.celle[q.numero]?.[sc.codice]?.stato === 'fatta').length, 0);
+    $('#rail_av').innerHTML = `<h4>Avanzamento</h4><b class="n">${d.squadre.length} squadre</b><small>${gioco.length} scene${d.scene.length > gioco.length ? ' + ' + (d.scene.length - gioco.length) + ' soste' : ''}</small>
+      <div class="barra"><i style="width:${tot ? Math.round(100 * fatte / tot) : 0}%"></i></div><small>${fatte} di ${tot} scene fatte</small>`;
+  } catch { if ($('#rail_av')) $('#rail_av').remove(); }
+}
+
 async function render() {
   if (!consentito(tab)) tab = 'menu';
   try {
@@ -1177,7 +1204,7 @@ async function render() {
   if ($('#nv_g')) $('#nv_g').onclick = () => vai(tab === 'hub' && molti ? 'menu' : 'hub');
   if ($('#dv_g')) $('#dv_g').onclick = (e) => { e.preventDefault(); vai(molti ? 'menu' : 'hub'); };
   if ($('#dv_m')) $('#dv_m').onclick = (e) => { e.preventDefault(); vai('hub'); };
-  equipaggi($('#app'));
+  equipaggi($('#app')); aggiornaRail();
   window.fam = fam; if (window.Barra) Barra.disegna('admin');
   window.scrollTo(0, 0);
 }
