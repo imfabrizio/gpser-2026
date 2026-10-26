@@ -19,7 +19,8 @@ import ExcelJS from 'exceljs';
 import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
 import { registraNotifiche } from './notifiche.js';
-import { geocodifica, leggiCoordinate } from './geo.js';
+import { leggiCoordinate } from './geo.js';
+import { regioni as regioniComuni, province as provinceComuni, cerca as cercaComuni, comunePerIstat, comuneDaLuogo, etichettaLuogo } from './comuni.js';
 import { registraSegreteria } from './routes-segreteria.js';
 import { registraRisorse } from './routes-risorse.js';
 import { registraDocumenti } from './routes-documenti.js';
@@ -146,7 +147,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const visibile = `not e.archiviato and e.tipo in ('gara','olimpiadi') and (e.livello is null or (e.livello <> 'comitato' and e.attivo))
       and (e.attivo or coalesce(e.data_fine, e.data) between current_date - $1::int and current_date + $1::int)`;
     const { rows: eventi } = await pool.query(
-      `select e.id, e.nome, e.tipo, e.luogo, to_char(e.data,'YYYY-MM-DD') as data, to_char(e.data_fine,'YYYY-MM-DD') as data_fine, e.attivo, e.mappa_url, e.regione, e.lat, e.lng, e.segreteria_lat, e.segreteria_lng
+      `select e.id, e.nome, e.tipo, e.luogo, to_char(e.data,'YYYY-MM-DD') as data, to_char(e.data_fine,'YYYY-MM-DD') as data_fine, e.attivo, e.mappa_url, coalesce(e.luogo_regione, e.regione) as regione, e.lat, e.lng, e.segreteria_lat, e.segreteria_lng
          from evento e where ${visibile} order by e.data desc nulls last limit 30`, [FINESTRA_GIORNI]);
     const { rows: scene } = await pool.query(
       `select s.evento_id, s.codice, s.titolo, s.indirizzo, s.lat, s.lng from scena s join evento e on e.id=s.evento_id
@@ -173,7 +174,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
     const org = RUOLI_ORG.includes(req.utente.ruolo);
     const righe = (await pool.query(
-      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, to_char(data_fine,'YYYY-MM-DD') as data_fine, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, comitato, livello, regione, lat, lng, segreteria_lat, segreteria_lng
+      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, to_char(data_fine,'YYYY-MM-DD') as data_fine, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, comitato, livello, regione, lat, lng, comune_istat, luogo_provincia, luogo_regione, segreteria_lat, segreteria_lng
          from evento where ($1 or id = $2 or id = any($3::uuid[]) or ($2::uuid is null and not cardinality($3::uuid[]) > 0 and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id, req.utente.eventi_ammessi])).rows;
     if (req.utente.ruolo === 'organizzazione' && req.utente.per_evento) return righe.filter((e) => req.utente.eventi_org.includes(e.id));
@@ -223,24 +224,27 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       if (!c) throw httpErr(400, 'coordinate non valide: scrivi latitudine e longitudine, per esempio 44.4056, 10.5912');
       await pool.query('update evento set segreteria_lat=$2, segreteria_lng=$3, updated_at=now() where id=$1', [att.id, c.lat, c.lng]);
     }
-    if (b.ricava) {
-      const g = await geocodifica(att.luogo);
-      if (!g) throw httpErr(404, att.luogo ? `non trovo «${att.luogo}» su OpenStreetMap: controlla il nome della città` : 'inserisci prima il luogo dell\'evento');
-      await pool.query('update evento set lat=$2, lng=$3, updated_at=now() where id=$1', [att.id, g.lat, g.lng]);
+    if (b.comune || b.ricava) {
+      const c = b.comune ? comunePerIstat(b.comune) : comuneDaLuogo(att.luogo);
+      if (!c) throw httpErr(404, b.comune ? 'comune inesistente' : att.luogo ? `non riconosco «${att.luogo}» tra i comuni: scegli regione, provincia e comune dall'elenco` : 'scegli prima il comune dell\'evento');
+      await pool.query('update evento set luogo=$2, comune_istat=$3, luogo_provincia=$4, luogo_regione=$5, lat=$6, lng=$7, updated_at=now() where id=$1', [att.id, etichettaLuogo(c), c.istat, c.provincia, c.regione, c.lat, c.lng]);
     }
-    return (await pool.query('select id, lat, lng, segreteria_lat, segreteria_lng from evento where id=$1', [att.id])).rows[0];
+    return (await pool.query('select id, luogo, lat, lng, comune_istat, luogo_provincia, luogo_regione, segreteria_lat, segreteria_lng from evento where id=$1', [att.id])).rows[0];
   });
-  // una volta sola per gli eventi già caricati: ricava le coordinate dalla città (un tentativo al secondo, come chiede il servizio)
+  // una volta sola per gli eventi già caricati: riconosce il comune dal luogo scritto a mano e ne ricava le coordinate
   app.post('/api/eventi/ricava-coordinate', { preHandler: soloAdmin }, async () => {
-    const { rows } = await pool.query(`select id, nome, luogo from evento where lat is null and coalesce(trim(luogo),'') <> '' and tipo in ('gara','olimpiadi') and not archiviato limit 40`);
+    const { rows } = await pool.query(`select id, nome, luogo from evento where comune_istat is null and coalesce(trim(luogo),'') <> '' and tipo in ('gara','olimpiadi','corso_giudici') and not archiviato`);
     const fatti = [], mancanti = [];
     for (const e of rows) {
-      const g = await geocodifica(e.luogo);
-      if (g) { await pool.query('update evento set lat=$2, lng=$3 where id=$1', [e.id, g.lat, g.lng]); fatti.push(`${e.nome} → ${g.lat}, ${g.lng}`); } else mancanti.push(`${e.nome} (${e.luogo})`);
-      await new Promise((ok) => setTimeout(ok, 1100));
+      const c = comuneDaLuogo(e.luogo);
+      if (c) { await pool.query('update evento set luogo=$2, comune_istat=$3, luogo_provincia=$4, luogo_regione=$5, lat=$6, lng=$7 where id=$1', [e.id, etichettaLuogo(c), c.istat, c.provincia, c.regione, c.lat, c.lng]); fatti.push(`${e.nome} → ${etichettaLuogo(c)}`); } else mancanti.push(`${e.nome} (${e.luogo})`);
     }
     return { fatti, mancanti };
   });
+  // elenco dei comuni per i selettori (regione → provincia → comune, con ricerca)
+  app.get('/api/comuni/regioni', async () => regioniComuni());
+  app.get('/api/comuni/province', async (req) => provinceComuni(req.query?.regione || ''));
+  app.get('/api/comuni', async (req) => cercaComuni({ regione: req.query?.regione, provincia: req.query?.provincia, q: req.query?.q }, Math.min(Number(req.query?.limite) || 60, 300)));
   app.post('/api/eventi', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
     if (!b.codice || !b.nome) throw httpErr(400, 'codice e nome obbligatori');
@@ -258,9 +262,11 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const didattico = ['allenamento', 'corso', 'esame', 'megacode', 'corso_giudici'].includes(tipo);
     const ente = await decidiEnte(req, b, tipo, comitato);
     if (ente.livello === 'comitato' && !req.utente.admin && ['gara', 'olimpiadi', 'corso_giudici'].includes(tipo)) throw httpErr(403, 'le gare, le Olimpiadi e i corsi giudici li organizza la regione: un comitato crea allenamenti');
+    const com = b.comune ? comunePerIstat(b.comune) : null;
+    if (b.comune && !com) throw httpErr(400, 'comune inesistente');
     return (await pool.query(
-      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, data_fine, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato, livello, regione) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,nullif(trim($10),''),$11,$12,$13,$14) returning *`,
-      [b.codice, b.nome, tipo, b.titolo_stampa, b.luogo, b.data, b.data_fine || null, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, ente.comitato ?? comitato, ente.livello, ente.regione])).rows[0];
+      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, data_fine, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato, livello, regione, comune_istat, luogo_provincia, luogo_regione, lat, lng) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,nullif(trim($10),''),$11,$12,$13,$14,$15,$16,$17,$18,$19) returning *`,
+      [b.codice, b.nome, tipo, b.titolo_stampa, com ? etichettaLuogo(com) : b.luogo, b.data, b.data_fine || null, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, ente.comitato ?? comitato, ente.livello, ente.regione, com?.istat ?? null, com?.provincia ?? null, com?.regione ?? null, com?.lat ?? null, com?.lng ?? null])).rows[0];
   });
   // un solo evento attivo alla volta (nel vecchio sistema se ne potevano attivare due)
   app.post('/api/eventi/:id/attiva', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {

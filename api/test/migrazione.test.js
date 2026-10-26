@@ -57,7 +57,7 @@ test('preparaDatabase: su un database vuoto crea lo schema, poi non fa nulla; su
   const log = []; const l = (m) => log.push(m);
   await preparaDatabase(pool, l); await preparaDatabase(pool, l);
   assert.deepEqual(log, ['schema creato', 'schema già aggiornato']);
-  assert.equal((await pool.query('select count(*)::int n from schema_migrazioni')).rows[0].n, 37);
+  assert.equal((await pool.query('select count(*)::int n from schema_migrazioni')).rows[0].n, 38);
   assert.equal((await pool.query(`select count(*)::int n from pg_enum e join pg_type t on t.oid=e.enumtypid where t.typname='ruolo_utente' and enumlabel='giudice_master'`)).rows[0].n, 1);
   await Promise.all([preparaDatabase(pool, l), preparaDatabase(pool, l)]);   // due avvii contemporanei non si pestano i piedi
   await pool.end();

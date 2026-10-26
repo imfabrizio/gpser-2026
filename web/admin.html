@@ -99,6 +99,34 @@ async function api(path, opt = {}) {
 }
 const flash = (testo, ok = true) => { const d = document.createElement('div'); d.className = 'msg ' + (ok ? 'ok' : 'err'); d.textContent = testo;
   document.body.append(d); setTimeout(() => d.remove(), ok ? 3000 : 8000); };
+
+// Selettore del luogo: regione → provincia → comune (con ricerca). Le coordinate si ricavano dal comune scelto.
+const htmlComune = (p) => `<div class="riga"><div><label>Regione</label><select id="${p}_reg"><option value="">—</option></select></div>
+  <div><label>Provincia</label><select id="${p}_prov"><option value="">—</option></select></div>
+  <div><label>Cerca il comune</label><input id="${p}_q" placeholder="scrivi il nome" autocomplete="off"></div>
+  <div><label>Comune</label><select id="${p}_com"><option value="">— scegli regione, provincia o cerca —</option></select></div></div>`;
+async function attivaComune(p, ini = {}) {
+  const $r = $('#' + p + '_reg'), $p = $('#' + p + '_prov'), $q = $('#' + p + '_q'), $c = $('#' + p + '_com');
+  const opt = (v, t, sel) => `<option value="${esc(v)}" ${sel ? 'selected' : ''}>${esc(t)}</option>`;
+  const caricaComuni = async (selIstat) => {
+    const qs = new URLSearchParams({ regione: $r.value, provincia: $p.value, q: $q.value.trim(), limite: 300 });
+    if (!$r.value && !$p.value && $q.value.trim().length < 2 && !selIstat) { $c.innerHTML = '<option value="">— scegli regione, provincia o cerca —</option>'; return; }
+    const l = await api('/comuni?' + qs);
+    $c.innerHTML = '<option value="">— scegli il comune —</option>' + l.map((c) => opt(c.istat, `${c.nome} (${c.sigla})${$r.value ? '' : ' · ' + c.regione}`, c.istat === selIstat)).join('');
+    if (l.length === 1 && !selIstat) { $c.value = l[0].istat; $c.dispatchEvent(new Event('change')); }
+  };
+  const caricaProvince = async (selNome) => {
+    const l = await api('/comuni/province?regione=' + encodeURIComponent($r.value));
+    $p.innerHTML = '<option value="">—</option>' + l.map((x) => opt(x.sigla, x.nome, selNome && x.nome === selNome)).join('');
+  };
+  $r.innerHTML = '<option value="">—</option>' + (await api('/comuni/regioni')).map((x) => opt(x, x, x === ini.regione)).join('');
+  await caricaProvince(ini.provincia);
+  if (ini.istat) await caricaComuni(ini.istat);
+  $r.onchange = async () => { await caricaProvince(); $q.value = ''; await caricaComuni(); };
+  $p.onchange = async () => { $q.value = ''; await caricaComuni(); };
+  let t; $q.oninput = () => { clearTimeout(t); t = setTimeout(() => caricaComuni().catch(() => {}), 250); };
+  if (ini.onChange) $c.addEventListener('change', () => ini.onChange($c.value));
+}
 const fai = async (fn, okMsg) => { try { await fn(); await render(); if (okMsg) flash(okMsg); } catch (e) { flash(e.message, false); } };
 // nella Formazione le squadre si chiamano equipaggi
 const SOSTITUZIONI = [[/\btutte le squadre\b/g, 'tutti gli equipaggi'], [/\bdelle squadre\b/g, 'degli equipaggi'], [/\bdalle squadre\b/g, 'dagli equipaggi'], [/\balle squadre\b/g, 'agli equipaggi'], [/\b(L|l)e squadre\b/g, (m, a) => (a === 'L' ? 'Gli' : 'gli') + ' equipaggi'], [/\bSquadre \(1 attive\)/g, 'Equipaggi (1 attivo)'], [/\b(Nuova|nuova) squadra\b/g, (m, a) => (a === 'Nuova' ? 'Nuovo' : 'nuovo') + ' equipaggio'], [/\b(Una|una) squadra\b/g, (m, a) => (a === 'Una' ? 'Un' : 'un') + ' equipaggio'], [/\b(Una|una) o più squadre\b/g, (m, a) => (a === 'Una' ? 'Uno' : 'uno') + ' o più equipaggi'],
@@ -170,13 +198,14 @@ async function tEvento() {
   <div class="card"><h3>${fam === 'corsi' ? 'Dati dell\'evento' : 'Dati della gara'} ${ev.attivo ? '<span class="tag ok">attivo</span>' : ''}</h3>
     <div class="riga"><div><label>Codice</label><input id="e_cod" value="${esc(ev.codice)}"></div><div><label>Nome</label><input id="e_nome" value="${esc(ev.nome)}"></div>
       <div><label>Titolo in stampa</label><input id="e_tit" value="${esc(ev.titolo_stampa || '')}"></div></div>
-    <div class="riga"><div><label>Luogo</label><input id="e_luogo" value="${esc(ev.luogo || '')}"></div>
-      <div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
+    <p class="nota" style="margin:0 0 4px"><b>Luogo:</b> ${esc(ev.luogo || 'non indicato')} ${ev.comune_istat ? '' : (ev.luogo ? '<span class="tag no">non scelto dall\'elenco</span>' : '')}</p>
+    ${htmlComune('lc')}
+    <div class="riga"><div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
       <div><label>Ultimo giorno (se dura più giorni)</label><input id="e_dfine" type="date" value="${esc(ev.data_fine || '')}"></div>
       <div><label>Tipo</label><select id="e_tipo">${FAM_TIPI[fam === 'corsi' ? 'corsi' : 'gara'].map((t) => `<option value="${t}" ${ev.tipo === t ? 'selected' : ''}>${NOME_TIPO[t] || t}</option>`).join('')}</select></div></div>
-    ${fam === 'corsi' ? '' : `<div class="riga"><div><label>Coordinate della città ${ev.lat != null ? '<span class="tag ok">ricavate</span>' : '<span class="tag no">mancanti</span>'}</label><div class="riga" style="gap:6px"><input id="e_lat" value="${ev.lat != null ? esc(ev.lat + ', ' + ev.lng) : ''}" readonly placeholder="si ricavano dal luogo"><div class="stretto"><button class="s" id="e_geo">Ricava dal luogo</button></div></div></div>
+    ${fam === 'corsi' ? '' : `<div class="riga"><div><label>Coordinate del comune ${ev.lat != null ? '<span class="tag ok">ricavate</span>' : '<span class="tag no">mancanti</span>'}</label><input id="e_lat" value="${ev.lat != null ? esc(ev.lat + ', ' + ev.lng) : ''}" readonly placeholder="si ricavano dal comune scelto"></div>
       <div><label>Coordinate della segreteria (arrivi e registrazioni)</label><input id="e_seg" value="${ev.segreteria_lat != null ? esc(ev.segreteria_lat + ', ' + ev.segreteria_lng) : ''}" placeholder="44.4056, 10.5912 (da Google Maps: tasto destro sul punto)"></div></div>
-      ${me.ruolo === 'admin' ? '<p><button class="s" id="e_geo_tutte">Ricava le coordinate di tutte le gare già caricate</button></p>' : ''}`}
+      ${me.ruolo === 'admin' ? '<p><button class="s" id="e_geo_tutte">Associa i comuni alle gare già caricate</button></p>' : ''}`}
     ${fam === 'corsi' ? `<div class="riga"><div><label>N° corso su Gaia</label><input id="e_gaia" value="${esc(ev.codice_gaia || '')}"></div>
       <div><label>Corso di riferimento</label><select id="e_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato && x.id !== ev.id).map((x) => `<option value="${x.id}" ${x.id === ev.corso_id ? 'selected' : ''}>${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>` : ''}
     <div class="riga"><div><label>Soglia di superamento (%) — vuota se non serve</label><input id="e_soglia" type="number" min="1" max="100" value="${esc(ev.soglia_pct ?? '')}"></div>
@@ -195,9 +224,10 @@ async function tEvento() {
   <div class="card"><h3>${fam === 'corsi' ? 'Nuovo evento' : 'Nuova gara'}</h3><div class="riga">
     <div><label>Nome</label><input id="n_nome" placeholder="GPSER 2027"></div><div><label>Codice (se vuoto, ricavato dal nome)</label><input id="n_cod" placeholder="GPSER-2027"></div>
     <div><label>Tipo</label><select id="n_tipo">${fam === 'corsi' ? '<option value="corso">corso</option><option value="megacode">mega code (formativo)</option><option value="esame">esame (soglia 75%)</option>' : '<option value="gara">gara</option><option value="olimpiadi">olimpiadi</option><option value="allenamento">allenamento</option><option value="corso_giudici">corso giudici</option>'}</select></div>
-    <div><label>Luogo</label><input id="n_luogo"></div><div><label>Data</label><input id="n_data" type="date"></div>
+    <div><label>Data</label><input id="n_data" type="date"></div>
     ${fam === 'corsi' ? '<div><label>N° corso su Gaia</label><input id="n_gaia" placeholder="es. 12345"></div>' : ''}
     ${fam !== 'corsi' ? '' : `<div><label>Corso di riferimento (Mega Code, esami)</label><select id="n_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato).map((x) => `<option value="${x.id}">${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div>`}</div>
+    <p class="nota" style="margin:8px 0 0"><b>Luogo</b> (comune dell'evento)</p>${htmlComune('nc')}
     <p><button class="b" id="n_crea">Crea evento</button></p></div>`;
   if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});
   legaSelettore();
@@ -216,22 +246,23 @@ async function tEvento() {
       $('#ci_ok').onclick = () => fai(async () => { inv = await api(`/eventi/${ev.id}/comitati-invitati`, { method: 'PUT', body: { comitati: inv } }); disegnaInv(); }, 'Inviti salvati'); }
   }
   if (ev) {
-    $('#e_salva').onclick = () => fai(async () => { const luogoPrima = ev.luogo || ''; await api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
-      luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia').value, mostra_punteggi: $('#e_mp').checked, codice_gaia: $('#e_gaia')?.value ?? ev.codice_gaia, corso_id: $('#e_corso') ? $('#e_corso').value || null : ev.corso_id } })
+    attivaComune('lc', { istat: ev.comune_istat, regione: ev.luogo_regione, provincia: ev.luogo_provincia }).catch((e) => flash(e.message, false));
+    $('#e_salva').onclick = () => fai(async () => { await api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
+      luogo: ev.luogo || '', data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia').value, mostra_punteggi: $('#e_mp').checked, codice_gaia: $('#e_gaia')?.value ?? ev.codice_gaia, corso_id: $('#e_corso') ? $('#e_corso').value || null : ev.corso_id } })
       .then(() => api(`/eventi/${ev.id}/data-fine`, { method: 'PUT', body: { data_fine: $('#e_dfine').value || null } }))
-      .then(() => (me.ruolo === 'admin' ? api(`/eventi/${ev.id}/ente`, { method: 'PUT', body: { livello: $('#e_liv').value, comitato: $('#e_comp').value.trim(), regione: $('#e_reg').value } }) : null)).then(caricaEventi);
-      if (fam !== 'corsi' && $('#e_luogo') && $('#e_luogo').value.trim() && $('#e_luogo').value !== luogoPrima) { await api(`/eventi/${ev.id}/posizione`, { method: 'PUT', body: { ricava: true } }).catch(() => {}); await caricaEventi(); }   // luogo cambiato: si aggiornano le coordinate
+      .then(() => (me.ruolo === 'admin' ? api(`/eventi/${ev.id}/ente`, { method: 'PUT', body: { livello: $('#e_liv').value, comitato: $('#e_comp').value.trim(), regione: $('#e_reg').value } }) : null))
+      .then(() => ($('#lc_com').value && $('#lc_com').value !== ev.comune_istat ? api(`/eventi/${ev.id}/posizione`, { method: 'PUT', body: { comune: $('#lc_com').value } }) : null)).then(caricaEventi);
     }, 'Salvato');
-    if ($('#e_geo')) $('#e_geo').onclick = () => fai(async () => { await api(`/eventi/${ev.id}/posizione`, { method: 'PUT', body: { ricava: true } }); await caricaEventi(); ev = eventi.find((x) => x.id === ev.id) || ev; }, 'Coordinate della città ricavate');
     if ($('#e_seg')) $('#e_seg').onchange = () => fai(async () => { await api(`/eventi/${ev.id}/posizione`, { method: 'PUT', body: { segreteria: $('#e_seg').value.trim() } }); await caricaEventi(); ev = eventi.find((x) => x.id === ev.id) || ev; }, 'Coordinate della segreteria salvate');
-    if ($('#e_geo_tutte')) $('#e_geo_tutte').onclick = async () => { $('#e_geo_tutte').disabled = true; $('#e_geo_tutte').textContent = 'Ricavo le coordinate… (circa un secondo per gara)';
-      try { const r = await api('/eventi/ricava-coordinate', { body: {} }); await caricaEventi(); ev = eventi.find((x) => x.id === ev.id) || ev; flash(`${r.fatti.length} gare con le coordinate${r.mancanti.length ? ' · non trovate: ' + r.mancanti.join('; ') : ''}`, !r.mancanti.length); render(); } catch (e) { flash(e.message, false); render(); } };
+    if ($('#e_geo_tutte')) $('#e_geo_tutte').onclick = async () => { $('#e_geo_tutte').disabled = true; $('#e_geo_tutte').textContent = 'Associo i comuni…';
+      try { const r = await api('/eventi/ricava-coordinate', { body: {} }); await caricaEventi(); ev = eventi.find((x) => x.id === ev.id) || ev; flash(`${r.fatti.length} gare associate a un comune${r.mancanti.length ? ' · da scegliere a mano: ' + r.mancanti.join('; ') : ''}`, !r.mancanti.length); render(); } catch (e) { flash(e.message, false); render(); } };
     $('#e_attiva').onclick = () => fai(() => api(`/eventi/${ev.id}/attiva`, { method: 'POST', body: {} }).then(caricaEventi), 'Evento attivato');
     $('#e_arch').onclick = () => { if (confirm('Archiviare questo evento? Sparisce dagli elenchi ma i dati restano.')) fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { archiviato: true } }).then(caricaEventi), 'Archiviato'); };
     $('#e_map_ok').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { mappa_url: $('#e_map').value.trim() } }).then(caricaEventi), 'Mappa salvata');
   }
+  attivaComune('nc').catch((e) => flash(e.message, false));
   $('#n_crea').onclick = () => fai(async () => {
-    const e = await api('/eventi', { body: { codice: $('#n_cod').value.trim() || $('#n_nome').value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: $('#n_tipo').value, nome: $('#n_nome').value.trim(), titolo_stampa: $('#n_nome').value.trim(), luogo: $('#n_luogo').value, data: $('#n_data').value || null, codice_gaia: $('#n_gaia')?.value || null, corso_id: $('#n_corso')?.value || null } });
+    const e = await api('/eventi', { body: { codice: $('#n_cod').value.trim() || $('#n_nome').value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: $('#n_tipo').value, nome: $('#n_nome').value.trim(), titolo_stampa: $('#n_nome').value.trim(), comune: $('#nc_com').value || undefined, data: $('#n_data').value || null, codice_gaia: $('#n_gaia')?.value || null, corso_id: $('#n_corso')?.value || null } });
     await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_' + fam, ev.id);
   }, fam === 'corsi' ? 'Evento creato' : 'Gara creata');
 }

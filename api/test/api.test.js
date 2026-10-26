@@ -1476,14 +1476,17 @@ test('GEO-1: pagina pubblica solo gare/olimpiadi nella finestra di tre mesi; coo
   const nomi = json(await chiama('GET', '/api/pubblico')).eventi.map((e) => e.nome);
   assert.ok(nomi.includes('GEO-VICINA') && nomi.includes('GEO-PASSATA'));
   assert.ok(!nomi.includes('GEO-LONTANA') && !nomi.includes('GEO-VECCHIA') && !nomi.includes('GEO-CORSO'));
-  // coordinate della città (servizio simulato) e della segreteria (scritte a mano)
-  const f0 = globalThis.fetch; globalThis.fetch = async (u, o) => String(u).includes('nominatim') ? { ok: true, json: async () => [{ lat: '45.0526', lon: '9.6930', display_name: 'Piacenza' }] } : f0(u, o);
-  try {
-    const p = json(await chiama('PUT', `/api/eventi/${g1.id}/posizione`, { token: adm, body: { ricava: true, segreteria: '44.4056, 10.5912' } }));
-    assert.equal(Number(p.lat), 45.0526); assert.equal(Number(p.segreteria_lng), 10.5912);
-    assert.equal((await chiama('PUT', `/api/eventi/${g1.id}/posizione`, { token: adm, body: { segreteria: 'boh' } })).statusCode, 400);
-    const r = json(await chiama('POST', '/api/eventi/ricava-coordinate', { token: adm, body: {} }));
-    assert.ok(r.fatti.some((x) => x.startsWith('GEO-LONTANA')));
-  } finally { globalThis.fetch = f0; }
-  assert.equal(Number(json(await chiama('GET', '/api/pubblico')).eventi.find((e) => e.nome === 'GEO-VICINA').lat), 45.0526);
+  // il comune si sceglie dall'elenco (regione → provincia → comune): le coordinate vengono da lì
+  const reg = json(await chiama('GET', '/api/comuni/regioni', { token: adm })); assert.ok(reg.includes('Emilia-Romagna'));
+  const prov = json(await chiama('GET', '/api/comuni/province?regione=Emilia-Romagna', { token: adm })); assert.ok(prov.some((x) => x.sigla === 'PC'));
+  const pc = json(await chiama('GET', '/api/comuni?provincia=PC&q=piacenza', { token: adm })).find((c) => c.nome === 'Piacenza'); assert.ok(pc && pc.lat > 44 && pc.lat < 46);
+  assert.equal((await chiama('PUT', `/api/eventi/${g1.id}/posizione`, { token: adm, body: { comune: '999999' } })).statusCode, 404);
+  const p = json(await chiama('PUT', `/api/eventi/${g1.id}/posizione`, { token: adm, body: { comune: pc.istat, segreteria: '44.4056, 10.5912' } }));
+  assert.equal(Number(p.lat), pc.lat); assert.equal(p.luogo, 'Piacenza (PC)'); assert.equal(p.luogo_regione, 'Emilia-Romagna'); assert.equal(Number(p.segreteria_lng), 10.5912);
+  assert.equal((await chiama('PUT', `/api/eventi/${g1.id}/posizione`, { token: adm, body: { segreteria: 'boh' } })).statusCode, 400);
+  const r = json(await chiama('POST', '/api/eventi/ricava-coordinate', { token: adm, body: {} }));
+  assert.ok(r.fatti.some((x) => x.startsWith('GEO-LONTANA')));
+  const nuovoCom = json(await chiama('POST', '/api/eventi', { token: adm, body: { codice: 'GEO-COM', nome: 'GEO-COM', tipo: 'gara', comune: pc.istat, data: new Date(Date.now() + 5 * 86400e3).toISOString().slice(0, 10) } }));
+  assert.equal(nuovoCom.luogo, 'Piacenza (PC)'); assert.equal(Number(nuovoCom.lat), pc.lat);
+  assert.equal(Number(json(await chiama('GET', '/api/pubblico')).eventi.find((e) => e.nome === 'GEO-VICINA').lat), pc.lat);
 });
