@@ -10,6 +10,7 @@ import { registraGestione } from './routes-gestione.js';
 import { registraTurni } from './routes-turni.js';
 import { enteUtente, regioneDelComitato, puoVedereEvento, accessoEvento, èApprovatore } from './enti.js';
 import { trovaDoppioni, unisci, ignora } from './services/accorpamenti.js';
+import { confronta, revisioni, proposteRaggruppamento, raggruppa, salvaRevisioneDaScena } from './services/revisioni.js';
 import { proponi, approva, rifiuta, tutteLeRegioni, impostaCondivisione } from './services/promozioni.js';
 import { importaCanovaccio } from './services/canovaccio.js';
 import { creaCanovaccio } from './pdf/canovaccio.js';
@@ -319,6 +320,12 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   // ── doppioni in libreria ──
   app.get('/api/libreria/doppioni', { preHandler: soloOrg }, async (req) => trovaDoppioni(pool, req.utente));
   app.post('/api/libreria/doppioni/ignora', { preHandler: soloOrg }, async (req) => ignora(pool, req.utente, req.body?.a, req.body?.b));
+  // ── revisioni delle schede ──
+  app.get('/api/libreria/patologie/:id/revisioni', { preHandler: soloOrg }, async (req) => revisioni(pool, req.utente, req.params.id));
+  app.get('/api/libreria/confronta', { preHandler: soloOrg }, async (req) => confronta(pool, req.utente, req.query.a, req.query.b));
+  app.get('/api/libreria/raggruppamenti', { preHandler: soloOrg }, async (req) => proposteRaggruppamento(pool, req.utente));
+  app.post('/api/libreria/raggruppamenti', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => raggruppa(db, req.utente, req.body?.base, req.body?.revisione, { allinea: req.body?.allinea === true })));
+  app.post('/api/schede/:id/revisione', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => salvaRevisioneDaScena(db, req.utente, req.params.id, req.body || {})));
   app.post('/api/libreria/patologie/:id/unisci', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => unisci(db, req.utente, req.params.id, req.body?.in)));
   // ── dal comitato alla regione: proposte, approvazione, catalogo e condivisione ──
   const regioneMia = async (req) => (await enteUtente(pool, req.utente)).regione;
@@ -552,11 +559,13 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     return (await pool.query(
     `select p.*, (select count(*) from patologia_voce where patologia_id=p.id) as voci,
        (select nome from utente where id = p.creata_da) as autore,
+       (select count(*)::int from patologia q where q.gruppo_id = p.gruppo_id) as revisioni,
        (select coalesce(jsonb_agg(jsonb_build_object('evento', x.nome, 'codice', x.codice, 'luogo', x.luogo, 'data', to_char(x.data, 'YYYY-MM-DD')) order by x.data desc nulls last), '[]'::jsonb)
           from (select distinct e.id, e.nome, e.codice, e.luogo, e.data from scena_scheda ss join scena s on s.id = ss.scena_id join evento e on e.id = s.evento_id where ss.patologia_id = p.id) x) as usi
        from patologia p where (p.comitato is null or $1::boolean or lower(trim(p.comitato)) = lower(trim($2::text))) and (not p.bozza or p.creata_da = $3::uuid)
+         and ($7::boolean or p.revisione = (select max(revisione) from patologia q where q.gruppo_id = p.gruppo_id))
          and (p.regione is null or $4::boolean or exists (select 1 from condivisione c where c.tipo='patologia' and c.risorsa_id=p.id and c.regione=$5::text and ($6::boolean or c.comitati))) order by nome`,
-      [tutte, mio, req.utente.id, !!req.utente.admin, (await enteUtente(pool, req.utente)).regione, èApprovatore(req.utente)])).rows;
+      [tutte, mio, req.utente.id, !!req.utente.admin, (await enteUtente(pool, req.utente)).regione, èApprovatore(req.utente), req.query.tutte === '1'])).rows;
   });
   app.get('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => { await controllaScheda(pool, req.utente, req.params.id, { modifica: false }); return (await pool.query(
     `select pv.ordine, pv.sezione, v.testo, sp.codice as scala, pv.is_sep from patologia_voce pv
@@ -751,7 +760,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       else if (err.code.startsWith('22') || err.code.startsWith('23')) { status = 400; msg = 'dati non validi'; }
     }
     if (status >= 500) { req.log.error(err); msg = 'errore interno'; }
-    reply.code(status).send({ errore: msg });
+    reply.code(status).send({ errore: msg, ...(err.dettaglio && status < 500 ? { dettaglio: err.dettaglio } : {}) });
   });
 
   app.register(fastifyStatic, { root: fileURLToPath(new URL('../../web', import.meta.url)) });

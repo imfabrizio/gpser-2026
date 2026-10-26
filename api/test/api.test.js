@@ -1586,3 +1586,67 @@ test('TURNI-1: rotazione, gara online (apri/chiudi scena) e stati di avanzamento
   assert.equal(av.celle[q[1].numero].TA.stato, 'prossima');
   assert.equal((await chiama('POST', `/api/scene/${A.id}/apri`, { token: org, body: { squadra_id: q[0].id } })).statusCode, 409);   // già fatta
 });
+
+import { confrontaVoci } from '../src/services/revisioni.js';
+test('REV-U: confronto schede per contenuto — ordine, refusi, soglie', () => {
+  const mk = (...t) => t.map((testo) => ({ sezione: 'S', testo, mb: 2, be: null, su: 1, in: null, ne: 0 }));
+  const base = mk('si guarda attorno', 'valuta lo stato di coscienza', 'chiama il 112', 'controlla il respiro');
+  const inv = confrontaVoci(base, mk('chiama il 112', 'si guarda attorno', 'controlla il respiro', 'valuta lo stato di coscienza'));
+  assert.equal(inv.riepilogo.ordine_diverso, true); assert.equal(inv.somiglianza, 1); assert.equal(inv.esito, 'stessa');
+  const refuso = confrontaVoci(base, mk('si guarda attorno', 'valuta lo stato di conoscienza', 'chiama il 112', 'controlla il respiro'));
+  assert.equal(refuso.riepilogo.ritoccate, 1); assert.equal(refuso.riepilogo.aggiunte, 0); assert.equal(refuso.esito, 'stessa');
+  const una = confrontaVoci(base, mk('si guarda attorno', 'valuta lo stato di coscienza', 'chiama il 112', 'controlla il respiro', 'toglie il cellulare'));
+  assert.equal(una.riepilogo.aggiunte, 1); assert.equal(una.esito, 'stessa');            // 4/5 = 0.8, scheda corta: soglia 80%
+  const molte = confrontaVoci(base, mk('si guarda attorno', 'altro', 'ancora altro', 'e un altro'));
+  assert.equal(molte.esito, 'separate');
+});
+
+test('REV-1: revisioni di una scheda — nuova revisione dalla scena, confronto, correzione con avviso', async () => {
+  const org = tok['org@t'];
+  const pat = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'REV_PROVA', nome: 'Agitato revisioni', sigla: 'AGP', voci: [
+    { sezione: 'Valutazione', testo: 'Si guarda attorno', scala: 'Standard' }, { sezione: 'Valutazione', testo: 'Valuta lo stato di coscienza', scala: 'Standard' }, { sezione: 'Gestione', testo: 'Chiama il 112', scala: 'Standard' }] } }));
+  const sc = (c) => chiama('POST', `/api/eventi/${ev}/scene`, { token: org, body: { codice: c, titolo: 'Revisioni ' + c, ordine: 97 } }).then(json);
+  const [S1, S2] = [await sc('RA'), await sc('RB')];
+  const k1 = json(await chiama('POST', `/api/scene/${S1.id}/schede`, { token: org, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } }));
+  const k2 = json(await chiama('POST', `/api/scene/${S2.id}/schede`, { token: org, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } }));
+  const v1 = json(await chiama('GET', `/api/schede/${k1.id}`, { token: org })).voci;
+  assert.equal((await chiama('PUT', `/api/schede/${k1.id}/voci/${v1[1].ordine}`, { token: org, body: { testo: 'Valuta lo stato di conoscienza' } })).statusCode, 200);   // refuso
+  await chiama('POST', `/api/schede/${k1.id}/voci`, { token: org, body: { sezione: 'Gestione', testo: 'Toglie il cellulare', scala: 'Standard' } });
+  // nuova revisione: la scheda della scena passa alla revisione 2, la libreria mostra una sola scheda
+  const r2 = json(await chiama('POST', `/api/schede/${k1.id}/revisione`, { token: org, body: { modo: 'nuova' } }));
+  assert.equal(r2.revisione, 2);
+  const rev = json(await chiama('GET', `/api/libreria/patologie/${pat.id}/revisioni`, { token: org }));
+  assert.equal(rev.length, 2); assert.equal(rev[1].cambi.ritoccate, 1); assert.equal(rev[1].cambi.aggiunte, 1); assert.equal(rev[1].origine.nome.length > 0, true);
+  const lib = json(await chiama('GET', '/api/libreria/patologie', { token: org })).filter((p) => p.nome === 'Agitato revisioni');
+  assert.equal(lib.length, 1); assert.equal(lib[0].id, r2.id); assert.equal(lib[0].revisioni, 2);
+  assert.equal(json(await chiama('GET', '/api/libreria/patologie?tutte=1', { token: org })).filter((p) => p.nome === 'Agitato revisioni').length, 2);
+  const cf = json(await chiama('GET', `/api/libreria/confronta?a=${pat.id}&b=${r2.id}`, { token: org }));
+  assert.deepEqual(cf.righe.filter((r) => r.tipo !== 'uguale').map((r) => r.tipo).sort(), ['aggiunta', 'ritoccata']);
+  // correzione della revisione 2 dalla scena 1: la scena 2 usa ancora la revisione 1, quindi non cambia
+  assert.equal((await chiama('PUT', `/api/schede/${k2.id}/voci/${v1[0].ordine}`, { token: org, body: { testo: 'Si guarda attorno e sceglie un posto sicuro' } })).statusCode, 200);
+  const k3 = json(await chiama('POST', `/api/scene/${S2.id}/schede`, { token: org, body: { patologiaId: r2.id, slot: 2, simulatore: '02' } }));   // altra scena non giocata sulla revisione 2
+  await chiama('PUT', `/api/schede/${k1.id}/voci/1`, { token: org, body: { testo: 'Si guarda attorno (corretto)' } });
+  const avviso = await chiama('POST', `/api/schede/${k1.id}/revisione`, { token: org, body: { modo: 'correggi' } });
+  assert.equal(avviso.statusCode, 409); assert.equal(json(avviso).dettaglio.aggiornate.length, 1);
+  const ok = json(await chiama('POST', `/api/schede/${k1.id}/revisione`, { token: org, body: { modo: 'correggi', conferma: true } }));
+  assert.equal(ok.aggiornate, 1); assert.equal(ok.revisione, 2);
+  assert.equal(json(await chiama('GET', `/api/schede/${k3.id}`, { token: org })).voci[0].testo, 'Si guarda attorno (corretto)');
+  assert.equal(json(await chiama('GET', `/api/libreria/patologie/${pat.id}/revisioni`, { token: org })).length, 2);   // nessuna nuova revisione
+  // solo l'organizzazione
+  assert.equal((await chiama('POST', `/api/schede/${k1.id}/revisione`, { token: tok['giu@t'], body: { modo: 'nuova' } })).statusCode, 403);
+});
+
+test('REV-2: proposte di raggruppamento tra schede simili e unione in revisioni', async () => {
+  const org = tok['org@t'];
+  const voci = (extra) => ['Si guarda attorno', 'Valuta la coscienza', 'Chiama il 112', 'Controlla il respiro', 'Posiziona il paziente', 'Rileva i parametri', 'Riferisce al team leader', ...extra].map((testo) => ({ sezione: 'G', testo, scala: 'Standard' }));
+  const a = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'RAGG_A', nome: 'Ragg uno', sigla: 'RGA', voci: voci([]) } }));
+  const b = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'RAGG_B', nome: 'Ragg due', sigla: 'RGB', voci: voci(['Toglie il cellulare']).reverse() } }));
+  const prop = json(await chiama('GET', '/api/libreria/raggruppamenti', { token: org })).find((x) => [x.a.id, x.b.id].includes(a.id) && [x.a.id, x.b.id].includes(b.id));
+  assert.ok(prop); assert.equal(prop.esito, 'stessa'); assert.equal(prop.riepilogo.ordine_diverso, true);
+  assert.equal((await chiama('POST', '/api/libreria/raggruppamenti', { token: org, body: { base: a.id, revisione: b.id, allinea: true } })).statusCode, 200);
+  const rev = json(await chiama('GET', `/api/libreria/patologie/${a.id}/revisioni`, { token: org }));
+  assert.deepEqual(rev.map((r) => r.revisione), [1, 2]);
+  const cf = json(await chiama('GET', `/api/libreria/confronta?a=${a.id}&b=${b.id}`, { token: org }));
+  assert.equal(cf.riepilogo.ordine_diverso, false);          // dopo l'allineamento l'ordine coincide
+  assert.equal(json(await chiama('GET', '/api/libreria/raggruppamenti', { token: org })).some((x) => [x.a.id, x.b.id].includes(a.id) && [x.a.id, x.b.id].includes(b.id)), false);
+});
