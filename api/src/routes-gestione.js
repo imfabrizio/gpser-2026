@@ -231,13 +231,29 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
       return { ok: true, utente_id: uid };
     });
   });
-  app.delete('/api/persone/:id', { preHandler: soloOrg }, async (req) => {
-    const { rows: [x] } = await pool.query('select utente_id from partecipante where id=$1', [req.params.id]);
-    if (x?.utente_id) throw httpErr(409, 'la persona ha un accesso al sito: disattiva prima l\'utente');
-    try { await pool.query('delete from partecipante where id=$1', [req.params.id]); }
+  // elimina la persona e, se ce l'ha, anche l'accesso al sito: le valutazioni già registrate restano, senza il collegamento all'utente
+  app.delete('/api/persone/:id', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    const { rows: [x] } = await db.query('select p.utente_id, u.admin from partecipante p left join utente u on u.id=p.utente_id where p.id=$1 for update of p', [req.params.id]);
+    if (!x) throw httpErr(404, 'persona inesistente');
+    if (x.utente_id) {
+      if (x.utente_id === req.utente.id) throw httpErr(409, 'non puoi eliminare te stesso');
+      if (x.admin && !req.utente.admin) throw httpErr(403, 'un amministratore lo elimina solo un altro amministratore');
+      if (x.admin && (await db.query('select count(*)::int as n from utente where admin and attivo and id <> $1', [x.utente_id])).rows[0].n === 0) throw httpErr(409, 'è l\'ultimo amministratore');
+    }
+    try { await db.query('savepoint sp_p'); await db.query('delete from partecipante where id=$1', [req.params.id]); await db.query('release savepoint sp_p'); }
     catch (e) { if (e.code === '23503') throw httpErr(409, 'la persona fa parte di una squadra o è iscritta a una gara: toglila prima'); throw e; }
+    if (x.utente_id) {
+      const { rows: fk } = await db.query(
+        `select c.conrelid::regclass::text as tabella, a.attname as colonna, a.attnotnull as obbligatoria from pg_constraint c join pg_attribute a on a.attrelid=c.conrelid and a.attnum = any(c.conkey)
+          where c.contype='f' and c.confrelid='utente'::regclass and c.confdeltype='a'`);
+      for (const f of fk) {
+        if (f.obbligatoria) { const r = await db.query(`select 1 from ${f.tabella} where ${f.colonna}=$1 limit 1`, [x.utente_id]); if (r.rowCount) throw httpErr(409, `l'accesso è usato in ${f.tabella.replace(/_/g, ' ')}: non eliminabile`); }
+        else await db.query(`update ${f.tabella} set ${f.colonna}=null where ${f.colonna}=$1`, [x.utente_id]);
+      }
+      await db.query('delete from utente where id=$1', [x.utente_id]);
+    }
     return { ok: true };
-  });
+  }));
   app.get('/api/squadre/:id/membri', { preHandler: soloOrg }, async (req) => (await pool.query(
     `select m.partecipante_id, m.ruolo, p.cognome, p.nome, p.comitato, p.provincia, (select coalesce(array_agg(q.qualifica order by q.qualifica), '{}') from persona_qualifica q where q.partecipante_id = p.id) as qualifiche from squadra_membro m
        join partecipante p on p.id = m.partecipante_id where m.squadra_id=$1 order by p.cognome, p.nome`, [req.params.id])).rows);

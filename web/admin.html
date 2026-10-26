@@ -536,7 +536,7 @@ async function tPersone() {
   $('#pn').onclick = () => formPersona(null);
   document.querySelectorAll('.pr').forEach((c) => { c.onclick = () => formRuoli(lista.find((p) => p.id === c.dataset.id), ruoli); });
   document.querySelectorAll('.pe').forEach((b) => { b.onclick = () => formPersona(lista.find((p) => p.id === b.dataset.id)); });
-  document.querySelectorAll('.pd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la persona dall\'anagrafica?')) fai(() => api(`/persone/${b.dataset.id}`, { method: 'DELETE' }), 'Persona eliminata'); }; });
+  document.querySelectorAll('.pd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la persona dall\'anagrafica? Se ha un accesso al sito, viene eliminato anche quello.')) fai(() => api(`/persone/${b.dataset.id}`, { method: 'DELETE' }), 'Persona eliminata'); }; });
 }
 let QUALIFICHE = {};   // codice → nome, caricato da /api/qualifiche
 function formRuoli(p, ruoli) {

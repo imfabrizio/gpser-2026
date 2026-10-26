@@ -771,7 +771,7 @@ test('R-2 ruoli con aree, admin come spunta, anagrafica collegata agli utenti', 
   const p = (await pool.query('select comitato, utente_id, ruolo_gara from partecipante where cf_hash=$1', [hashCf(CF)])).rows;
   assert.equal(p.length, 1); assert.equal(p[0].comitato, 'Modena'); assert.equal(p[0].utente_id, ap.id); assert.equal(p[0].ruolo_gara, 'partecipante_leader');
   assert.equal((await pool.query(`select count(*)::int n from squadra_membro where squadra_id=$1 and ruolo='capo squadra'`, [sq.id])).rows[0].n, 1);
-  assert.equal((await chiama('DELETE', `/api/persone/${(await pool.query('select id from partecipante where utente_id=$1', [ap.id])).rows[0].id}`, { token: A })).statusCode, 409);   // ha un accesso
+  assert.equal((await chiama('DELETE', `/api/persone/${(await pool.query('select id from partecipante where utente_id=$1', [ap.id])).rows[0].id}`, { token: A })).statusCode, 409);   // è in una squadra
 });
 
 test('S-1 segreteria: iscritti, arrivi con ora e operatore, formati e PDF dei badge, area dedicata', async () => {
@@ -1649,4 +1649,16 @@ test('REV-2: proposte di raggruppamento tra schede simili e unione in revisioni'
   const cf = json(await chiama('GET', `/api/libreria/confronta?a=${a.id}&b=${b.id}`, { token: org }));
   assert.equal(cf.riepilogo.ordine_diverso, false);          // dopo l'allineamento l'ordine coincide
   assert.equal(json(await chiama('GET', '/api/libreria/raggruppamenti', { token: org })).some((x) => [x.a.id, x.b.id].includes(a.id) && [x.a.id, x.b.id].includes(b.id)), false);
+});
+
+test('PERS-DEL: eliminando la persona sparisce anche l\'accesso; le valutazioni restano', async () => {
+  const org = tok['org@t'];
+  const uid = await nuovoUtente('canc@t', 'giudice');
+  const { rows: [p] } = await pool.query(`insert into partecipante (cognome, nome, utente_id) values ('Da cancellare','Gino',$1) returning id`, [uid]);
+  const { rows: [r] } = await pool.query(`select s.id as scheda, sq.id as squadra from scena_scheda s join scena sc on sc.id=s.scena_id join squadra sq on sq.evento_id=sc.evento_id where sc.evento_id=$1 and not exists (select 1 from compilazione c where c.scheda_id=s.id and c.squadra_id=sq.id) limit 1`, [ev]);
+  await pool.query(`insert into compilazione (scheda_id, squadra_id, stato, giudice, giudice_id) values ($1,$2,'completata','Gino',$3)`, [r.scheda, r.squadra, uid]);
+  assert.equal((await chiama('DELETE', `/api/persone/${p.id}`, { token: org })).statusCode, 200);
+  assert.equal((await pool.query('select count(*)::int n from utente where id=$1', [uid])).rows[0].n, 0);
+  assert.equal((await pool.query('select giudice_id from compilazione where scheda_id=$1 and squadra_id=$2', [r.scheda, r.squadra])).rows[0].giudice_id, null);
+  assert.equal((await chiama('GET', '/api/me', { token: tok['canc@t'] })).statusCode, 401);
 });
