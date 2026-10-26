@@ -1506,3 +1506,26 @@ test('MON-1: avanzamento con scene di sosta; scheda aperta = in corso, tutte chi
   assert.equal(c.stato, c.totali === 1 ? 'fatta' : 'in_corso');
   assert.equal((await chiama('GET', `/api/eventi/${ev}/avanzamento`, { token: tok['giu@t'] })).statusCode, 403);
 });
+
+test('SCH-ED: modifica della scheda di una scena (voci, sezione) e anteprima PDF', async () => {
+  const org = tok['org@t'];
+  const sc = json(await chiama('POST', `/api/eventi/${ev}/scene`, { token: org, body: { codice: 'ZZ', titolo: 'Prova modifica', ordine: 98 } }));
+  const pat = json(await chiama('GET', '/api/libreria/patologie', { token: org })).find((p) => !p.bozza && !p.is_master);
+  const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: org, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } }));
+  const prima = json(await chiama('GET', `/api/schede/${k.id}`, { token: org })).voci;
+  const scala = json(await chiama('GET', '/api/libreria/scale', { token: org }))[0];
+  const nuova = json(await chiama('POST', `/api/schede/${k.id}/voci`, { token: org, body: { sezione: prima[0].sezione, testo: 'Voce aggiunta', scala: scala.codice, dopo: prima[0].ordine } }));
+  assert.equal(nuova.ordine, prima[0].ordine + 1);
+  const dopo = json(await chiama('GET', `/api/schede/${k.id}`, { token: org })).voci;
+  assert.equal(dopo.length, prima.length + 1); assert.equal(dopo[1].testo, 'Voce aggiunta'); if (prima[1]) assert.equal(dopo[2].testo, prima[1].testo);
+  assert.equal((await chiama('PUT', `/api/schede/${k.id}/sezione`, { token: org, body: { da: prima[0].sezione, a: 'Sezione nuova' } })).statusCode, 200);
+  assert.equal((await chiama('PUT', `/api/schede/${k.id}/voci/${nuova.ordine}`, { token: org, body: { testo: 'Voce corretta' } })).statusCode, 200);
+  const pdf = await chiama('GET', `/api/schede/${k.id}/anteprima.pdf`, { token: org }); assert.equal(pdf.statusCode, 200); assert.match(pdf.headers['content-type'], /pdf/);
+  assert.equal((await chiama('GET', `/api/schede/${k.id}/anteprima.pdf`, { token: tok['giu@t'] })).statusCode, 403);
+  assert.equal((await chiama('DELETE', `/api/schede/${k.id}/voci/${nuova.ordine}`, { token: org })).statusCode, 200);
+  assert.equal(json(await chiama('GET', `/api/schede/${k.id}`, { token: org })).voci.length, prima.length);
+  // con una valutazione registrata non si aggiungono voci
+  const { rows: [sq] } = await pool.query('select id from squadra where evento_id=$1 and attiva limit 1', [ev]);
+  await pool.query(`insert into compilazione (scheda_id, squadra_id, stato) values ($1,$2,'bozza')`, [k.id, sq.id]);
+  assert.equal((await chiama('POST', `/api/schede/${k.id}/voci`, { token: org, body: { sezione: 'X', testo: 'Y', scala: scala.codice } })).statusCode, 409);
+});

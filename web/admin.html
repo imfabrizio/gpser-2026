@@ -565,7 +565,7 @@ async function tScene() {
         <div><label>Cute</label><input class="pp" data-id="${k.id}" data-k="cute" value="${esc(p.cute || '')}"></div>
         <div><label>Simulatore</label><input class="ps" data-id="${k.id}" value="${esc(d.simulatore)}"></div>
         ${d.is_master ? '' : `<div><label>Gravità</label><select class="pg" data-id="${k.id}"><option value="">—</option>${['rosso', 'giallo', 'verde'].map((g) => `<option value="${g}" ${d.gravita === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>`}</div>
-      <p><button class="s p voci-b" data-id="${k.id}">Voci e punteggi…</button> <button class="s p ass-b" data-id="${k.id}">Giudici…</button>
+      <p><button class="s p voci-b" data-id="${k.id}">Modifica scheda…</button> <button class="s p an-b" data-id="${k.id}">Anteprima</button> <button class="s p ass-b" data-id="${k.id}">Giudici…</button>
         <button class="x p delsk" data-id="${k.id}">Elimina scheda</button></p></div>`; }).join('')}
     <div class="scheda"><strong>Aggiungi scheda da patologia</strong><div class="riga">
       <div><label>Patologia</label><select class="a_pat">${opzioniPatologie(pat)}</select></div>
@@ -614,7 +614,8 @@ async function tScene() {
       if (!cod) return; chiudi(); fai(() => api(`/scene/${b.dataset.id}/duplica`, { body: { eventoDestId: $('#d_ev').value, nuovoCodice: cod } }), 'Scena duplicata'); }); });
   document.querySelectorAll('.ass-b').forEach((b) => { b.onclick = () => apriAssegnazioni(b.dataset.id, ass); });
   document.querySelectorAll('.mas-b').forEach((b) => { b.onclick = () => apriMaster(b.dataset.id, mas); });
-  document.querySelectorAll('.voci-b').forEach((b) => { b.onclick = () => apriVociScheda(b.dataset.id); });
+  document.querySelectorAll('.voci-b').forEach((b) => { b.onclick = () => { $('#dlg').addEventListener('close', () => render(), { once: true }); apriVociScheda(b.dataset.id); }; });
+  document.querySelectorAll('.an-b').forEach((b) => { b.onclick = () => { $('#dlg').addEventListener('close', () => render(), { once: true }); apriVociScheda(b.dataset.id, 'an'); }; });
 }
 async function apriMaster(scenaId, mas) {
   const g = (await api('/giudici')).filter((x) => x.ruoli.includes('giudice_master')); const sel = new Set(mas.filter((m) => m.scena_id === scenaId).map((m) => m.utente_id));
@@ -631,20 +632,48 @@ async function apriAssegnazioni(schedaId, ass) {
   $('#as_ok').onclick = () => { const ids = [...document.querySelectorAll('#dlg input:checked')].map((i) => i.value); chiudi();
     fai(() => api(`/schede/${schedaId}/assegnazioni`, { method: 'PUT', body: { utenti: ids } }), 'Assegnazioni salvate'); };
 }
-function apriVociScheda(id) {
-  const d = cache.schede[id]; let sezione = null;
-  dlg(`<h3>${esc(d.titolo)} · voci e punteggi <small>(solo per questa scena)</small></h3>
-    <p class="nota">Lascia vuoto un livello per renderlo non selezionabile (cella nera). Le modifiche non toccano la libreria.</p>
-    <table class="voci punteggi"><colgroup><col><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:52px"><col style="width:76px"></colgroup>
+// Modifica di una scheda della scena (è una copia: la libreria non cambia) con anteprima
+async function apriVociScheda(id, vista = 'voci', scala) {
+  const d = cache.schede[id] = await api(`/schede/${id}`);
+  const scale = scala || await api('/libreria/scale').catch(() => []);
+  const sezioni = []; for (const v of d.voci) { let g = sezioni.find((x) => x.nome === v.sezione); if (!g) sezioni.push(g = { nome: v.sezione, voci: [] }); g.voci.push(v); }
+  const riga = (v) => `<tr data-o="${v.ordine}"><td><input class="vt" value="${esc(v.testo)}" style="width:100%"> <small>${esc(v.scala)}</small></td>${LIV.map((l) => `<td><input class="num" data-l="${l}" value="${v[l] ?? ''}"></td>`).join('')}
+    <td><input type="checkbox" class="sep" ${v.is_sep ? 'checked' : ''}></td><td style="white-space:nowrap"><button class="b p sv">Salva</button> <button class="x p el" title="Elimina la voce">✕</button></td></tr>`;
+  dlg(`<h3>${esc(d.titolo)} <span class="tag">sim. ${esc(d.simulatore)}</span> <small>(solo per questa scena)</small></h3>
+    <div class="navbar"><button id="vs_voci" class="${vista === 'voci' ? 'val' : ''}">Modifica</button><button id="vs_an" class="${vista === 'an' ? 'val' : ''}">Anteprima</button></div>
+    ${vista === 'an' ? `<iframe id="an_if" title="Anteprima scheda" style="width:100%;height:66vh;border:1px solid #ccc;background:#eee"></iframe>
+      <p><button class="b" id="an_st">Stampa</button> <button class="s" onclick="chiudi()">Chiudi</button></p>` : `
+    <div class="riga"><div style="flex:3"><label>Titolo della scheda</label><input id="vs_tit" value="${esc(d.titolo)}"></div><div class="stretto"><button class="s" id="vs_tit_ok">Salva titolo</button></div></div>
+    <p class="nota">Cambia il testo, i punteggi o l'ordine delle voci solo per questa scena. Lascia vuoto un livello per renderlo non selezionabile. Le voci già usate in valutazioni non si possono eliminare.</p>
+    <table class="voci punteggi"><colgroup><col><col style="width:58px"><col style="width:58px"><col style="width:58px"><col style="width:58px"><col style="width:58px"><col style="width:48px"><col style="width:110px"></colgroup>
     <tr><th>Voce</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th>SEP</th><th></th></tr>
-    ${d.voci.map((v) => { let h = ''; if (v.sezione !== sezione) { sezione = v.sezione; h = `<tr><td colspan="8" style="background:var(--grigio)"><strong>${esc(sezione)}</strong></td></tr>`; }
-      return h + `<tr data-o="${v.ordine}"><td>${esc(v.testo)} <small>${esc(v.scala)}</small></td>${LIV.map((l) => `<td><input class="num" data-l="${l}" value="${v[l] ?? ''}"></td>`).join('')}
-        <td><input type="checkbox" class="sep" ${v.is_sep ? 'checked' : ''}></td><td><button class="b p sv">Salva</button></td></tr>`; }).join('')}</table>
-    <p><button class="s" onclick="chiudi()">Chiudi</button></p>`);
-  document.querySelectorAll('#dlg .sv').forEach((b) => { b.onclick = async () => { const tr = b.closest('tr'); const body = { is_sep: tr.querySelector('.sep').checked };
+    ${sezioni.map((g, i) => `<tr class="sez" data-s="${esc(g.nome)}"><td colspan="6" style="background:var(--grigio)"><input class="sn" value="${esc(g.nome)}" style="width:70%;font-weight:700"> <button class="s p sn_ok">Rinomina sezione</button></td><td colspan="2" style="background:var(--grigio)"><button class="s p nv" data-dopo="${g.voci[g.voci.length - 1].ordine}" data-sez="${i}">+ voce</button></td></tr>`
+      + g.voci.map(riga).join('')).join('')}</table>
+    <p><button class="s" onclick="chiudi()">Chiudi</button></p>`}`);
+  const ricarica = (v) => apriVociScheda(id, v || vista, scale);
+  $('#vs_voci').onclick = () => ricarica('voci'); $('#vs_an').onclick = () => ricarica('an');
+  if (vista === 'an') {
+    try { $('#an_if').src = await pdfUrl(`/schede/${id}/anteprima.pdf`); } catch (e) { $('#an_if').srcdoc = `<p style="font-family:sans-serif;color:#b00;padding:12px">${esc(e.message)}</p>`; }
+    $('#an_st').onclick = () => { const f = $('#an_if').contentWindow; f.focus(); f.print(); };
+    return;
+  }
+  const ok = async (fn, msg) => { try { await fn(); if (msg) flash(msg); await ricarica(); } catch (e) { flash(e.message, false); } };
+  $('#vs_tit_ok').onclick = () => ok(() => api(`/schede/${id}`, { method: 'PATCH', body: { titolo: $('#vs_tit').value.trim() } }), 'Titolo salvato');
+  document.querySelectorAll('#dlg .sv').forEach((b) => { b.onclick = async () => { const tr = b.closest('tr'); const body = { is_sep: tr.querySelector('.sep').checked, testo: tr.querySelector('.vt').value.trim() };
     tr.querySelectorAll('[data-l]').forEach((i) => { body[i.dataset.l] = i.value.trim() === '' ? null : Number(i.value); });
+    if (!body.testo) return flash('Scrivi il testo della voce', false);
     if (LIV.every((l) => body[l] === null)) return flash('Almeno un livello deve restare selezionabile', false);
     try { await api(`/schede/${id}/voci/${tr.dataset.o}`, { method: 'PUT', body }); b.textContent = '✓'; setTimeout(() => (b.textContent = 'Salva'), 1200); } catch (e) { alert(e.message); } }; });
+  document.querySelectorAll('#dlg .el').forEach((b) => { b.onclick = () => { if (confirm('Eliminare questa voce dalla scheda della scena?')) ok(() => api(`/schede/${id}/voci/${b.closest('tr').dataset.o}`, { method: 'DELETE' }), 'Voce eliminata'); }; });
+  document.querySelectorAll('#dlg .sn_ok').forEach((b) => { b.onclick = () => { const tr = b.closest('tr'); ok(() => api(`/schede/${id}/sezione`, { method: 'PUT', body: { da: tr.dataset.s, a: tr.querySelector('.sn').value } }), 'Sezione rinominata'); }; });
+  document.querySelectorAll('#dlg .nv').forEach((b) => { b.onclick = () => { const tr = b.closest('tr'), sez = tr.dataset.s;
+    if (document.getElementById('nv_riga')) document.getElementById('nv_riga').remove();
+    const ultima = [...document.querySelectorAll(`#dlg tr[data-o]`)].filter((r) => Number(r.dataset.o) <= Number(b.dataset.dopo)).pop() || tr;
+    ultima.insertAdjacentHTML('afterend', `<tr id="nv_riga"><td colspan="8" style="background:#fff8e1"><div class="riga"><div style="flex:3"><label>Nuova voce in «${esc(sez)}»</label><input id="nv_t" placeholder="Testo della voce"></div>
+      <div><label>Punteggi (scala)</label><select id="nv_s">${scale.map((x) => `<option value="${esc(x.codice)}">${esc(x.codice)} (${LIV.map((l) => x[l] ?? '–').join('/')})</option>`).join('')}</select></div>
+      <div class="stretto"><label><input type="checkbox" id="nv_sep" style="width:auto"> SEP</label></div><div class="stretto"><button class="b" id="nv_ok">Aggiungi</button></div></div></td></tr>`);
+    $('#nv_t').focus();
+    $('#nv_ok').onclick = () => { if (!$('#nv_t').value.trim()) return flash('Scrivi il testo della voce', false); ok(() => api(`/schede/${id}/voci`, { body: { sezione: sez, testo: $('#nv_t').value, scala: $('#nv_s').value, dopo: Number(b.dataset.dopo), is_sep: $('#nv_sep').checked } }), 'Voce aggiunta'); }; }; });
 }
 
 // ───────── LIBRERIA ─────────
@@ -1174,7 +1203,13 @@ async function tRuoli() {
 // Colonna di destra (schermi larghi): riepilogo della gara scelta e scorciatoie
 async function aggiornaRail() {
   const r = $('#rail'); if (!r) return;
-  if (tab === 'menu' || tab === 'hub' || !ev || fam === 'comune') { r.innerHTML = ''; return; }
+  if (tab === 'menu' || tab === 'hub') { r.innerHTML = ''; return; }
+  if (fam === 'comune' || !ev) {
+    r.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w" id="rail_ri" hidden><h4>Da approvare</h4><b class="n"></b><a href="#" data-v="richieste">Apri le richieste</a></div>';
+    r.querySelectorAll('[data-v]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); vai(a.dataset.v); }; });
+    if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { if (c.n && $('#rail_ri')) { $('#rail_ri').hidden = false; $('#rail_ri b').textContent = c.n + (c.n === 1 ? ' richiesta di accesso' : ' richieste di accesso'); } }).catch(() => {});
+    return;
+  }
   const link = (t, k) => `<a href="#" data-v="${k}">${t}</a>`;
   r.innerHTML = `<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w"><h4>${fam === 'corsi' ? 'Evento scelto' : 'Gara scelta'}</h4><b class="n">${esc(ev.nome)}</b><small>${esc([dataIt(ev.data), ev.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small>${ev.attivo ? '<br><span class="tag ok">attivo</span>' : ''}</div>
     <div class="w" id="rail_av"><h4>Avanzamento</h4><small>Carico…</small></div>

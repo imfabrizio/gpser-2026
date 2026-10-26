@@ -487,6 +487,57 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     return r;
   }));
 
+  // ── modifica della scheda di una scena (è una copia: la libreria non cambia) ──
+  const COLONNE_LIV = ['mb', 'be', 'su', 'in', 'ne'];
+  const schedaValutata = async (db, id) => (await db.query('select 1 from compilazione where scheda_id=$1 limit 1', [id])).rowCount > 0;
+  app.get('/api/schede/:id/anteprima.pdf', { preHandler: soloOrg }, async (req, reply) => {
+    const { rows: [k] } = await pool.query(`select s.titolo, s.simulatore, s.is_master, s.gravita, s.parametri, sc.codice, sc.titolo as scena_titolo, e.nome as ev_nome, e.titolo_stampa, e.luogo
+      from scena_scheda s join scena sc on sc.id=s.scena_id join evento e on e.id=sc.evento_id where s.id=$1`, [req.params.id]);
+    if (!k) throw httpErr(404, 'scheda inesistente');
+    const { rows: voci } = await pool.query(`select ordine as id, sezione, testo, is_sep, mb, be, su, "in", ne from scena_scheda_voce where scheda_id=$1 order by ordine`, [req.params.id]);
+    const doc = creaDocumento(); const chunks = []; doc.on('data', (c) => chunks.push(c)); const fine = new Promise((r) => doc.on('end', r));
+    disegnaScheda(doc, { evento: { nome: k.ev_nome, titolo_stampa: k.titolo_stampa || k.ev_nome, luogo: k.luogo || '', data_txt: null }, squadra: { numero: 0, nome: 'Anteprima' },
+      scena: { codice: k.codice, titolo: k.scena_titolo }, scheda: { simulatore: k.simulatore, titolo: k.titolo, is_master: k.is_master, gravita: k.gravita, parametri: k.parametri || {} }, voci, compilazione: null, risposte: new Map(), vuota: true });
+    doc.end(); await fine;
+    return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="anteprima.pdf"').send(Buffer.concat(chunks));
+  });
+  // nuova voce (dopo la voce indicata, o in coda); i livelli arrivano dalla scala scelta oppure dal corpo
+  app.post('/api/schede/:id/voci', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    const b = req.body || {}, id = req.params.id;
+    const { rows: [sch] } = await db.query('select id from scena_scheda where id=$1 for update', [id]); if (!sch) throw httpErr(404, 'scheda inesistente');
+    if (await schedaValutata(db, id)) throw httpErr(409, 'la scheda ha già delle valutazioni: non si possono aggiungere voci');
+    const testo = String(b.testo || '').trim(), sezione = String(b.sezione || '').trim();
+    if (!testo || !sezione) throw httpErr(400, 'servono sezione e testo della voce');
+    let liv = {}, scala = 'personalizzata';
+    if (b.scala) { const { rows: [sp] } = await db.query('select * from scala_punteggio where codice=$1', [b.scala]); if (!sp) throw httpErr(400, 'scala inesistente'); scala = sp.codice; for (const l of COLONNE_LIV) liv[l] = sp[l]; }
+    else for (const l of COLONNE_LIV) { if (b[l] !== undefined && b[l] !== null && !Number.isInteger(b[l])) throw httpErr(400, `${l}: numero intero o null`); liv[l] = b[l] ?? null; }
+    if (COLONNE_LIV.every((l) => liv[l] === null)) throw httpErr(400, 'almeno un livello deve essere selezionabile');
+    let ordine;
+    if (b.dopo === undefined || b.dopo === null) ordine = (await db.query('select coalesce(max(ordine),0)+1 as o from scena_scheda_voce where scheda_id=$1', [id])).rows[0].o;
+    else {
+      ordine = Number(b.dopo) + 1;
+      await db.query('update scena_scheda_voce set ordine = ordine + 100000 where scheda_id=$1 and ordine >= $2', [id, ordine]);
+      await db.query('update scena_scheda_voce set ordine = ordine - 99999 where scheda_id=$1 and ordine >= $2', [id, ordine + 100000]);
+    }
+    const { rows: [r] } = await db.query(`insert into scena_scheda_voce (scheda_id, ordine, sezione, testo, scala, mb, be, su, "in", ne, is_sep) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+      [id, ordine, sezione, testo, scala, liv.mb, liv.be, liv.su, liv.in, liv.ne, !!b.is_sep]);
+    await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'aggiungi_voce','scena_scheda_voce',$2,$3)`, [req.utente.id, r.id, JSON.stringify({ dopo: r })]);
+    return r;
+  }));
+  app.delete('/api/schede/:id/voci/:ordine', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    const { rows: [v] } = await db.query('select * from scena_scheda_voce where scheda_id=$1 and ordine=$2 for update', [req.params.id, req.params.ordine]);
+    if (!v) throw httpErr(404, 'voce inesistente');
+    if ((await db.query('select 1 from risposta where voce_id=$1 limit 1', [v.id])).rowCount) throw httpErr(409, 'la voce è già stata usata in valutazioni: non si può eliminare');
+    await db.query('delete from scena_scheda_voce where id=$1', [v.id]);
+    await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'elimina_voce','scena_scheda_voce',$2,$3)`, [req.utente.id, v.id, JSON.stringify({ prima: v })]);
+    return { ok: true };
+  }));
+  app.put('/api/schede/:id/sezione', { preHandler: soloOrg }, async (req) => {
+    const { da, a } = req.body || {}; if (!da || !String(a || '').trim()) throw httpErr(400, 'indica la sezione e il nuovo nome');
+    const { rowCount } = await pool.query('update scena_scheda_voce set sezione=$3 where scheda_id=$1 and sezione=$2', [req.params.id, da, String(a).trim()]);
+    if (!rowCount) throw httpErr(404, 'sezione inesistente'); return { ok: true };
+  });
+
   // ── libreria ──
   app.get('/api/libreria/scale', { preHandler: soloOrg }, async () => (await pool.query('select * from scala_punteggio order by codice')).rows);
   app.get('/api/libreria/voci', { preHandler: soloOrg }, async (req) => (await pool.query(
