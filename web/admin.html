@@ -1223,20 +1223,21 @@ async function tRisorse() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima una gara.</div>'; legaSelettore(); return; }
   const R = await api(`/eventi/${ev.id}/risorse`);
   const NOMI = { giudice: 'Giudici', giudice_master: 'Giudici master', simulatore: 'Simulatori', truccatore: 'Truccatori' };
-  const chips = Object.entries(R.conteggi).map(([k, c]) => `<div class="tile-ris"><b>${c.assegnati}/${c.totale}</b><span>${NOMI[k]} assegnati</span><small>${c.arrivati} arrivati${c.senza_account ? ` · ${c.senza_account} senza account` : ''}</small></div>`).join('');
+  const corsi = fam === 'corsi';
+  const chips = Object.entries(R.conteggi).filter(([k]) => !corsi || !['giudice', 'giudice_master'].includes(k)).map(([k, c]) => `<div class="tile-ris"><b>${c.assegnati}/${c.totale}</b><span>${NOMI[k]} assegnati</span><small>${c.arrivati} arrivati${c.senza_account ? ` · ${c.senza_account} senza account` : ''}</small></div>`).join('');
   const nomi = (ids) => ids.map((i) => R.persone.find((p) => p.id === i)).filter(Boolean);
   const scene = R.scene.map((sc) => {
     const sim = nomi(sc.risorse).filter((p) => p.ruolo === 'simulatore'), tru = nomi(sc.risorse).filter((p) => p.ruolo === 'truccatore');
     const lista = (l) => l.length ? l.map((p) => `${esc(p.cognome)} ${esc(p.nome)}`).join(', ') : '<em>nessuno</em>';
     return `<div class="card"><h3 style="margin:0">Scena ${esc(sc.codice)} · ${esc(sc.titolo)}</h3>
-      <p><b>Giudice master:</b> ${sc.master.length ? sc.master.map((m) => esc(m.nome)).join(', ') : '<em>da assegnare</em>'} <button class="s p rmas" data-id="${sc.id}">Modifica</button></p>
-      <table>${sc.schede.map((k) => `<tr><td>${esc(k.titolo)}</td><td>${k.giudici.length ? k.giudici.map((g) => esc(g.nome)).join(', ') : '<em>nessun giudice</em>'}</td><td><button class="s p rg" data-id="${k.id}">Giudici</button></td></tr>`).join('') || '<tr><td><em>Nessuna scheda</em></td></tr>'}</table>
+      ${corsi ? '' : `<p><b>Giudice master:</b> ${sc.master.length ? sc.master.map((m) => esc(m.nome)).join(', ') : '<em>da assegnare</em>'} <button class="s p rmas" data-id="${sc.id}">Modifica</button></p>
+      <table>${sc.schede.map((k) => `<tr><td>${esc(k.titolo)}</td><td>${k.giudici.length ? k.giudici.map((g) => esc(g.nome)).join(', ') : '<em>nessun giudice</em>'}</td><td><button class="s p rg" data-id="${k.id}">Giudici</button></td></tr>`).join('') || '<tr><td><em>Nessuna scheda</em></td></tr>'}</table>`}
       <p><b>Simulatori:</b> ${lista(sim)} <button class="s p rs" data-id="${sc.id}" data-r="simulatore">Modifica</button></p>
       <p><b>Truccatori:</b> ${lista(tru)} <button class="s p rs" data-id="${sc.id}" data-r="truccatore">Modifica</button></p></div>`;
   }).join('');
   const liberi = R.persone.filter((p) => ['simulatore', 'truccatore'].includes(p.ruolo) && !p.scene.length);
   $('#app').innerHTML = selettoreEvento() + `<div class="card"><div class="chips-ris">${chips}</div>
-    <p class="nota">Gli iscritti si registrano dalla Segreteria. I giudici assegnati a una scheda trovano quella scheda già pronta quando aprono la Valutazione.</p>
+    <p class="nota">Gli iscritti si registrano dalla Segreteria. ${corsi ? 'Qui si assegnano simulatori e truccatori alle scene.' : 'I giudici assegnati a una scheda trovano quella scheda già pronta quando aprono la Valutazione.'}</p>
     ${liberi.length ? `<p><b>Da assegnare a una scena:</b> ${liberi.map((p) => `${esc(p.cognome)} ${esc(p.nome)} <small>(${p.ruolo})</small>`).join(', ')}</p>` : ''}</div>${scene || '<div class="card">Nessuna scena in questa gara.</div>'}`;
   legaSelettore();
   const ass = R.scene.flatMap((sc) => sc.schede.flatMap((k) => k.giudici.map((g) => ({ scheda_id: k.id, utente_id: g.utente_id }))));
