@@ -560,12 +560,15 @@ async function tScene() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima un evento.</div>'; return; }
   const [scene, pat, ass, mas, macro, canov] = await Promise.all([api(`/eventi/${ev.id}/scene`), api('/libreria/patologie'), api(`/eventi/${ev.id}/assegnazioni`), api(`/eventi/${ev.id}/master`), api('/libreria/macro'), api('/canovacci').catch(() => [])]);
   const verEv = ev.tipo === 'olimpiadi' ? 'olimpiadi' : 'gara';
+  const scaleLib = await api('/libreria/scale');
+  const tutte = localStorage.getItem('schedeTutte') === '1', tipoOk = TIPOLOGIE_EVENTO[ev.tipo] || ['gara'];
+  const patEv = tutte ? pat : pat.filter((p) => tipologieDi(p).some((t) => tipoOk.includes(t)));
   const optCan = (s) => `<option value="">— nessuno —</option>${[...canov].filter((c) => c.versione === verEv || c.id === s.canovaccio_id).sort((a, b) => a.codice.localeCompare(b.codice)).map((c) => `<option value="${c.id}" ${s.canovaccio_id === c.id ? 'selected' : ''}>${esc(c.codice)} · ${esc(c.titolo)} ${c.versione === verEv ? '' : ' (' + (c.versione === 'olimpiadi' ? 'Olimpiadi' : 'Gara') + ')'}</option>`).join('')}`;
   const schede = {};
   for (const s of scene) for (const k of s.schede || []) schede[k.id] = (await api(`/schede/${k.id}`));
-  cache = { schede, giudici: null, macro };
+  cache = { schede, giudici: null, macro, scale: scaleLib, pat };
   const nomiAss = (id) => ass.filter((a) => a.scheda_id === id).map((a) => esc(a.nome)).join(', ') || '<em>nessuno</em>';
-  $('#app').innerHTML = selettoreEvento() + (canov.length && scene.some((x) => !x.canovaccio_id) ? `<div class="card"><p>Ci sono ${canov.filter((c) => c.versione === verEv).length} canovacci ${verEv === 'olimpiadi' ? 'delle Olimpiadi' : 'delle gare'} in libreria. <button class="b" id="cv_auto">Collega i canovacci alle scene (stessa lettera)</button></p></div>` : '') + (!canov.length ? `<div class="card"><p class="nota">Nessun canovaccio caricato: importali da <strong>Importa → Importa canovacci (.docx)</strong>, poi qui potrai collegarli alle scene.</p></div>` : '') + (scene.length > 1 ? '<div class="navbar"><button id="sc_apri">Apri tutte</button><button id="sc_chiudi">Chiudi tutte</button></div>' : '') + scene.map((s) => `<div class="card scena ${s.sosta ? 'sosta' : ''}" data-id="${s.id}"><div class="sc-testa"><button class="sc-t" data-id="${s.id}" aria-expanded="${scAperte.has(s.id)}" title="Apri o chiudi">${scAperte.has(s.id) ? '▾' : '▸'}</button><h3>${s.sosta ? 'Sosta' : 'Scena'} ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
+  $('#app').innerHTML = selettoreEvento() + (canov.length && scene.some((x) => !x.canovaccio_id) ? `<div class="card"><p>Ci sono ${canov.filter((c) => c.versione === verEv).length} canovacci ${verEv === 'olimpiadi' ? 'delle Olimpiadi' : 'delle gare'} in libreria. <button class="b" id="cv_auto">Collega i canovacci alle scene (stessa lettera)</button></p></div>` : '') + (!canov.length ? `<div class="card"><p class="nota">Nessun canovaccio caricato: importali da <strong>Importa → Importa canovacci (.docx)</strong>, poi qui potrai collegarli alle scene.</p></div>` : '') + '<div class="navbar">' + (scene.length > 1 ? '<button id="sc_apri">Apri tutte</button><button id="sc_chiudi">Chiudi tutte</button>' : '') + `<label style="display:inline-flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="sc_tutte" style="width:auto" ${tutte ? 'checked' : ''}> Mostra anche le schede di altre tipologie</label></div>` + scene.map((s) => `<div class="card scena ${s.sosta ? 'sosta' : ''}" data-id="${s.id}"><div class="sc-testa"><button class="sc-t" data-id="${s.id}" aria-expanded="${scAperte.has(s.id)}" title="Apri o chiudi">${scAperte.has(s.id) ? '▾' : '▸'}</button><h3>${s.sosta ? 'Sosta' : 'Scena'} ${esc(s.codice)} · <input class="t_sc" data-id="${s.id}" value="${esc(s.titolo)}" style="width:auto;min-width:240px"></h3>
     <small class="sc-sint">${s.sosta ? 'sosta · senza schede' : (s.schede || []).length + ' schede · master: ' + (mas.filter((m) => m.scena_id === s.id).map((m) => esc(m.nome)).join(', ') || 'nessuno')}</small></div><div class="sc-corpo" ${scAperte.has(s.id) ? '' : 'hidden'}>
     <p>Giudice master: <strong>${mas.filter((m) => m.scena_id === s.id).map((m) => esc(m.nome)).join(', ') || '<em>nessuno</em>'}</strong> <button class="s p mas-b" data-id="${s.id}">Giudice master…</button></p>
     <div class="riga"><div style="flex:3"><label>Indirizzo della scena (per la mappa)</label><input class="s_ind" data-id="${s.id}" value="${esc(s.indirizzo || '')}" placeholder="Via Roma 1, Piacenza"></div>
@@ -587,8 +590,8 @@ async function tScene() {
       <p><button class="s p ass-b" data-id="${k.id}">Giudici…</button>
         <button class="x p delsk" data-id="${k.id}">Elimina scheda</button></p></div>`; }).join('')}
     <div class="scheda"><strong>Aggiungi scheda da patologia</strong><div class="riga">
-      <div style="flex:3"><label>Patologia</label><select class="a_pat">${opzioniPatologie(pat)}</select></div>
-      <div class="stretto"><button class="s a_an" type="button">Anteprima</button> <button class="s a_lib" type="button" title="Per cambiare la scheda in libreria">Apri in libreria</button></div>
+      <div style="flex:1 1 100%"><label>Scheda (${esc(TIPOLOGIE.filter((t) => tipoOk.includes(t[0])).map((t) => t[1]).join(' / ') || 'tutte')})</label><select class="a_pat">${opzioniPatologie(patEv)}</select>
+        <p style="margin:6px 0 0"><button class="s a_an" type="button">Anteprima</button> <button class="s a_ed" type="button">Modifica</button> <button class="s a_nu" type="button">Nuova scheda</button></p></div>
       <div><label>Slot</label><input class="a_slot num" type="number" min="0" value="${(s.schede || []).length}"></div>
       <div><label>Simulatore</label><input class="a_sim" value="${(s.schede || []).length === 0 ? 'M' : String((s.schede || []).length).padStart(2, '0')}"></div>
       <div class="stretto"><button class="b a_ok" data-id="${s.id}">Aggiungi</button></div></div></div></div></div>`).join('') + `
@@ -623,7 +626,9 @@ async function tScene() {
   document.querySelectorAll('.delsk').forEach((b) => { b.onclick = () => { if (confirm('Eliminare questa scheda?')) fai(() => api(`/schede/${b.dataset.id}`, { method: 'DELETE' }), 'Scheda eliminata'); }; });
   document.querySelectorAll('.delsc').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la scena con tutte le sue schede?')) fai(() => api(`/scene/${b.dataset.id}`, { method: 'DELETE' }), 'Scena eliminata'); }; });
   document.querySelectorAll('.a_an').forEach((b) => { b.onclick = () => { const p = pat.find((x) => x.id === b.closest('.scheda').querySelector('.a_pat').value); if (p) anteprimaScheda(p); }; });
-  document.querySelectorAll('.a_lib').forEach((b) => { b.onclick = () => vai('libreria'); });
+  document.querySelectorAll('.a_ed').forEach((b) => { b.onclick = async () => { const p = pat.find((x) => x.id === b.closest('.scheda').querySelector('.a_pat').value); if (p) editorPatologia(p, await api(`/libreria/patologie/${p.id}`)); }; });
+  document.querySelectorAll('.a_nu').forEach((b) => { b.onclick = () => editorPatologia(null, [], true); });
+  if ($('#sc_tutte')) $('#sc_tutte').onchange = () => { localStorage.setItem('schedeTutte', $('#sc_tutte').checked ? '1' : '0'); tScene(); };
   document.querySelectorAll('.a_ok').forEach((b) => { b.onclick = () => { const c = b.closest('.scheda');
     fai(() => api(`/scene/${b.dataset.id}/schede`, { body: { patologiaId: c.querySelector('.a_pat').value, slot: Number(c.querySelector('.a_slot').value), simulatore: c.querySelector('.a_sim').value.trim() } }), 'Scheda aggiunta'); }; });
   $('#ns_ok').onclick = () => { const c = $('#ns_cod').value.trim().toUpperCase(), t = $('#ns_tit').value.trim(); if (!c || !t) return flash('Scrivi il codice (es. A) e il titolo della scena', false);
@@ -718,6 +723,10 @@ function gruppiPatologie(pat) {
   return [...m.entries()].sort((a, b) => ordine(a[0]) - ordine(b[0]));
 }
 const opzioniPatologie = (pat) => gruppiPatologie(pat).map(([c, l]) => `<optgroup label="${esc(c)}">${l.filter((p) => !p._sec).map((p) => `<option value="${p.id}">${esc(p.nome)}${p.categoria2 ? ' + ' + esc(p.categoria2) : ''} (${p.voci} voci)</option>`).join('')}</optgroup>`).join('');
+const TIPOLOGIE = [['gara', 'Gara'], ['olimpiadi', 'Olimpiadi'], ['megacode', 'Mega Code'], ['skill', 'Skill']];
+// quali schede si propongono in un evento: per tipo di evento
+const TIPOLOGIE_EVENTO = { gara: ['gara'], olimpiadi: ['olimpiadi'], allenamento: ['gara', 'olimpiadi'], corso_giudici: ['gara', 'olimpiadi'], megacode: ['megacode'], corso: ['skill'], esame: ['skill'] };
+const tipologieDi = (p) => (p && p.tipologie && p.tipologie.length ? p.tipologie : TIPOLOGIE.map((t) => t[0]));
 const dataIt = (d) => (d ? d.split('-').reverse().join('/') : '');
 const descGara = (u) => [u.codice || u.evento, u.luogo, dataIt(u.data)].filter(Boolean).join(' - ');
 const usiTesto = (p) => (p.usi || []).map(descGara).join(' / ');
@@ -750,17 +759,18 @@ async function tLibreria() {
       ${direzione ? `<label style="display:inline-flex;gap:6px;align-items:center;font-size:15px;color:inherit;margin-left:10px"><input type="checkbox" id="vcom" ${conComitati ? 'checked' : ''}> Vedi anche schede dei comitati</label>` : ''}</p>
     <div class="riga"><div style="flex:3"><input id="pf" placeholder="Cerca per nome, sigla, autore, gara (es. Ictus, frattura, Olimpiadi)"></div>
       <div><select id="pf_t"><option value="">Tutti i tipi</option>${(cache.macro || []).map((m) => `<option value="${m.codice}">${esc(m.nome)}</option>`).join('')}</select></div>
+      <div><select id="pf_ti"><option value="">Tutte le tipologie</option>${TIPOLOGIE.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div>
       <div><select id="pf_o"><option value="">Qualsiasi origine</option><option value="generale">Libreria generale</option><option value="regione">Catalogo regionale</option><option value="comitato">Del mio comitato</option></select></div></div>
-    ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:430px"></colgroup>${l.map((p) => `<tr class="pr" data-m="${esc(p.macro || '')}" data-m2="${esc(p.macro2 || '')}" data-o="${p.comitato ? 'comitato' : p.regione ? 'regione' : 'generale'}" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + (p.autore || '') + ' ' + usiTesto(p)).toLowerCase())}"><td>${puntoGrav(p.gravita)}<strong>${esc(p.nome)}</strong>${p._sec ? ' <span class="tag">secondaria</span>' : ''} <span class="tag">${esc(p.sigla)}</span>
+    ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:430px"></colgroup>${l.map((p) => `<tr class="pr" data-m="${esc(p.macro || '')}" data-m2="${esc(p.macro2 || '')}" data-o="${p.comitato ? 'comitato' : p.regione ? 'regione' : 'generale'}" data-ti="${tipologieDi(p).join(' ')}" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + (p.autore || '') + ' ' + usiTesto(p)).toLowerCase())}"><td>${puntoGrav(p.gravita)}<strong>${esc(p.nome)}</strong>${p._sec ? ' <span class="tag">secondaria</span>' : ''} <span class="tag">${esc(p.sigla)}</span>${tipologieDi(p).length < 4 ? tipologieDi(p).map((t) => `<span class="tag ok">${esc(TIPOLOGIE.find((x) => x[0] === t)?.[1] || t)}</span>`).join('') : ''}
       ${p.categoria2 ? `<span class="tag">+ ${esc(p.categoria2)}</span>` : ''}${p.regione ? `<span class="tag">${esc(p.regione)}</span>` : ''}${p.bozza ? '<span class="tag no">Bozza' + (p.generata_ai ? ' AI' : '') + '</span>' : ''}${p.is_bls ? '<span class="tag">BLSD</span>' : ''}${p.is_diu ? '<span class="tag">DIU</span>' : ''}${p.is_master ? '<span class="tag">Master</span>' : ''}${p.comitato ? `<span class="tag no">Privata · ${esc(p.comitato)}</span>` : ''}
 </td><td>${p.voci} voci</td>
       <td><div class="azioni">${p.bozza ? `<button class="b p pub" data-id="${p.id}">Pubblica</button>` : '<span></span>'}<button class="s p an" data-id="${p.id}">Anteprima</button>${modificabile(p) ? `<button class="s p ed" data-id="${p.id}">Modifica</button>` : `<button class="s p ed" data-id="${p.id}">Apri</button>`}<button class="s p cp" data-id="${p.id}">Copia</button>${modificabile(p) ? `<button class="x p del" data-id="${p.id}">Elimina</button>` : ''}</div></td></tr>`).join('')}</table></details>`).join('')}
     <p class="nota">Modificare una patologia non cambia le scene già create: ognuna ne conserva una copia.</p></div>
 `;
-  const filtra = () => { const q = $('#pf').value.trim().toLowerCase(), t = $('#pf_t').value, o = $('#pf_o').value;
-    document.querySelectorAll('tr.pr').forEach((r) => { r.hidden = !((!q || r.dataset.n.includes(q)) && (!t || r.dataset.m === t || r.dataset.m2 === t) && (!o || r.dataset.o === o)); });
-    document.querySelectorAll('details.grp').forEach((d) => { const v = d.querySelectorAll('tr.pr:not([hidden])').length; d.hidden = !v; if (q || t || o) d.open = true; }); };
-  $('#pf').oninput = filtra; $('#pf_t').onchange = filtra; $('#pf_o').onchange = filtra;
+  const filtra = () => { const q = $('#pf').value.trim().toLowerCase(), t = $('#pf_t').value, o = $('#pf_o').value, ti = $('#pf_ti').value;
+    document.querySelectorAll('tr.pr').forEach((r) => { r.hidden = !((!q || r.dataset.n.includes(q)) && (!t || r.dataset.m === t || r.dataset.m2 === t) && (!o || r.dataset.o === o) && (!ti || r.dataset.ti.split(' ').includes(ti))); });
+    document.querySelectorAll('details.grp').forEach((d) => { const v = d.querySelectorAll('tr.pr:not([hidden])').length; d.hidden = !v; if (q || t || o || ti) d.open = true; }); };
+  $('#pf').oninput = filtra; $('#pf_t').onchange = filtra; $('#pf_o').onchange = filtra; $('#pf_ti').onchange = filtra;
   document.querySelectorAll('.cp').forEach((b) => { b.onclick = async () => { const o = pat.find((p) => p.id === b.dataset.id);
     editorPatologia({ ...o, id: null, nome: o.nome + ' (copia)' }, await api(`/libreria/patologie/${o.id}`), true); }; });
   $('#nm').onclick = () => dlg(`<h3>Nuova scheda da modello</h3><p class="nota">Scegli la scheda da cui partire: ne verrà creata una copia da modificare.</p>
@@ -864,6 +874,7 @@ function editorPatologia(p, voci, nuova = false) {
     <div class="riga"><div><label>Patologia (gruppo)</label><input id="pt_c" list="dl_cat" value="${esc(p ? categoriaDi(p) : '')}" placeholder="es. Ictus"><datalist id="dl_cat">${[...new Set((cache.pat || []).map(categoriaDi))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
     <div><label>Seconda patologia (facoltativa)</label><input id="pt_c2" list="dl_cat" value="${esc(p?.categoria2 || '')}" placeholder="es. Frattura polso"></div>
     <div class="stretto"><label>BLSD</label><input type="checkbox" id="pt_b" ${p?.is_bls ? 'checked' : ''}></div><div class="stretto"><label>DIU</label><input type="checkbox" id="pt_d" ${p?.is_diu ? 'checked' : ''}></div><div class="stretto"><label>Master</label><input type="checkbox" id="pt_m" ${p?.is_master ? 'checked' : ''}></div></div>
+    <div class="riga" style="align-items:center"><strong>Si usa in:</strong> ${TIPOLOGIE.map(([k, n]) => `<label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="pt_ti" value="${k}" style="width:auto" ${(p && p.tipologie ? p.tipologie : ['gara']).includes(k) ? 'checked' : ''}> ${n}</label>`).join('')}</div>
     <table class="voci" id="pt_t"><tr><th>Sezione</th><th>Voce</th><th>Scala</th><th>SEP</th><th></th></tr>${voci.map(riga).join('')}</table>
     <p><button class="s" id="pt_add">+ Voce</button> <button class="b" id="pt_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
   const t = $('#pt_t');
@@ -878,8 +889,9 @@ function editorPatologia(p, voci, nuova = false) {
     const vv = [...t.querySelectorAll('tr')].slice(1).map((tr) => ({ sezione: tr.querySelector('.r_sez').value.trim(), testo: tr.querySelector('.r_tx').value.trim(),
       scala: tr.querySelector('.r_sc').value, is_sep: tr.querySelector('.r_sep').checked })).filter((v) => v.testo);
     if (vv.some((v) => !v.sezione)) return alert('Ogni voce deve avere una sezione');
-    const body = { nome: $('#pt_n').value.trim(), sigla: $('#pt_s').value.trim().toUpperCase(), is_bls: $('#pt_b').checked, is_diu: $('#pt_d').checked, is_master: $('#pt_m').checked, categoria: $('#pt_c').value.trim(), categoria2: $('#pt_c2').value.trim(), macro: $('#pt_mc').value, macro2: $('#pt_mc2').value, gravita: $('#pt_gr').value, voci: vv };
+    const body = { nome: $('#pt_n').value.trim(), sigla: $('#pt_s').value.trim().toUpperCase(), is_bls: $('#pt_b').checked, is_diu: $('#pt_d').checked, is_master: $('#pt_m').checked, categoria: $('#pt_c').value.trim(), categoria2: $('#pt_c2').value.trim(), macro: $('#pt_mc').value, macro2: $('#pt_mc2').value, gravita: $('#pt_gr').value, tipologie: [...document.querySelectorAll('#dlg .pt_ti')].filter((c) => c.checked).map((c) => c.value), voci: vv };
     if (!body.nome || !body.sigla) return alert('Nome e sigla obbligatori');
+    if (!body.tipologie.length) return alert('Scegli almeno una tipologia: Gara, Olimpiadi, Mega Code o Skill');
     chiudi();
     fai(() => p && p.id ? api(`/libreria/patologie/${p.id}`, { method: 'PUT', body }) : api('/libreria/patologie', { body: { ...body, codice: body.nome.toUpperCase().replace(/[^A-Z0-9]+/g, '_') + '_' + Date.now().toString(36).toUpperCase() } }), 'Patologia salvata');
   };

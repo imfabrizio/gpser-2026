@@ -28,3 +28,12 @@ export async function controllaScheda(pool, utente, id, { modifica }) {
   if (!haSchedeComitato(utente) || !mio || mio.trim().toLowerCase() !== p.comitato.trim().toLowerCase()) throw httpErr(403, 'scheda privata di un altro comitato');
   return p;
 }
+
+// tipologie d'uso di una scheda: a quali eventi si può proporre (gara, Olimpiadi, Mega Code, esami e skill)
+export const TIPOLOGIE = ['gara', 'olimpiadi', 'megacode', 'skill'];
+export function tipologieValide(v, predefinito) {
+  if (v === undefined || v === null) return predefinito;
+  const l = [...new Set((Array.isArray(v) ? v : []).filter((x) => TIPOLOGIE.includes(x)))];
+  if (!l.length) throw httpErr(400, 'scegli almeno una tipologia: gara, olimpiadi, megacode o skill');
+  return l;
+}

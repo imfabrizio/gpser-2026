@@ -31,7 +31,7 @@ import { generaClassificaPdf } from './pdf/classifica.js';
 import { generaEsitoPdf } from './pdf/esito.js';
 import { registraAi } from './routes-ai.js';
 import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO } from './ambito.js';
-import { haSchede, comitatoDi, controllaScheda } from './libreria-ambito.js';
+import { haSchede, comitatoDi, controllaScheda, tipologieValide } from './libreria-ambito.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
@@ -489,6 +489,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
 
   // ── modifica della scheda di una scena (è una copia: la libreria non cambia) ──
   const COLONNE_LIV = ['mb', 'be', 'su', 'in', 'ne'];
+
   const schedaValutata = async (db, id) => (await db.query('select 1 from compilazione where scheda_id=$1 limit 1', [id])).rowCount > 0;
   app.get('/api/schede/:id/anteprima.pdf', { preHandler: soloOrg }, async (req, reply) => {
     const { rows: [k] } = await pool.query(`select s.titolo, s.simulatore, s.is_master, s.gravita, s.parametri, sc.codice, sc.titolo as scena_titolo, e.nome as ev_nome, e.titolo_stampa, e.luogo
@@ -585,8 +586,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       for (let n = 2; (await db.query('select 1 from patologia where codice=$1', [codice])).rowCount; n++) codice = `${codice.replace(/-\d+$/, '')}-${n}`;
     }
     const { rows: [p] } = await db.query(
-      `insert into patologia (codice, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2, comitato, creata_da, macro, macro2, gravita) values ($1,$2,$3,coalesce($4,false),coalesce($5,false),coalesce($6,false),$7,$8,$9,$10,$11,$12,$13) returning *`,
-      [codice, b.nome, b.sigla, b.is_bls, b.is_master, b.is_diu, (b.categoria || '').trim() || b.nome, (b.categoria2 || '').trim() || null, comitato, req.utente.id, b.macro || null, b.macro2 || null, b.gravita || null]);
+      `insert into patologia (codice, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2, comitato, creata_da, macro, macro2, gravita, tipologie) values ($1,$2,$3,coalesce($4,false),coalesce($5,false),coalesce($6,false),$7,$8,$9,$10,$11,$12,$13,$14::text[]) returning *`,
+      [codice, b.nome, b.sigla, b.is_bls, b.is_master, b.is_diu, (b.categoria || '').trim() || b.nome, (b.categoria2 || '').trim() || null, comitato, req.utente.id, b.macro || null, b.macro2 || null, b.gravita || null, tipologieValide(b.tipologie, ['gara'])]);
     let o = 0;
     for (const v of b.voci || []) {
       const { rows: [voce] } = await db.query(

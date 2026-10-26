@@ -6,7 +6,7 @@ import { hashPassword } from './auth.js';
 import { inTransazione } from './db.js';
 import { httpErr } from './services/compilazioni.js';
 import { AREE } from './permessi.js';
-import { controllaScheda } from './libreria-ambito.js';
+import { controllaScheda, tipologieValide } from './libreria-ambito.js';
 import { decifra } from './mfa.js';
 import { verificaCodiceFiscale } from './codice-fiscale.js';
 import { datiCf, hashCf } from './anagrafica.js';
@@ -346,10 +346,10 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const { rows: [p] } = await db.query(
       `update patologia set nome=coalesce($2,nome), sigla=coalesce($3,sigla), is_bls=coalesce($4,is_bls), is_master=coalesce($5,is_master), is_diu=coalesce($6,is_diu),
          categoria = case when $7 then nullif(trim($8),'') else categoria end, categoria2 = case when $9 then nullif(trim($10),'') else categoria2 end,
-         macro = case when $11 then nullif($12,'') else macro end, macro2 = case when $13 then nullif($14,'') else macro2 end, gravita = case when $15 then nullif($16,'') else gravita end
+         macro = case when $11 then nullif($12,'') else macro end, macro2 = case when $13 then nullif($14,'') else macro2 end, gravita = case when $15 then nullif($16,'') else gravita end, tipologie = coalesce($17::text[], tipologie)
        where id=$1 returning *`, [req.params.id, b.nome ?? null, b.sigla ?? null, b.is_bls ?? null, b.is_master ?? null, b.is_diu ?? null,
         'categoria' in b, b.categoria ?? '', 'categoria2' in b, b.categoria2 ?? '',
-        'macro' in b, b.macro ?? '', 'macro2' in b, b.macro2 ?? '', 'gravita' in b, b.gravita ?? '']);
+        'macro' in b, b.macro ?? '', 'macro2' in b, b.macro2 ?? '', 'gravita' in b, b.gravita ?? '', 'tipologie' in b ? tipologieValide(b.tipologie) : null]);
     if (!p) throw httpErr(404, 'patologia inesistente');
     if (Array.isArray(b.voci)) {          // sostituisce l'elenco; le scene già composte non cambiano (snapshot)
       await db.query('delete from patologia_voce where patologia_id=$1', [p.id]);

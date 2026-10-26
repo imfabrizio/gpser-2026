@@ -1529,3 +1529,15 @@ test('SCH-ED: modifica della scheda di una scena (voci, sezione) e anteprima PDF
   await pool.query(`insert into compilazione (scheda_id, squadra_id, stato) values ($1,$2,'bozza')`, [k.id, sq.id]);
   assert.equal((await chiama('POST', `/api/schede/${k.id}/voci`, { token: org, body: { sezione: 'X', testo: 'Y', scala: scala.codice } })).statusCode, 409);
 });
+
+test('TIP-1: tipologia delle schede in libreria (gara, olimpiadi, megacode, skill)', async () => {
+  const org = tok['org@t'];
+  const nuova = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'TIP_PROVA', nome: 'Tipologia prova', sigla: 'TPP', tipologie: ['olimpiadi', 'skill'], voci: [{ sezione: 'S', testo: 'Voce tip', scala: 'Standard' }] } }));
+  assert.deepEqual(nuova.tipologie, ['olimpiadi', 'skill']);
+  const lista = json(await chiama('GET', '/api/libreria/patologie', { token: org })).find((p) => p.id === nuova.id); assert.deepEqual(lista.tipologie, ['olimpiadi', 'skill']);
+  assert.equal((await chiama('PUT', `/api/libreria/patologie/${nuova.id}`, { token: org, body: { tipologie: [] } })).statusCode, 400);
+  assert.equal((await chiama('PUT', `/api/libreria/patologie/${nuova.id}`, { token: org, body: { tipologie: ['megacode'] } })).statusCode, 200);
+  assert.deepEqual(json(await chiama('GET', '/api/libreria/patologie', { token: org })).find((p) => p.id === nuova.id).tipologie, ['megacode']);
+  const senza = json(await chiama('POST', '/api/libreria/patologie', { token: org, body: { codice: 'TIP_PROVA2', nome: 'Senza tipo', sigla: 'TP2', voci: [] } }));
+  assert.deepEqual(senza.tipologie, ['gara']);
+});
