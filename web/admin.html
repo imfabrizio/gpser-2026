@@ -45,6 +45,9 @@
   .scena { border-left:6px solid var(--rosso); padding:0; overflow:hidden } .scena.sosta { border-left-color:#7a8cab }
   .scena .sc-testa { display:flex; align-items:center; gap:10px; padding:12px 14px; background:#f6f7f9; flex-wrap:wrap } .scena .sc-testa h3 { margin:0; flex:1 1 280px } .scena .sc-t { border:0; background:#fff; border:1px solid var(--bordo); border-radius:8px; width:36px; height:36px; font-size:18px; cursor:pointer } .scena .sc-sint { color:#555 }
   .scena .sc-corpo { padding:14px; border-top:1px solid var(--bordo) } .scena .sc-corpo[hidden] { display:none }
+  #tabs.strumenti { display:none } #tabs .w { background:#f6f7f9; border-radius:12px; padding:12px; margin-bottom:12px; font-size:14px; white-space:normal } #tabs .w h4 { margin:0 0 6px; font-size:13px; color:#555; font-weight:600 }
+  #tabs .w b.n { display:block; font-size:18px; line-height:1.2; margin-bottom:4px } #tabs .w small { color:#555; display:block } #tabs .w a { display:block; padding:7px 0; color:var(--rosso); font-weight:600; text-decoration:none }
+  @media (min-width:900px) { body.laterale #tabs.strumenti { display:flex } }
   #rail { display:none }
   @media (min-width:900px) { body.laterale #tabs { position:fixed; left:0; top:85px; z-index:3; bottom:0; width:210px; flex-direction:column; overflow-y:auto; border-right:1px solid var(--bordo); border-bottom:0; padding:10px 8px; gap:2px }
     body.laterale #tabs button { text-align:left; white-space:normal } body.laterale main { margin:0 0 0 210px; max-width:none } body.laterale main > * { max-width:900px; margin-left:auto; margin-right:auto } }
@@ -184,16 +187,27 @@ const vai = (t, daHash) => { if (t === 'monitor') { location.href = '/#monitor';
   tab = t; if (!daHash) history.replaceState(null, '', t === 'menu' ? location.pathname : '#' + t); disegnaTabs(); render(); };
 function disegnaTabs() {
   if (!TABS.some(([k]) => k === tab)) tab = 'menu';
-  const g = tab === 'menu' ? null : mondoCorrente(), vis = g ? figliVisibili(g) : [];
-  const mondi = mondiVisibili();
-  // portale: l'elenco delle aree; dentro un'area: le sue sezioni (anche nel menu a riquadri). Nella classifica servono le linguette in alto e tutta la larghezza.
-  const voci = tab === 'menu' ? mondi.map((m) => [m[0], m[1], false]) : vis.map((k) => [k, nomeTab(k), k === tab]);
-  const laterale = tab !== 'classifiche' && voci.length >= 2;
-  $('#tabs').hidden = voci.length < 2 || (tab === 'menu' && !laterale);
+  const g = tab === 'menu' ? null : mondoCorrente(), vis = g && tab !== 'hub' ? figliVisibili(g) : [];
+  const inizio = tab === 'menu' || tab === 'hub';
+  // menu a sinistra solo dentro una sezione (è il menu di quell'area); nel portale e nei riquadri a sinistra ci sono strumenti. Nella classifica servono le linguette in alto e tutta la larghezza.
+  const laterale = tab !== 'classifiche' && (inizio || vis.length >= 2);
+  $('#tabs').hidden = inizio ? !laterale : vis.length < 2;
+  $('#tabs').classList.toggle('strumenti', inizio);
   document.body.classList.toggle('laterale', laterale);
-  $('#tabs').innerHTML = voci.map(([k, n, on]) => `<button data-t="${k}" class="${on ? 'on' : ''}">${esc(n)}</button>`).join('');
+  if (inizio) { $('#tabs').onclick = null; aggiornaSx(); return; }
+  $('#tabs').innerHTML = vis.map((k) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${nomeTab(k)}</button>`).join('');
   equipaggi($('#tabs'));
-  $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; if (tab === 'menu') { impostaMondo(b.dataset.t); vai('hub'); } else vai(b.dataset.t); };
+  $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) { vai(b.dataset.t); } };
+}
+// colonna di sinistra del portale e dei riquadri: strumenti, non navigazione
+async function aggiornaSx() {
+  const t = $('#tabs'); if (!t.classList.contains('strumenti')) return;
+  const att = (eventi.length ? eventi : await api('/eventi').catch(() => [])).find((e) => e.attivo);
+  if (!t.classList.contains('strumenti')) return;
+  t.innerHTML = `<div class="w"><h4>Gara attiva</h4>${att ? `<b class="n">${esc(att.nome)}</b><small>${esc([dataIt(att.data), att.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small>` : '<small>Nessuna gara attiva</small>'}</div>
+    <div class="w" id="sx_ri" hidden><h4>Da approvare</h4><b class="n"></b><a href="#" data-v="richieste">Apri le richieste</a></div>`;
+  t.querySelectorAll('[data-v]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); vai(a.dataset.v); }; });
+  if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { if (c.n && $('#sx_ri')) { $('#sx_ri').hidden = false; $('#sx_ri b').textContent = c.n + (c.n === 1 ? ' richiesta di accesso' : ' richieste di accesso'); } }).catch(() => {});
 }
 
 async function caricaEventi() {
@@ -546,7 +560,7 @@ async function tScene() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima un evento.</div>'; return; }
   const [scene, pat, ass, mas, macro, canov] = await Promise.all([api(`/eventi/${ev.id}/scene`), api('/libreria/patologie'), api(`/eventi/${ev.id}/assegnazioni`), api(`/eventi/${ev.id}/master`), api('/libreria/macro'), api('/canovacci').catch(() => [])]);
   const verEv = ev.tipo === 'olimpiadi' ? 'olimpiadi' : 'gara';
-  const optCan = (s) => `<option value="">— nessuno —</option>${[...canov].sort((a, b) => (b.versione === verEv) - (a.versione === verEv) || a.codice.localeCompare(b.codice)).map((c) => `<option value="${c.id}" ${s.canovaccio_id === c.id ? 'selected' : ''}>${esc(c.codice)} · ${esc(c.titolo)} (${c.versione === 'olimpiadi' ? 'Olimpiadi' : 'Gara'})</option>`).join('')}`;
+  const optCan = (s) => `<option value="">— nessuno —</option>${[...canov].filter((c) => c.versione === verEv || c.id === s.canovaccio_id).sort((a, b) => a.codice.localeCompare(b.codice)).map((c) => `<option value="${c.id}" ${s.canovaccio_id === c.id ? 'selected' : ''}>${esc(c.codice)} · ${esc(c.titolo)} ${c.versione === verEv ? '' : ' (' + (c.versione === 'olimpiadi' ? 'Olimpiadi' : 'Gara') + ')'}</option>`).join('')}`;
   const schede = {};
   for (const s of scene) for (const k of s.schede || []) schede[k.id] = (await api(`/schede/${k.id}`));
   cache = { schede, giudici: null, macro };
@@ -563,17 +577,18 @@ async function tScene() {
     ${(s.schede || []).map((k) => { const d = schede[k.id]; const p = d.parametri || {}; return `<div class="scheda">
       <div class="riga"><div style="flex:2"><strong>${esc(d.titolo)}</strong> <span class="tag">slot ${d.slot}</span><span class="tag">sim. ${esc(d.simulatore)}</span>
         ${d.is_bls ? '<span class="tag">BLS</span>' : ''}${d.is_master ? '<span class="tag">Master</span>' : ''}<span class="tag">${d.voci.length} voci</span>
-        <br><small>Giudici: ${nomiAss(k.id)}</small></div></div>
+        <br><small>Giudici: ${nomiAss(k.id)}</small></div><div class="stretto"><button class="b p voci-b" data-id="${k.id}">Modifica scheda…</button> <button class="s p an-b" data-id="${k.id}">Anteprima</button></div></div>
       <div class="riga"><div><label>Coscienza</label><input class="pp" data-id="${k.id}" data-k="coscienza" value="${esc(p.coscienza || '')}"></div>
         <div><label>FR</label><input class="pp" data-id="${k.id}" data-k="fr" value="${esc(p.fr ?? '')}"></div>
         <div><label>FC</label><input class="pp" data-id="${k.id}" data-k="fc" value="${esc(p.fc ?? '')}"></div>
         <div><label>Cute</label><input class="pp" data-id="${k.id}" data-k="cute" value="${esc(p.cute || '')}"></div>
         <div><label>Simulatore</label><input class="ps" data-id="${k.id}" value="${esc(d.simulatore)}"></div>
         ${d.is_master ? '' : `<div><label>Gravità</label><select class="pg" data-id="${k.id}"><option value="">—</option>${['rosso', 'giallo', 'verde'].map((g) => `<option value="${g}" ${d.gravita === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>`}</div>
-      <p><button class="s p voci-b" data-id="${k.id}">Modifica scheda…</button> <button class="s p an-b" data-id="${k.id}">Anteprima</button> <button class="s p ass-b" data-id="${k.id}">Giudici…</button>
+      <p><button class="s p ass-b" data-id="${k.id}">Giudici…</button>
         <button class="x p delsk" data-id="${k.id}">Elimina scheda</button></p></div>`; }).join('')}
     <div class="scheda"><strong>Aggiungi scheda da patologia</strong><div class="riga">
-      <div><label>Patologia</label><select class="a_pat">${opzioniPatologie(pat)}</select></div>
+      <div style="flex:3"><label>Patologia</label><select class="a_pat">${opzioniPatologie(pat)}</select></div>
+      <div class="stretto"><button class="s a_an" type="button">Anteprima</button> <button class="s a_lib" type="button" title="Per cambiare la scheda in libreria">Apri in libreria</button></div>
       <div><label>Slot</label><input class="a_slot num" type="number" min="0" value="${(s.schede || []).length}"></div>
       <div><label>Simulatore</label><input class="a_sim" value="${(s.schede || []).length === 0 ? 'M' : String((s.schede || []).length).padStart(2, '0')}"></div>
       <div class="stretto"><button class="b a_ok" data-id="${s.id}">Aggiungi</button></div></div></div></div></div>`).join('') + `
@@ -607,6 +622,8 @@ async function tScene() {
   document.querySelectorAll('.ps').forEach((i) => { i.onchange = () => fai(() => api(`/schede/${i.dataset.id}`, { method: 'PATCH', body: { simulatore: i.value.trim() } }), 'Simulatore aggiornato'); });
   document.querySelectorAll('.delsk').forEach((b) => { b.onclick = () => { if (confirm('Eliminare questa scheda?')) fai(() => api(`/schede/${b.dataset.id}`, { method: 'DELETE' }), 'Scheda eliminata'); }; });
   document.querySelectorAll('.delsc').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la scena con tutte le sue schede?')) fai(() => api(`/scene/${b.dataset.id}`, { method: 'DELETE' }), 'Scena eliminata'); }; });
+  document.querySelectorAll('.a_an').forEach((b) => { b.onclick = () => { const p = pat.find((x) => x.id === b.closest('.scheda').querySelector('.a_pat').value); if (p) anteprimaScheda(p); }; });
+  document.querySelectorAll('.a_lib').forEach((b) => { b.onclick = () => vai('libreria'); });
   document.querySelectorAll('.a_ok').forEach((b) => { b.onclick = () => { const c = b.closest('.scheda');
     fai(() => api(`/scene/${b.dataset.id}/schede`, { body: { patologiaId: c.querySelector('.a_pat').value, slot: Number(c.querySelector('.a_slot').value), simulatore: c.querySelector('.a_sim').value.trim() } }), 'Scheda aggiunta'); }; });
   $('#ns_ok').onclick = () => { const c = $('#ns_cod').value.trim().toUpperCase(), t = $('#ns_tit').value.trim(); if (!c || !t) return flash('Scrivi il codice (es. A) e il titolo della scena', false);
@@ -1209,9 +1226,13 @@ async function tRuoli() {
 async function aggiornaRail() {
   const r = $('#rail'); if (!r) return;
   if (tab === 'classifiche') { r.innerHTML = ''; return; }
-  if (tab === 'menu' || fam === 'comune' || !ev) {
-    const att = (eventi.length ? eventi : await api('/eventi').catch(() => [])).find((e) => e.attivo);
-    r.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt="">' + (att ? `<div class="w"><h4>Gara attiva</h4><b class="n">${esc(att.nome)}</b><small>${esc([dataIt(att.data), att.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small></div>` : '') + '<div class="w" id="rail_ri" hidden><h4>Da approvare</h4><b class="n"></b><a href="#" data-v="richieste">Apri le richieste</a></div>';
+  if (tab === 'menu') {
+    r.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w" id="rail_av" hidden><h4>Avvisi</h4></div><div class="w"><h4>Scorciatoie</h4><a href="/#valutazione">Valutazione</a><a href="/#monitor">Monitor</a><a href="/#documenti">Documentazione</a></div>';
+    api('/avvisi').then((av) => { if (av.length && $('#rail_av')) { $('#rail_av').hidden = false; $('#rail_av').insertAdjacentHTML('beforeend', av.slice(0, 3).map((a) => `<div style="padding:6px 0;border-top:1px solid #e3e5ea"><b>${esc(a.titolo)}</b><small style="display:block">${esc((a.testo || '').slice(0, 90))}</small></div>`).join('')); } }).catch(() => {});
+    return;
+  }
+  if (fam === 'comune' || !ev) {
+    r.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w" id="rail_ri" hidden><h4>Da approvare</h4><b class="n"></b><a href="#" data-v="richieste">Apri le richieste</a></div>';
     r.querySelectorAll('[data-v]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); vai(a.dataset.v); }; });
     if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { if (c.n && $('#rail_ri')) { $('#rail_ri').hidden = false; $('#rail_ri b').textContent = c.n + (c.n === 1 ? ' richiesta di accesso' : ' richieste di accesso'); } }).catch(() => {});
     return;
