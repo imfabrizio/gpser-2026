@@ -66,6 +66,7 @@
 <body>
 <header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GPSER-2026</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#account" hidden title="Il mio account">Il mio account</a><button id="esci" hidden>Esci</button></header>
 <main id="app"></main>
+<script src="layout.js"></script>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const LIV = [['MB','Molto bene'],['BE','Bene'],['SU','Soddisfacente'],['IN','Insufficiente'],['NE','Non eseguito']];   // nessun punteggio: chi inserisce i dati non lo conosce
@@ -540,7 +541,7 @@ async function vistaDocumenti() {
 }
 let monTimer = null;
 async function vistaMonitor() {
-  $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'GPSER-2026 – Monitor';
+  $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'GPSER-2026 – Monitor';
   const tutti = (await api('/eventi')).filter((e) => !e.archiviato && ['gara', 'olimpiadi', 'allenamento', 'corso_giudici'].includes(e.tipo));
   let id; try { id = localStorage.getItem('monEv'); } catch { /* niente */ }
   let ev = tutti.find((e) => e.id === id) || window.__ev && tutti.find((e) => e.id === window.__ev.id) || tutti.find((e) => e.attivo) || tutti[0];
@@ -597,7 +598,7 @@ async function route() {
     return await vistaHome();
   } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
-const routeB = async () => { await route(); window.Barra && Barra.disegna('index'); };
+const routeB = async () => { await route(); window.Barra && Barra.disegna('index'); window.Layout && Layout.disegna(); };
 addEventListener('hashchange', routeB); routeB();
 </script>
 </body>

@@ -184,11 +184,16 @@ const vai = (t, daHash) => { if (t === 'monitor') { location.href = '/#monitor';
   tab = t; if (!daHash) history.replaceState(null, '', t === 'menu' ? location.pathname : '#' + t); disegnaTabs(); render(); };
 function disegnaTabs() {
   if (!TABS.some(([k]) => k === tab)) tab = 'menu';
-  const g = tab === 'menu' ? null : mondoCorrente(), vis = g && tab !== 'hub' ? figliVisibili(g) : [];
-  $('#tabs').hidden = vis.length < 2; document.body.classList.toggle('laterale', vis.length >= 2);               // le linguette del mondo in cui si è entrati
-  $('#tabs').innerHTML = vis.map((k) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${nomeTab(k)}</button>`).join('');
+  const g = tab === 'menu' ? null : mondoCorrente(), vis = g ? figliVisibili(g) : [];
+  const mondi = mondiVisibili();
+  // portale: l'elenco delle aree; dentro un'area: le sue sezioni (anche nel menu a riquadri). Nella classifica servono le linguette in alto e tutta la larghezza.
+  const voci = tab === 'menu' ? mondi.map((m) => [m[0], m[1], false]) : vis.map((k) => [k, nomeTab(k), k === tab]);
+  const laterale = tab !== 'classifiche' && voci.length >= 2;
+  $('#tabs').hidden = voci.length < 2 || (tab === 'menu' && !laterale);
+  document.body.classList.toggle('laterale', laterale);
+  $('#tabs').innerHTML = voci.map(([k, n, on]) => `<button data-t="${k}" class="${on ? 'on' : ''}">${esc(n)}</button>`).join('');
   equipaggi($('#tabs'));
-  $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) { vai(b.dataset.t); } };
+  $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; if (tab === 'menu') { impostaMondo(b.dataset.t); vai('hub'); } else vai(b.dataset.t); };
 }
 
 async function caricaEventi() {
@@ -1203,9 +1208,10 @@ async function tRuoli() {
 // Colonna di destra (schermi larghi): riepilogo della gara scelta e scorciatoie
 async function aggiornaRail() {
   const r = $('#rail'); if (!r) return;
-  if (tab === 'menu' || tab === 'hub') { r.innerHTML = ''; return; }
-  if (fam === 'comune' || !ev) {
-    r.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w" id="rail_ri" hidden><h4>Da approvare</h4><b class="n"></b><a href="#" data-v="richieste">Apri le richieste</a></div>';
+  if (tab === 'classifiche') { r.innerHTML = ''; return; }
+  if (tab === 'menu' || fam === 'comune' || !ev) {
+    const att = (eventi.length ? eventi : await api('/eventi').catch(() => [])).find((e) => e.attivo);
+    r.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt="">' + (att ? `<div class="w"><h4>Gara attiva</h4><b class="n">${esc(att.nome)}</b><small>${esc([dataIt(att.data), att.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small></div>` : '') + '<div class="w" id="rail_ri" hidden><h4>Da approvare</h4><b class="n"></b><a href="#" data-v="richieste">Apri le richieste</a></div>';
     r.querySelectorAll('[data-v]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); vai(a.dataset.v); }; });
     if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { if (c.n && $('#rail_ri')) { $('#rail_ri').hidden = false; $('#rail_ri b').textContent = c.n + (c.n === 1 ? ' richiesta di accesso' : ' richieste di accesso'); } }).catch(() => {});
     return;
