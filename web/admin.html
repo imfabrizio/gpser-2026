@@ -174,6 +174,9 @@ async function tEvento() {
       <div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
       <div><label>Ultimo giorno (se dura più giorni)</label><input id="e_dfine" type="date" value="${esc(ev.data_fine || '')}"></div>
       <div><label>Tipo</label><select id="e_tipo">${FAM_TIPI[fam === 'corsi' ? 'corsi' : 'gara'].map((t) => `<option value="${t}" ${ev.tipo === t ? 'selected' : ''}>${NOME_TIPO[t] || t}</option>`).join('')}</select></div></div>
+    ${fam === 'corsi' ? '' : `<div class="riga"><div><label>Coordinate della città ${ev.lat != null ? '<span class="tag ok">ricavate</span>' : '<span class="tag no">mancanti</span>'}</label><div class="riga" style="gap:6px"><input id="e_lat" value="${ev.lat != null ? esc(ev.lat + ', ' + ev.lng) : ''}" readonly placeholder="si ricavano dal luogo"><div class="stretto"><button class="s" id="e_geo">Ricava dal luogo</button></div></div></div>
+      <div><label>Coordinate della segreteria (arrivi e registrazioni)</label><input id="e_seg" value="${ev.segreteria_lat != null ? esc(ev.segreteria_lat + ', ' + ev.segreteria_lng) : ''}" placeholder="44.4056, 10.5912 (da Google Maps: tasto destro sul punto)"></div></div>
+      ${me.ruolo === 'admin' ? '<p><button class="s" id="e_geo_tutte">Ricava le coordinate di tutte le gare già caricate</button></p>' : ''}`}
     ${fam === 'corsi' ? `<div class="riga"><div><label>N° corso su Gaia</label><input id="e_gaia" value="${esc(ev.codice_gaia || '')}"></div>
       <div><label>Corso di riferimento</label><select id="e_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato && x.id !== ev.id).map((x) => `<option value="${x.id}" ${x.id === ev.corso_id ? 'selected' : ''}>${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>` : ''}
     <div class="riga"><div><label>Soglia di superamento (%) — vuota se non serve</label><input id="e_soglia" type="number" min="1" max="100" value="${esc(ev.soglia_pct ?? '')}"></div>
@@ -213,10 +216,16 @@ async function tEvento() {
       $('#ci_ok').onclick = () => fai(async () => { inv = await api(`/eventi/${ev.id}/comitati-invitati`, { method: 'PUT', body: { comitati: inv } }); disegnaInv(); }, 'Inviti salvati'); }
   }
   if (ev) {
-    $('#e_salva').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
+    $('#e_salva').onclick = () => fai(async () => { const luogoPrima = ev.luogo || ''; await api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
       luogo: $('#e_luogo').value, data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia').value, mostra_punteggi: $('#e_mp').checked, codice_gaia: $('#e_gaia')?.value ?? ev.codice_gaia, corso_id: $('#e_corso') ? $('#e_corso').value || null : ev.corso_id } })
       .then(() => api(`/eventi/${ev.id}/data-fine`, { method: 'PUT', body: { data_fine: $('#e_dfine').value || null } }))
-      .then(() => (me.ruolo === 'admin' ? api(`/eventi/${ev.id}/ente`, { method: 'PUT', body: { livello: $('#e_liv').value, comitato: $('#e_comp').value.trim(), regione: $('#e_reg').value } }) : null)).then(caricaEventi), 'Salvato');
+      .then(() => (me.ruolo === 'admin' ? api(`/eventi/${ev.id}/ente`, { method: 'PUT', body: { livello: $('#e_liv').value, comitato: $('#e_comp').value.trim(), regione: $('#e_reg').value } }) : null)).then(caricaEventi);
+      if (fam !== 'corsi' && $('#e_luogo') && $('#e_luogo').value.trim() && $('#e_luogo').value !== luogoPrima) { await api(`/eventi/${ev.id}/posizione`, { method: 'PUT', body: { ricava: true } }).catch(() => {}); await caricaEventi(); }   // luogo cambiato: si aggiornano le coordinate
+    }, 'Salvato');
+    if ($('#e_geo')) $('#e_geo').onclick = () => fai(async () => { await api(`/eventi/${ev.id}/posizione`, { method: 'PUT', body: { ricava: true } }); await caricaEventi(); ev = eventi.find((x) => x.id === ev.id) || ev; }, 'Coordinate della città ricavate');
+    if ($('#e_seg')) $('#e_seg').onchange = () => fai(async () => { await api(`/eventi/${ev.id}/posizione`, { method: 'PUT', body: { segreteria: $('#e_seg').value.trim() } }); await caricaEventi(); ev = eventi.find((x) => x.id === ev.id) || ev; }, 'Coordinate della segreteria salvate');
+    if ($('#e_geo_tutte')) $('#e_geo_tutte').onclick = async () => { $('#e_geo_tutte').disabled = true; $('#e_geo_tutte').textContent = 'Ricavo le coordinate… (circa un secondo per gara)';
+      try { const r = await api('/eventi/ricava-coordinate', { body: {} }); await caricaEventi(); ev = eventi.find((x) => x.id === ev.id) || ev; flash(`${r.fatti.length} gare con le coordinate${r.mancanti.length ? ' · non trovate: ' + r.mancanti.join('; ') : ''}`, !r.mancanti.length); render(); } catch (e) { flash(e.message, false); render(); } };
     $('#e_attiva').onclick = () => fai(() => api(`/eventi/${ev.id}/attiva`, { method: 'POST', body: {} }).then(caricaEventi), 'Evento attivato');
     $('#e_arch').onclick = () => { if (confirm('Archiviare questo evento? Sparisce dagli elenchi ma i dati restano.')) fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { archiviato: true } }).then(caricaEventi), 'Archiviato'); };
     $('#e_map_ok').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { mappa_url: $('#e_map').value.trim() } }).then(caricaEventi), 'Mappa salvata');

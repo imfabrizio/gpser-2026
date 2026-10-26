@@ -19,6 +19,7 @@ import ExcelJS from 'exceljs';
 import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
 import { registraNotifiche } from './notifiche.js';
+import { geocodifica, leggiCoordinate } from './geo.js';
 import { registraSegreteria } from './routes-segreteria.js';
 import { registraRisorse } from './routes-risorse.js';
 import { registraDocumenti } from './routes-documenti.js';
@@ -138,13 +139,18 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   });
 
   // ── pagina pubblica (senza login): notizie, gare, percorso ──
+  // La pagina pubblica mostra solo gare e Olimpiadi, nella finestra di tre mesi prima e dopo (modificabile qui sotto)
+  const FINESTRA_GIORNI = 92;
   app.get('/api/pubblico', async () => {
     const { rows: avvisi } = await pool.query(`select id, titolo, testo, created_at from avviso where pubblico and ambito='gare' order by created_at desc limit 20`);
+    const visibile = `not e.archiviato and e.tipo in ('gara','olimpiadi') and (e.livello is null or (e.livello <> 'comitato' and e.attivo))
+      and (e.attivo or coalesce(e.data_fine, e.data) between current_date - $1::int and current_date + $1::int)`;
     const { rows: eventi } = await pool.query(
-      `select id, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, attivo, mappa_url from evento where not archiviato and tipo not in ('allenamento','corso_giudici') and (livello is null or (livello <> 'comitato' and attivo)) order by data desc nulls last limit 20`);
+      `select e.id, e.nome, e.tipo, e.luogo, to_char(e.data,'YYYY-MM-DD') as data, to_char(e.data_fine,'YYYY-MM-DD') as data_fine, e.attivo, e.mappa_url, e.regione, e.lat, e.lng, e.segreteria_lat, e.segreteria_lng
+         from evento e where ${visibile} order by e.data desc nulls last limit 30`, [FINESTRA_GIORNI]);
     const { rows: scene } = await pool.query(
       `select s.evento_id, s.codice, s.titolo, s.indirizzo, s.lat, s.lng from scena s join evento e on e.id=s.evento_id
-        where not e.archiviato and e.tipo not in ('allenamento','corso_giudici') and (e.livello is null or (e.livello <> 'comitato' and e.attivo)) and (s.indirizzo is not null or s.lat is not null) order by s.ordine, s.codice`);
+        where ${visibile} and (s.indirizzo is not null or s.lat is not null) order by s.ordine, s.codice`, [FINESTRA_GIORNI]);
     return { avvisi, eventi: eventi.map((e) => ({ ...e, scene: scene.filter((s) => s.evento_id === e.id) })) };
   });
 
@@ -167,7 +173,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
     const org = RUOLI_ORG.includes(req.utente.ruolo);
     const righe = (await pool.query(
-      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, to_char(data_fine,'YYYY-MM-DD') as data_fine, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, comitato, livello, regione
+      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, to_char(data_fine,'YYYY-MM-DD') as data_fine, attivo, archiviato, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, comitato, livello, regione, lat, lng, segreteria_lat, segreteria_lng
          from evento where ($1 or id = $2 or id = any($3::uuid[]) or ($2::uuid is null and not cardinality($3::uuid[]) > 0 and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id, req.utente.eventi_ammessi])).rows;
     if (req.utente.ruolo === 'organizzazione' && req.utente.per_evento) return righe.filter((e) => req.utente.eventi_org.includes(e.id));
@@ -207,6 +213,33 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const d = req.body?.data_fine || null; if (d && Number.isNaN(Date.parse(d))) throw httpErr(400, 'data di fine non valida');
     const { rows: [e] } = await pool.query(`update evento set data_fine=$2::date, updated_at=now() where id=$1 returning id, to_char(data_fine,'YYYY-MM-DD') as data_fine`, [req.params.id, d]);
     if (!e) throw httpErr(404, 'evento inesistente'); return e;
+  });
+  // coordinate: la città si ricava dal luogo, la segreteria si scrive a mano («44.4056, 10.5912», come la copia Google Maps)
+  app.put('/api/eventi/:id/posizione', { preHandler: soloOrg }, async (req) => {
+    const b = req.body || {};
+    const { rows: [att] } = await pool.query('select id, luogo from evento where id=$1', [req.params.id]); if (!att) throw httpErr(404, 'evento inesistente');
+    if ('segreteria' in b) {
+      const c = b.segreteria ? leggiCoordinate(b.segreteria) : { lat: null, lng: null };
+      if (!c) throw httpErr(400, 'coordinate non valide: scrivi latitudine e longitudine, per esempio 44.4056, 10.5912');
+      await pool.query('update evento set segreteria_lat=$2, segreteria_lng=$3, updated_at=now() where id=$1', [att.id, c.lat, c.lng]);
+    }
+    if (b.ricava) {
+      const g = await geocodifica(att.luogo);
+      if (!g) throw httpErr(404, att.luogo ? `non trovo «${att.luogo}» su OpenStreetMap: controlla il nome della città` : 'inserisci prima il luogo dell\'evento');
+      await pool.query('update evento set lat=$2, lng=$3, updated_at=now() where id=$1', [att.id, g.lat, g.lng]);
+    }
+    return (await pool.query('select id, lat, lng, segreteria_lat, segreteria_lng from evento where id=$1', [att.id])).rows[0];
+  });
+  // una volta sola per gli eventi già caricati: ricava le coordinate dalla città (un tentativo al secondo, come chiede il servizio)
+  app.post('/api/eventi/ricava-coordinate', { preHandler: soloAdmin }, async () => {
+    const { rows } = await pool.query(`select id, nome, luogo from evento where lat is null and coalesce(trim(luogo),'') <> '' and tipo in ('gara','olimpiadi') and not archiviato limit 40`);
+    const fatti = [], mancanti = [];
+    for (const e of rows) {
+      const g = await geocodifica(e.luogo);
+      if (g) { await pool.query('update evento set lat=$2, lng=$3 where id=$1', [e.id, g.lat, g.lng]); fatti.push(`${e.nome} → ${g.lat}, ${g.lng}`); } else mancanti.push(`${e.nome} (${e.luogo})`);
+      await new Promise((ok) => setTimeout(ok, 1100));
+    }
+    return { fatti, mancanti };
   });
   app.post('/api/eventi', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};

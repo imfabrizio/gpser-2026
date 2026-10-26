@@ -559,7 +559,9 @@ test('P-1 pagina pubblica: senza login solo notizie pubbliche e percorso; mappa 
   assert.equal((await chiama('PATCH', `/api/scene/${sc.id}`, { token: org, body: { indirizzo: 'Via Roma 1, Piacenza', lat: '45.05', lng: '9.69' } })).statusCode, 200);
   assert.equal((await chiama('PATCH', `/api/eventi/${ev}`, { token: org, body: { mappa_url: 'https://evil.example/x' } })).statusCode, 400);
   assert.equal((await chiama('PATCH', `/api/eventi/${ev}`, { token: org, body: { mappa_url: 'https://www.google.com/maps/d/embed?mid=abc' } })).statusCode, 200);
+  await pool.query(`update evento set data = current_date where id=$1`, [ev]);   // la pagina pubblica mostra solo gli ultimi/prossimi tre mesi
   const r = await chiama('GET', '/api/pubblico');
+  await pool.query(`update evento set data = '2026-04-18' where id=$1`, [ev]);
   assert.equal(r.statusCode, 200);
   const d = json(r);
   assert.ok(d.avvisi.some((a) => a.titolo === 'Pubblica')); assert.ok(!d.avvisi.some((a) => a.titolo === 'Riservata'));
@@ -1465,4 +1467,23 @@ test('REG-2: supporter, aspirante e controllo del codice fiscale sui dati dichia
   rq = json(await chiama('GET', '/api/richieste', { token: adm })).find((x) => x.email === 'supporter@t.it');
   assert.equal(rq.cf_avvisi.length, 2); assert.ok(rq.cf_avvisi.some((a) => /data di nascita/.test(a)) && rq.cf_avvisi.some((a) => /luogo di nascita/.test(a)));
   await chiama('DELETE', `/api/richieste/${rq.id}`, { token: adm, body: {} });
+});
+
+test('GEO-1: pagina pubblica solo gare/olimpiadi nella finestra di tre mesi; coordinate città e segreteria', async () => {
+  const adm = tok['adm@t'];
+  const nuovo = async (codice, tipo, giorni) => json(await chiama('POST', '/api/eventi', { token: adm, body: { codice, nome: codice, tipo, luogo: 'Piacenza', data: new Date(Date.now() + giorni * 86400e3).toISOString().slice(0, 10) } }));
+  const g1 = await nuovo('GEO-VICINA', 'gara', 30), g2 = await nuovo('GEO-LONTANA', 'gara', 200), g3 = await nuovo('GEO-PASSATA', 'olimpiadi', -30), g4 = await nuovo('GEO-CORSO', 'corso', 10), g5 = await nuovo('GEO-VECCHIA', 'gara', -200);
+  const nomi = json(await chiama('GET', '/api/pubblico')).eventi.map((e) => e.nome);
+  assert.ok(nomi.includes('GEO-VICINA') && nomi.includes('GEO-PASSATA'));
+  assert.ok(!nomi.includes('GEO-LONTANA') && !nomi.includes('GEO-VECCHIA') && !nomi.includes('GEO-CORSO'));
+  // coordinate della città (servizio simulato) e della segreteria (scritte a mano)
+  const f0 = globalThis.fetch; globalThis.fetch = async (u, o) => String(u).includes('nominatim') ? { ok: true, json: async () => [{ lat: '45.0526', lon: '9.6930', display_name: 'Piacenza' }] } : f0(u, o);
+  try {
+    const p = json(await chiama('PUT', `/api/eventi/${g1.id}/posizione`, { token: adm, body: { ricava: true, segreteria: '44.4056, 10.5912' } }));
+    assert.equal(Number(p.lat), 45.0526); assert.equal(Number(p.segreteria_lng), 10.5912);
+    assert.equal((await chiama('PUT', `/api/eventi/${g1.id}/posizione`, { token: adm, body: { segreteria: 'boh' } })).statusCode, 400);
+    const r = json(await chiama('POST', '/api/eventi/ricava-coordinate', { token: adm, body: {} }));
+    assert.ok(r.fatti.some((x) => x.startsWith('GEO-LONTANA')));
+  } finally { globalThis.fetch = f0; }
+  assert.equal(Number(json(await chiama('GET', '/api/pubblico')).eventi.find((e) => e.nome === 'GEO-VICINA').lat), 45.0526);
 });

@@ -113,21 +113,38 @@ function mappaHtml(ev, scene) {
     <div class="scene-mappa">${punti.map((x) => `<a href="https://www.google.com/maps/search/?api=1&query=${q(x)}" target="_blank" rel="noopener">📍 Scena ${esc(x.codice)} – ${esc(x.titolo)}</a>`).join('')}
     ${percorso ? `<br><a class="btn" href="${percorso}" target="_blank" rel="noopener">Apri il percorso in Google Maps</a>` : ''}</div></div>`;
 }
+const km = (a, b) => { const R = Math.PI / 180, dLa = (b.lat - a.lat) * R, dLo = (b.lng - a.lng) * R; const x = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * R) * Math.cos(b.lat * R) * Math.sin(dLo / 2) ** 2; return 12742 * Math.asin(Math.sqrt(x)); };
 async function vistaPubblica() {
-  $('#esci').hidden = true; $('#hhome').hidden = true; $('#titolo').textContent = 'Gare di primo soccorso · Croce Rossa Italiana';
+  $('#esci').hidden = true; $('#hhome').hidden = true; $('#titolo').textContent = 'Gare, Olimpiadi e attività formative';
   let d = { avvisi: [], eventi: [] }; try { d = await api('/pubblico'); } catch { /* offline: resta la pagina base */ }
   const oggiS = oggi();
-  const prossime = d.eventi.filter((e) => e.attivo || (e.data && e.data >= oggiS)).sort((a, b) => String(a.data).localeCompare(String(b.data)));
-  const passate = d.eventi.filter((e) => !prossime.includes(e));
-  const riga = (e) => `<div class="notizia"><b>${esc(e.nome)}</b>${e.attivo ? ' · <span class="ok">in corso</span>' : ''}<br><small>${TIPO_EV[e.tipo] || 'Gara'} · ${esc(e.luogo || '')} ${esc(e.data || '')}</small></div>`;
-  const inCorso = d.eventi.find((e) => e.attivo) || prossime[0] || d.eventi.find((e) => e.mappa_url || e.scene.length);
-  $('#app').innerHTML = `<div class="card pub" style="text-align:center"><img src="/logo-cri.jpg" alt="Croce Rossa Italiana" style="height:90px">
-      <h2>Gare di primo soccorso</h2><p>Notizie, edizioni e percorso gara.</p><a class="btn" href="#login">Accedi</a> <a class="btn sec" href="#registrati">Registrati</a></div>
-    <div class="card pub"><h2>Prossime edizioni</h2>${prossime.length ? prossime.map(riga).join('') : '<p><small>Nessuna edizione in programma.</small></p>'}</div>
-    <div class="card pub"><h2>Notizie</h2>${d.avvisi.length ? d.avvisi.map((a) => `<div class="notizia"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>
-    ${inCorso ? mappaHtml(inCorso, inCorso.scene) : ''}
-    ${passate.length ? `<div class="card pub"><h2>Edizioni passate</h2>${passate.map(riga).join('')}</div>` : ''}
-    <p style="text-align:center"><small><a href="/privacy.html">Privacy</a> · <a href="/termini.html">Termini di utilizzo</a></small></p>`;
+  let pos = null; try { pos = JSON.parse(localStorage.getItem('pos') || 'null'); } catch { /* niente */ }
+  let reg = ''; try { reg = localStorage.getItem('regione') || ''; } catch { /* niente */ }
+  const regioni = [...new Set(d.eventi.map((e) => e.regione).filter(Boolean))].sort();
+  const dist = (e) => (pos && e.lat != null ? km(pos, { lat: Number(e.lat), lng: Number(e.lng) }) : null);
+  const disegna = () => {
+    const lista = d.eventi.filter((e) => !reg || e.regione === reg);
+    const ord = (x, y) => { const a = dist(x), b = dist(y); if (a != null && b != null && a !== b) return a - b; return String(x.data).localeCompare(String(y.data)); };
+    const prossime = lista.filter((e) => e.attivo || (e.data && (e.data_fine || e.data) >= oggiS)).sort(ord);
+    const passate = lista.filter((e) => !prossime.includes(e)).sort((x, y) => String(y.data).localeCompare(String(x.data)));
+    const riga = (e) => { const k = dist(e); return `<div class="notizia"><b>${esc(e.nome)}</b>${e.attivo ? ' · <span class="ok">in corso</span>' : ''}<br><small>${TIPO_EV[e.tipo] || 'Gara'} · ${esc(e.luogo || '')} ${esc(e.data || '')}${k != null ? ` · a circa ${Math.round(k)} km` : ''}</small></div>`; };
+    const inCorso = lista.find((e) => e.attivo) || prossime[0] || lista.find((e) => e.mappa_url || e.scene.length);
+    $('#app').innerHTML = `<div class="card pub" style="text-align:center"><img src="/logo-cri.jpg" alt="Croce Rossa Italiana" style="height:90px">
+        <h2>Gare, Olimpiadi e attività formative</h2><p>Le prossime edizioni, le notizie e il percorso gara.</p><a class="btn" href="#login">Accedi</a> <a class="btn sec" href="#registrati">Registrati</a></div>
+      <div class="card pub"><h2>Prossime edizioni</h2>
+        <div class="riga" style="gap:8px;align-items:end"><div><label>Regione</label><select id="pb_reg"><option value="">Tutte</option>${regioni.map((r) => `<option ${r === reg ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></div>
+          ${navigator.geolocation && d.eventi.some((e) => e.lat != null) ? `<div class="stretto"><button class="btn sec" id="pb_pos">${pos ? 'Aggiorna la mia posizione' : 'Ordina per vicinanza'}</button></div>` : ''}</div>
+        ${prossime.length ? prossime.map(riga).join('') : '<p><small>Nessuna edizione in programma.</small></p>'}</div>
+      <div class="card pub"><h2>Notizie</h2>${d.avvisi.length ? d.avvisi.map((a) => `<div class="notizia"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>
+      ${inCorso ? mappaHtml(inCorso, inCorso.scene) : ''}
+      ${passate.length ? `<div class="card pub"><h2>Edizioni recenti</h2>${passate.map(riga).join('')}</div>` : ''}
+      <p style="text-align:center"><small><a href="/privacy.html">Privacy</a> · <a href="/termini.html">Termini di utilizzo</a></small></p>`;
+    $('#pb_reg').onchange = () => { reg = $('#pb_reg').value; try { localStorage.setItem('regione', reg); } catch { /* niente */ } disegna(); };
+    if ($('#pb_pos')) $('#pb_pos').onclick = () => navigator.geolocation.getCurrentPosition((p) => { pos = { lat: p.coords.latitude, lng: p.coords.longitude }; try { localStorage.setItem('pos', JSON.stringify(pos)); } catch { /* niente */ } disegna(); },
+      () => flashPub('Posizione non disponibile: scegli la tua regione dal menu.'), { timeout: 10000, maximumAge: 3600e3 });
+  };
+  const flashPub = (t) => { const x = document.createElement('div'); x.className = 'msg err'; x.textContent = t; document.body.append(x); setTimeout(() => x.remove(), 6000); };
+  disegna();
 }
 
 // ── chi entra con Google/Microsoft senza essere registrato: modulo di richiesta, poi attesa dell'approvazione ──
@@ -341,7 +358,9 @@ async function vistaHome() {
   }
   if (mondo === 'formazione') {
     const avvF = await api('/avvisi?ambito=formazione').catch(() => []);
+    const corsi = (await api('/eventi').catch(() => [])).filter((e) => ['corso', 'megacode', 'esame'].includes(e.tipo) && !e.archiviato && (e.attivo || !e.data || (e.data_fine || e.data) >= oggi()));
     $('#app').innerHTML = `${cambia}${formazione.replace('<h3>Formazione</h3><div class="tiles">', '<h3>Formazione</h3><div class="tiles">' + (org() ? tileF('/admin.html#hub:corsi', 'gestione', 'Gestione', 'Corsi, scene, equipaggi, notizie') : ''))}
+      <div class="card"><strong>Corsi e prove in programma</strong>${corsi.length ? corsi.map((e) => `<div class="avv"><b>${esc(e.codice_gaia ? e.codice_gaia + ' · ' : '')}${esc(e.nome)}</b><br><small>${esc(e.tipo === 'megacode' ? 'Mega Code' : e.tipo === 'esame' ? 'Esame' : 'Corso')} · ${esc(e.luogo || '')} ${esc(e.data || '')}</small></div>`).join('') : '<p><small>Nessun corso in programma.</small></p>'}</div>
       <div class="card"><strong>Notizie per la Formazione</strong>${avvF.length ? avvF.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>`;
     legaCambia(); return;
   }
