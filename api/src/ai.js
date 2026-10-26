@@ -26,19 +26,31 @@ export function leggiScheda(testo) {
   return { nome: String(j.nome).trim().slice(0, 120), sigla: String(j.sigla || j.nome).replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 3).padEnd(3, 'X'), sezioni };
 }
 
+// chiamata di rete con scadenza e un secondo tentativo: «fetch failed» da solo non dice nulla, si riporta la causa vera (DNS, TLS, timeout…)
+async function conRiprova(f, url, opt) {
+  let ultimo;
+  for (let t = 0; t < 2; t++) {
+    try { return await f(url, { ...opt, signal: AbortSignal.timeout(90000) }); }
+    catch (e) { ultimo = e; await new Promise((ok) => setTimeout(ok, 1500)); }
+  }
+  const causa = ultimo?.cause?.code || ultimo?.cause?.message || ultimo?.name || '';
+  console.error('AI: rete non raggiungibile', url.split('?')[0], causa, ultimo?.message);
+  const e = new Error(`il servizio AI non risponde${causa ? ` (${causa === 'TimeoutError' ? 'tempo scaduto' : causa})` : ''}: riprova tra poco`); e.status = 502; throw e;
+}
+
 export async function chiama(provider, chiave, prompt, f = fetch) {
   const modello = MODELLI[provider];
   let r, estrai;
   if (provider === 'gemini') {
-    r = await f(`https://generativelanguage.googleapis.com/v1beta/models/${modello}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chiave },
+    r = await conRiprova(f, `https://generativelanguage.googleapis.com/v1beta/models/${modello}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chiave },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.4 } }) });
     estrai = (j) => j.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
   } else if (provider === 'anthropic') {
-    r = await f('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': chiave, 'anthropic-version': '2023-06-01' },
+    r = await conRiprova(f, 'https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': chiave, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model: modello, max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }) });
     estrai = (j) => j.content?.map((c) => c.text || '').join('') || '';
   } else if (provider === 'openai') {
-    r = await f('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + chiave },
+    r = await conRiprova(f, 'https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + chiave },
       body: JSON.stringify({ model: modello, messages: [{ role: 'user', content: prompt }], response_format: { type: 'json_object' }, temperature: 0.4 }) });
     estrai = (j) => j.choices?.[0]?.message?.content || '';
   } else throw new Error('provider non supportato');
