@@ -76,7 +76,7 @@ export async function revisioni(db, utente, id) {
 export async function proposteRaggruppamento(db, utente) {
   const mio = await enteUtente(db, utente);
   const { rows: pat } = await db.query(
-    `select p.id, p.gruppo_id, p.nome, p.regione, p.revisione, (select count(*)::int from scena_scheda s where s.patologia_id=p.id) as usi
+    `select p.id, p.gruppo_id, p.nome, p.regione, p.revisione, array_to_string(array(select unnest(p.tipologie) order by 1), ',') as tip, (select count(*)::int from scena_scheda s where s.patologia_id=p.id) as usi
        from patologia p where not p.bozza and not p.is_master and p.comitato is null
         and p.revisione = (select max(revisione) from patologia q where q.gruppo_id=p.gruppo_id)
         and ($1::boolean or ($2::text is not null and p.regione = $2::text) or ($3::boolean and p.regione is null))`, [!!utente.admin, mio.regione, haSchede(utente)]);
@@ -88,7 +88,7 @@ export async function proposteRaggruppamento(db, utente) {
   const { rows: ign } = await db.query('select a, b from accorpamento_ignorato'); const ignorate = new Set(ign.map((x) => `${x.a}|${x.b}`));
   const out = [];
   for (let i = 0; i < pat.length; i++) for (let j = i + 1; j < pat.length; j++) {
-    const A = pat[i], B = pat[j]; if (A.gruppo_id === B.gruppo_id || (A.regione ?? null) !== (B.regione ?? null)) continue;
+    const A = pat[i], B = pat[j]; if (A.gruppo_id === B.gruppo_id || (A.regione ?? null) !== (B.regione ?? null) || A.tip !== B.tip) continue;   // gare e olimpiadi hanno percorsi diversi: mai insieme
     const [x, y] = A.id < B.id ? [A, B] : [B, A]; if (ignorate.has(`${x.id}|${y.id}`)) continue;
     const sa = chiavi.get(A.id), sb = chiavi.get(B.id); if (!sa.size || !sb.size) continue;
     let inter = 0; for (const t of sa) if (sb.has(t)) inter++;
@@ -104,8 +104,9 @@ export async function raggruppa(db, utente, aId, bId, { allinea = false } = {}) 
   if (!aId || !bId || aId === bId) throw httpErr(400, 'indica due schede diverse');
   const A = await controllaScheda(db, utente, aId, { modifica: true }); const B = await controllaScheda(db, utente, bId, { modifica: true });
   if ((A.regione ?? null) !== (B.regione ?? null) || A.comitato || B.comitato) throw httpErr(400, 'si possono raggruppare solo schede dello stesso catalogo');
-  const { rows: [pa] } = await db.query('select gruppo_id from patologia where id=$1', [aId]);
-  const { rows: [pb] } = await db.query('select gruppo_id from patologia where id=$1', [bId]);
+  const { rows: [pa] } = await db.query(`select gruppo_id, array_to_string(array(select unnest(tipologie) order by 1), ',') as tip from patologia where id=$1`, [aId]);
+  const { rows: [pb] } = await db.query(`select gruppo_id, array_to_string(array(select unnest(tipologie) order by 1), ',') as tip from patologia where id=$1`, [bId]);
+  if (pa.tip !== pb.tip) throw httpErr(409, 'tipologie diverse (per esempio gara e olimpiadi): restano schede separate');
   if (pa.gruppo_id === pb.gruppo_id) throw httpErr(409, 'sono già nello stesso gruppo');
   const { rows: [{ n }] } = await db.query('select count(*)::int as n from patologia where gruppo_id=$1', [pb.gruppo_id]);
   if (n > 1) throw httpErr(409, 'la seconda scheda ha già delle revisioni: scegli la sua ultima revisione');
