@@ -733,6 +733,24 @@ async function apriVociScheda(id, vista = 'voci', scala) {
     $('#nv_ok').onclick = () => { if (!$('#nv_t').value.trim()) return flash('Scrivi il testo della voce', false); ok(() => api(`/schede/${id}/voci`, { body: { sezione: sez, testo: $('#nv_t').value, scala: $('#nv_s').value, dopo: Number(b.dataset.dopo), is_sep: $('#nv_sep').checked } }), 'Voce aggiunta'); }; }; });
 }
 
+// blocchi comprimibili con filtri (somiglianza, tipologia, gara, anno, testo): le righe portano data-s, data-t, data-g, data-a, data-n
+const SIM_OPZ = [['0', 'Qualsiasi somiglianza'], ['75', 'Almeno 75%'], ['85', 'Almeno 85%'], ['95', 'Almeno 95%'], ['100', 'Identiche']];
+const barraFiltri = (id, { sim, tip, gare, anni, testo }) => `<div class="riga" style="margin:8px 0">
+  ${testo ? `<div style="flex:2"><input id="${id}_q" placeholder="Cerca per nome, scena o gara"></div>` : ''}
+  ${gare ? `<div><select id="${id}_g"><option value="">Tutte le gare</option>${gare.map((g) => `<option value="${esc(g)}">${esc(g === '-' ? 'Senza codice gara' : g)}</option>`).join('')}</select></div>` : ''}
+  ${anni ? `<div><select id="${id}_a"><option value="">Tutti gli anni</option>${anni.map((a) => `<option>${esc(a)}</option>`).join('')}</select></div>` : ''}
+  ${tip ? `<div><select id="${id}_t"><option value="">Gare e Olimpiadi</option>${TIPOLOGIE.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div>` : ''}
+  ${sim ? `<div><select id="${id}_s">${SIM_OPZ.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></div>` : ''}
+  <div class="stretto"><small id="${id}_n"></small></div></div>`;
+function attivaFiltri(id) {
+  const val = (k) => document.getElementById(`${id}_${k}`)?.value || '';
+  const applica = () => { const q = val('q').trim().toLowerCase(), g = val('g'), a = val('a'), t = val('t'), sm = Number(val('s') || 0); let n = 0;
+    document.querySelectorAll(`#b_${id} tr[data-n]`).forEach((r) => { const ok = (!q || r.dataset.n.includes(q)) && (!g || (r.dataset.g || '-') === g) && (!a || r.dataset.a === a) && (!t || (r.dataset.t || '').split(' ').includes(t)) && (!sm || Number(r.dataset.s || 0) >= sm); r.hidden = !ok; if (ok) n++; });
+    const c = document.getElementById(`${id}_n`); if (c) c.textContent = n + ' mostrati'; };
+  ['q', 'g', 'a', 't', 's'].forEach((k) => { const e = document.getElementById(`${id}_${k}`); if (e) { e.oninput = applica; e.onchange = applica; } });
+  applica();
+}
+
 // ───────── REVISIONI ─────────
 const htmlConfronto = (cf) => {
   const r = cf.riepilogo, col = { aggiunta: '#e3f5e6', tolta: '#fde4e4', ritoccata: '#fff3cd' }, et = { aggiunta: 'aggiunta', tolta: 'tolta', ritoccata: 'ritoccata', uguale: '' };
@@ -838,24 +856,34 @@ async function tLibreria() {
   document.querySelectorAll('.ed').forEach((b) => { b.onclick = async () => editorPatologia(pat.find((p) => p.id === b.dataset.id), await api(`/libreria/patologie/${b.dataset.id}`)); });
   $('#np').onclick = () => editorPatologia(null, []);
   const canov = await api('/canovacci').catch(() => []);
-  $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Canovacci delle scene (${canov.length})</h3>
-    ${canov.length ? `<table><tr><th>Scena</th><th>Versione</th><th>Pazienti</th><th>Simulatori</th><th>Manichini</th><th>Truccatori</th><th>In uso</th><th></th></tr>${canov.map((c) => `<tr><td><strong>${esc(c.codice)}</strong> · ${esc(c.titolo)}</td>
+  const gareCan = [...new Set(canov.map((c) => c.gara_codice || '-'))].sort(), mancanti = canov.filter((c) => !c.gara_codice);
+  $('#app').insertAdjacentHTML('beforeend', `<div class="card" id="b_can"><details><summary><h3 style="display:inline">Canovacci delle scene (${canov.length})</h3>${mancanti.length ? ` <span class="tag no">${mancanti.length} senza codice gara</span>` : ''}</summary>
+    ${canov.length ? `${barraFiltri('can', { testo: true, gare: gareCan, tip: true })}
+    ${mancanti.some((c) => c.usato_in?.length === 1) && (admin() || (me.aree || []).includes('importa')) ? '<p><button class="s" id="cv_cod">Compila i codici gara mancanti da dove sono già usati</button></p>' : ''}
+    <table><tr><th>Scena e gara</th><th>Versione</th><th>Pazienti</th><th>Simulatori</th><th>Manichini</th><th>Truccatori</th><th>In uso</th><th></th></tr>${canov.map((c) => `<tr data-n="${esc((c.codice + ' ' + c.titolo + ' ' + (c.gara_codice || '')).toLowerCase())}" data-g="${esc(c.gara_codice || '')}" data-t="${c.versione}"><td><strong>${esc(c.codice)}</strong> · ${esc(c.titolo)}<br>${c.gara_codice ? `<span class="tag ok">${esc(c.gara_codice)}</span>` : '<span class="tag no">senza codice gara</span>'}</td>
       <td><span class="tag">${c.versione === 'olimpiadi' ? 'Olimpiadi' : 'Gara'}</span></td><td>${c.pazienti}</td><td>${c.fabbisogno?.simulatori ?? '–'}</td><td>${c.fabbisogno?.manichini_rcp ?? '–'}</td><td>${c.fabbisogno?.truccatori ?? '–'}</td>
-      <td>${c.scene ? c.scene + ' scene' : '–'}</td><td><button class="s p cv_pdf" data-id="${c.id}">Apri</button> ${admin() || (me.aree || []).includes('importa') ? `<button class="x p cv_del" data-id="${c.id}">Elimina</button>` : ''}</td></tr>`).join('')}</table>`
+      <td>${c.scene ? c.scene + ' scene' : '–'}${c.usato_in?.length ? `<br><small>${esc(c.usato_in.join(', '))}</small>` : ''}</td><td><button class="s p cv_pdf" data-id="${c.id}">Apri</button> ${admin() || (me.aree || []).includes('importa') ? `<button class="s p cv_cd" data-id="${c.id}" data-g="${esc(c.gara_codice || c.usato_in?.[0] || '')}">Codice gara</button> <button class="x p cv_del" data-id="${c.id}">Elimina</button>` : ''}</td></tr>`).join('')}</table>`
       : '<p class="nota">Nessun canovaccio. Si caricano da <strong>Importa</strong> (file .docx).</p>'}
-    <p class="nota">Il canovaccio si collega a una scena dal tab Scene. Simulatori, manichini e truccatori sono calcolati dalla logistica del file.</p></div>`);
+    <p class="nota">Il canovaccio si collega a una scena dal tab Scene. Simulatori, manichini e truccatori sono calcolati dalla logistica del file. Il codice gara (per esempio GPSER-2027 o OLIER-2025) distingue la scena A di una gara dalla scena A di un'altra.</p></details></div>`);
+  if (canov.length) attivaFiltri('can');
+  document.querySelectorAll('.cv_cd').forEach((b) => { b.onclick = () => { const g = prompt('Codice della gara a cui appartiene questo canovaccio (es. GPSER-2027, OLIER-2025):', b.dataset.g); if (g === null) return; fai(() => api(`/canovacci/${b.dataset.id}`, { method: 'PATCH', body: { gara_codice: g } }), 'Codice gara salvato'); }; });
+  if ($('#cv_cod')) $('#cv_cod').onclick = () => fai(async () => { const r = await api('/canovacci/codici-mancanti', { body: {} }); flash(`Codici compilati: ${r.compilati}`); }, null);
   const dopp = await api('/libreria/doppioni').catch(() => []);
-  if (dopp.length) $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Possibili doppioni (${dopp.length})</h3>
+  if (dopp.length) { $('#app').insertAdjacentHTML('beforeend', `<div class="card" id="b_dop"><details><summary><h3 style="display:inline">Possibili doppioni (${dopp.length})</h3></summary>
     <p class="nota">Schede con voci molto simili. Unendole, scene ed esami che usano la scheda eliminata passano a quella che tieni: non si perde nulla.</p>
-    <table><tr><th>Scheda A</th><th>Scheda B</th><th>Somiglianza</th><th></th></tr>${dopp.map((d, i) => `<tr><td>${esc(d.a.nome)}<br><small>${d.a.voci} voci · usata ${d.a.usi} volte</small></td><td>${esc(d.b.nome)}<br><small>${d.b.voci} voci · usata ${d.b.usi} volte</small></td>
+    ${barraFiltri('dop', { sim: true, tip: true, testo: true })}
+    <table><tr><th>Scheda A</th><th>Scheda B</th><th>Somiglianza</th><th></th></tr>${dopp.map((d, i) => `<tr data-n="${esc((d.a.nome + ' ' + d.b.nome).toLowerCase())}" data-s="${Math.round(d.somiglianza * 100)}" data-t="${(d.tipologie || []).join(' ')}"><td>${esc(d.a.nome)}<br><small>${d.a.voci} voci · usata ${d.a.usi} volte</small></td><td>${esc(d.b.nome)}<br><small>${d.b.voci} voci · usata ${d.b.usi} volte</small></td>
       <td>${Math.round(d.somiglianza * 100)}%${d.somiglianza === 1 ? ' <span class="tag no">identiche</span>' : ''}</td>
-      <td><button class="s p dp_u" data-i="${i}" data-dup="a">Tieni B</button> <button class="s p dp_u" data-i="${i}" data-dup="b">Tieni A</button> <button class="s p dp_i" data-i="${i}">Sono diverse</button></td></tr>`).join('')}</table></div>`);
+      <td><button class="s p dp_u" data-i="${i}" data-dup="a">Tieni B</button> <button class="s p dp_u" data-i="${i}" data-dup="b">Tieni A</button> <button class="s p dp_i" data-i="${i}">Sono diverse</button></td></tr>`).join('')}</table></details></div>`);
+    attivaFiltri('dop'); }
   const ragg = await api('/libreria/raggruppamenti').catch(() => []);
-  if (ragg.length) $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Schede simili da riunire in revisioni (${ragg.length})</h3>
+  if (ragg.length) { $('#app').insertAdjacentHTML('beforeend', `<div class="card" id="b_rag"><details><summary><h3 style="display:inline">Schede simili da riunire in revisioni (${ragg.length})</h3></summary>
     <p class="nota">Il confronto guarda le voci, non l'ordine, e le parole ritoccate contano come la stessa voce. «Stessa scheda» da 90% di somiglianza (80% se ha meno di 20 voci); tra 75% e la soglia chiede la tua conferma. Gare e olimpiadi non vengono mai riunite. Non si cancella niente: la seconda diventa la revisione successiva della prima.</p>
-    <table><tr><th>Scheda A</th><th>Scheda B</th><th>Somiglianza</th><th></th></tr>${ragg.map((d, i) => `<tr><td>${esc(d.a.nome)}<br><small>${d.a.voci} voci · usata ${d.a.usi} volte</small></td><td>${esc(d.b.nome)}<br><small>${d.b.voci} voci · usata ${d.b.usi} volte</small></td>
+    ${barraFiltri('rag', { sim: true, tip: true, testo: true })}
+    <table><tr><th>Scheda A</th><th>Scheda B</th><th>Somiglianza</th><th></th></tr>${ragg.map((d, i) => `<tr data-n="${esc((d.a.nome + ' ' + d.b.nome).toLowerCase())}" data-s="${Math.round(d.somiglianza * 100)}" data-t="${(d.tipologie || []).join(' ')}"><td>${esc(d.a.nome)}<br><small>${d.a.voci} voci · usata ${d.a.usi} volte</small></td><td>${esc(d.b.nome)}<br><small>${d.b.voci} voci · usata ${d.b.usi} volte</small></td>
       <td>${Math.round(d.somiglianza * 100)}% <span class="tag ${d.esito === 'stessa' ? 'ok' : ''}">${d.esito === 'stessa' ? 'stessa scheda' : 'da confermare'}</span><br><small>${d.riepilogo.ritoccate} ritoccate · +${d.riepilogo.aggiunte} · −${d.riepilogo.tolte}${d.riepilogo.punti ? ' · <b>' + d.riepilogo.punti + ' con punteggi diversi</b>' : ''}${d.riepilogo.ordine_diverso ? ' · ordine diverso' : ''}</small></td>
-      <td style="white-space:nowrap"><button class="s p rg_c" data-i="${i}">Confronta</button> <button class="b p rg_u" data-i="${i}" data-b="b">B è una revisione di A</button> <button class="s p rg_u" data-i="${i}" data-b="a">A è una revisione di B</button> <button class="s p rg_i" data-i="${i}">Sono diverse</button></td></tr>`).join('')}</table></div>`);
+      <td style="white-space:nowrap"><button class="s p rg_c" data-i="${i}">Confronta</button> <button class="b p rg_u" data-i="${i}" data-b="b">B è una revisione di A</button> <button class="s p rg_u" data-i="${i}" data-b="a">A è una revisione di B</button> <button class="s p rg_i" data-i="${i}">Sono diverse</button></td></tr>`).join('')}</table></details></div>`);
+    attivaFiltri('rag'); }
   document.querySelectorAll('.rg_c').forEach((b) => { b.onclick = async () => { const d = ragg[+b.dataset.i]; try { dlg(`<h3>Confronto</h3>${htmlConfronto(await api(`/libreria/confronta?a=${d.a.id}&b=${d.b.id}`))}<p><button class="s" onclick="chiudi()">Chiudi</button></p>`); } catch (e) { flash(e.message, false); } }; });
   document.querySelectorAll('.rg_u').forEach((b) => { b.onclick = () => { const d = ragg[+b.dataset.i], base = d[b.dataset.b === 'b' ? 'a' : 'b'], rv = d[b.dataset.b];
     if (confirm(`«${rv.nome}» diventa una revisione di «${base.nome}». ${d.riepilogo.punti ? 'Ci sono ' + d.riepilogo.punti + ' voci con punteggi diversi: nel confronto tra revisioni le vedrai evidenziate. ' : ''}Le scene che la usano restano com'è. Le voci vengono messe nello stesso ordine della prima. Procedere?`)) fai(() => api('/libreria/raggruppamenti', { body: { base: base.id, revisione: rv.id, allinea: true } }), 'Schede riunite in revisioni'); }; });
@@ -880,8 +908,11 @@ async function tLibreria() {
       return `<tr><td>${v.tipo === 'scena' ? 'Scena' : 'Scheda'} · ${esc(v.nome)}</td><td>${esc(v.proprietaria || '')}</td>
       <td>${appr ? `<input type="checkbox" class="cg_com" data-t="${v.tipo}" data-id="${v.id}" data-mia="${mia ? 1 : 0}" ${v.comitati ? 'checked' : ''}>` : ''}</td>
       <td>${appr && mia ? `${v.con_regioni.length ? v.con_regioni.length + ' regioni' : 'nessuna'} <button class="s p cg_reg" data-t="${v.tipo}" data-id="${v.id}">Scegli…</button>` : ''}</td></tr>`; }).join('')}</table></div>`);
-  if (cond.length) $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Scene del catalogo (${cond.length})</h3><table><tr><th>Scena</th><th>Regione</th><th>Schede</th><th></th></tr>${cond.map((x) => `<tr><td><strong>${esc(x.codice)}</strong> · ${esc(x.titolo)}</td><td>${esc(x.condivisa)}</td><td>${x.schede}</td>
-      <td><button class="s p co_cp" data-id="${x.id}" data-t="${esc(x.titolo)}">Copia in un evento…</button></td></tr>`).join('')}</table></div>`);
+  if (cond.length) { $('#app').insertAdjacentHTML('beforeend', `<div class="card" id="b_sco"><details><summary><h3 style="display:inline">Scene del catalogo (${cond.length})</h3></summary>
+    ${barraFiltri('sco', { testo: true, gare: [...new Set(cond.map((x) => x.evento_codice || '-'))].sort(), anni: [...new Set(cond.map((x) => x.anno).filter(Boolean))].sort().reverse(), tip: true })}
+    <table><tr><th>Scena e gara</th><th>Regione</th><th>Schede</th><th></th></tr>${cond.map((x) => `<tr data-n="${esc((x.codice + ' ' + x.titolo + ' ' + (x.evento_codice || '') + ' ' + (x.evento || '')).toLowerCase())}" data-g="${esc(x.evento_codice || '')}" data-a="${esc(x.anno || '')}" data-t="${x.evento_tipo === 'olimpiadi' ? 'olimpiadi' : 'gara'}"><td><strong>${esc(x.codice)}</strong> · ${esc(x.titolo)}<br><span class="tag ok">${esc(x.evento_codice || x.evento || '')}</span>${x.anno ? ` <small>${esc(x.anno)}</small>` : ''}</td><td>${esc(x.condivisa)}</td><td>${x.schede}</td>
+      <td><button class="s p co_cp" data-id="${x.id}" data-t="${esc(x.titolo)}">Copia in un evento…</button></td></tr>`).join('')}</table></details></div>`);
+    attivaFiltri('sco'); }
   document.querySelectorAll('.cg_com').forEach((i) => { i.onchange = () => fai(() => api(`/condivisione/${i.dataset.t}/${i.dataset.id}${i.dataset.mia === '1' ? '' : '/ricevuta'}`, { method: 'PUT', body: { comitati: i.checked } }), i.checked ? 'Disponibile ai comitati' : 'Non più disponibile ai comitati'); });
   document.querySelectorAll('.cg_reg').forEach((b) => { b.onclick = () => { const v = cat.voci.find((x) => x.id === b.dataset.id && x.tipo === b.dataset.t);
     dlg(`<h3>Condividi con altre regioni</h3><p class="nota">Le regioni spuntate vedono questo elemento (gli approvatori); sta a loro renderlo disponibile ai propri comitati.</p>
@@ -973,9 +1004,12 @@ async function tImporta() {
     <input type="file" id="im_f" accept=".xlsx" multiple><div id="im_cfg"></div><div id="im_ris"></div></div>
     <div class="card"><h3>Importa canovacci (.docx)</h3>
     <p class="nota">Carica i documenti di descrizione delle scene (briefing, pazienti, triage, logistica). La lettera e la versione (Gara o Olimpiadi) si riconoscono dal nome del file: se carichi di nuovo lo stesso canovaccio, viene aggiornato. Poi li colleghi alle scene dal tab Scene.</p>
+    <div class="riga"><div><label>Codice della gara (es. GPSER-2027, OLIER-2025)</label><input id="cv_g" placeholder="GPSER-2027" style="text-transform:uppercase"></div></div>
     <input type="file" id="cv_f" accept=".docx" multiple><div id="cv_ris"></div></div>`;
-  $('#cv_f').onchange = async () => { const fl = [...$('#cv_f').files]; if (!fl.length) return; $('#cv_ris').innerHTML = '<p>⏳ Importo…</p>';
-    try { const files = []; for (const f of fl) files.push({ nome: f.name, dati: await aBase64(f) }); const r = await api('/import/canovacci', { body: { files } });
+  $('#cv_f').onchange = async () => { const fl = [...$('#cv_f').files]; if (!fl.length) return;
+    if (!$('#cv_g').value.trim() && !confirm('Non hai scritto il codice della gara: il canovaccio della stessa scena di un\'altra gara senza codice verrebbe sostituito. Continuare senza codice?')) { $('#cv_f').value = ''; return; }
+    $('#cv_ris').innerHTML = '<p>⏳ Importo…</p>';
+    try { const files = []; for (const f of fl) files.push({ nome: f.name, dati: await aBase64(f) }); const r = await api('/import/canovacci', { body: { files, gara_codice: $('#cv_g').value.trim() } });
       $('#cv_ris').innerHTML = `<table style="margin-top:10px"><tr><th>File</th><th>Esito</th></tr>${r.esiti.map((x) => `<tr><td>${esc(x.file)}</td><td>${x.errore ? `<span class="tag no">✗</span> ${esc(x.errore)}`
         : `<span class="tag ok">✓ ${esc(x.codice)} · ${esc(x.titolo)}</span> ${x.versione === 'olimpiadi' ? 'Olimpiadi' : 'Gara'}, ${x.pazienti} pazienti${x.nuovo ? '' : ' (aggiornato)'}${(x.avvisi || []).length ? '<br><small>⚠ ' + x.avvisi.map(esc).join(' · ') + '</small>' : ''}`}</td></tr>`).join('')}</table>`;
       flash(`Canovacci importati: ${r.esiti.filter((x) => !x.errore).length} su ${r.esiti.length}`, r.esiti.every((x) => !x.errore)); } catch (e) { $('#cv_ris').innerHTML = ''; flash(e.message, false); } };

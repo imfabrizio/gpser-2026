@@ -94,7 +94,7 @@ export async function proposteRaggruppamento(db, utente) {
     let inter = 0; for (const t of sa) if (sb.has(t)) inter++;
     if (inter / (sa.size + sb.size - inter) < 0.4) continue;       // scarto veloce prima del confronto con i refusi
     const c = confrontaVoci(voci.get(A.id), voci.get(B.id)); if (c.esito === 'separate') continue;
-    out.push({ a: { id: A.id, nome: A.nome, usi: A.usi, voci: voci.get(A.id).length }, b: { id: B.id, nome: B.nome, usi: B.usi, voci: voci.get(B.id).length }, somiglianza: c.somiglianza, esito: c.esito, riepilogo: c.riepilogo, regione: A.regione ?? null });
+    out.push({ a: { id: A.id, nome: A.nome, usi: A.usi, voci: voci.get(A.id).length }, b: { id: B.id, nome: B.nome, usi: B.usi, voci: voci.get(B.id).length }, somiglianza: c.somiglianza, esito: c.esito, riepilogo: c.riepilogo, regione: A.regione ?? null, tipologie: A.tip.split(',') });
   }
   return out.sort((p, q) => q.somiglianza - p.somiglianza).slice(0, 200);
 }

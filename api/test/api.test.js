@@ -1701,3 +1701,24 @@ test('ACC-1: l\'accompagnatore segna le squadre in attesa; il master le vede; il
   // l'accompagnatore non entra nella gestione
   assert.equal((await chiama('GET', `/api/eventi/${e.id}/avanzamento`, { token: acc })).statusCode, 403);
 });
+
+test('CAN-2: canovacci per gara — la stessa lettera in gare diverse non si sovrascrive; codice mancante compilato dall\'uso', async () => {
+  const org = tok['org@t'];
+  const nuovoCan = async (g) => (await pool.query(`insert into canovaccio (codice, versione, titolo, gara_codice) values ('Q','gara','Scena Q',$1) returning id`, [g])).rows[0].id;
+  const senza = await nuovoCan(null), conA = await nuovoCan('GPSER-2031'), conB = await nuovoCan('GPSER-2032');
+  await assert.rejects(nuovoCan('GPSER-2031'));                                           // stessa gara, stessa lettera: unico
+  assert.equal((await chiama('PATCH', `/api/canovacci/${senza}`, { token: org, body: { gara_codice: 'gpser-2031' } })).statusCode, 409);
+  assert.equal((await chiama('PATCH', `/api/canovacci/${senza}`, { token: org, body: { gara_codice: 'non valido!' } })).statusCode, 400);
+  const e = json(await chiama('POST', '/api/eventi', { token: org, body: { codice: 'GPSER-2032', nome: 'Gara 2032' } }));
+  const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: org, body: { codice: 'Q', titolo: 'Scena Q', ordine: 1 } }));
+  const r = json(await chiama('POST', `/api/eventi/${e.id}/collega-canovacci`, { token: org, body: {} })); assert.deepEqual(r.collegate, ['Q']);
+  assert.equal((await pool.query('select canovaccio_id from scena where id=$1', [sc.id])).rows[0].canovaccio_id, conB);   // quello della sua gara, non gli altri
+  const e3 = json(await chiama('POST', '/api/eventi', { token: org, body: { codice: 'GPSER-2033', nome: 'Gara 2033' } }));
+  const sc3 = json(await chiama('POST', `/api/eventi/${e3.id}/scene`, { token: org, body: { codice: 'Q', titolo: 'Scena Q', ordine: 1 } }));
+  await pool.query('update scena set canovaccio_id=$2 where id=$1', [sc3.id, senza]);
+  const lista = json(await chiama('GET', '/api/canovacci', { token: org })).find((c) => c.id === senza);
+  assert.deepEqual(lista.usato_in, ['GPSER-2033']); assert.equal(lista.gara_codice, null);
+  assert.ok(json(await chiama('POST', '/api/canovacci/codici-mancanti', { token: org, body: {} })).compilati >= 1);
+  assert.equal((await pool.query('select gara_codice from canovaccio where id=$1', [senza])).rows[0].gara_codice, 'GPSER-2033');
+  assert.equal((await chiama('PATCH', `/api/canovacci/${conA}`, { token: tok['giu@t'], body: { gara_codice: 'X' } })).statusCode, 403);
+});

@@ -123,11 +123,12 @@ export async function leggiDocx(buf) {
   return leggiElementi(await f.async('string'));
 }
 
-export async function importaCanovaccio(db, buf, nomeFile) {
+export async function importaCanovaccio(db, buf, nomeFile, garaCodice = null) {
   const c = interpretaCanovaccio(await leggiDocx(buf), nomeFile);
+  const gara = String(garaCodice || '').trim().toUpperCase() || null;
   const { rows: [r] } = await db.query(
-    `insert into canovaccio (codice, versione, titolo, tempo_min, dati, fabbisogno) values ($1,$2,$3,$4,$5,$6)
-     on conflict (codice, versione) do update set titolo=excluded.titolo, tempo_min=excluded.tempo_min, dati=excluded.dati, fabbisogno=excluded.fabbisogno, updated_at=now()
-     returning id, (xmax = 0) as nuovo`, [c.codice, c.versione, c.titolo, c.tempo_min, c.dati, c.fabbisogno]);
-  return { id: r.id, codice: c.codice, versione: c.versione, titolo: c.titolo, nuovo: r.nuovo, pazienti: c.dati.pazienti.length, fabbisogno: c.fabbisogno, avvisi: c.avvisi };
+    `insert into canovaccio (codice, versione, titolo, tempo_min, dati, fabbisogno, gara_codice) values ($1,$2,$3,$4,$5,$6,$7)
+     on conflict ((coalesce(gara_codice, '')), codice, versione) do update set titolo=excluded.titolo, tempo_min=excluded.tempo_min, dati=excluded.dati, fabbisogno=excluded.fabbisogno, updated_at=now()
+     returning id, (xmax = 0) as nuovo`, [c.codice, c.versione, c.titolo, c.tempo_min, c.dati, c.fabbisogno, gara]);
+  return { id: r.id, gara_codice: gara, codice: c.codice, versione: c.versione, titolo: c.titolo, nuovo: r.nuovo, pazienti: c.dati.pazienti.length, fabbisogno: c.fabbisogno, avvisi: c.avvisi };
 }

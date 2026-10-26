@@ -373,7 +373,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/scene-condivise', { preHandler: soloOrg }, async (req) => {
     const reg = await regioneMia(req), appr = èApprovatore(req.utente), adm = !!req.utente.admin;
     return (await pool.query(
-      `select s.id, s.codice, s.titolo, s.regione as condivisa, e.nome as evento, (select count(*)::int from scena_scheda k where k.scena_id=s.id) as schede
+      `select s.id, s.codice, s.titolo, s.regione as condivisa, e.nome as evento, e.codice as evento_codice, e.tipo as evento_tipo, to_char(e.data,'YYYY') as anno, (select count(*)::int from scena_scheda k where k.scena_id=s.id) as schede
          from scena s join evento e on e.id=s.evento_id where s.regione is not null and ($1::boolean or exists (select 1 from condivisione c where c.tipo='scena' and c.risorsa_id=s.id and c.regione=$2::text and ($3::boolean or c.comitati))) order by s.titolo`, [adm, reg, appr])).rows;
   });
   app.post('/api/scene-condivise/:id/copia', { preHandler: soloOrg }, async (req) => {
@@ -387,9 +387,12 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   });
   // collega ai canovacci le scene dell'evento che non ne hanno uno: stessa lettera, versione Gara oppure Olimpiadi in base al tipo di evento
   app.post('/api/eventi/:id/collega-canovacci', { preHandler: soloOrg }, async (req) => {
-    const { rows: [e] } = await pool.query('select tipo from evento where id=$1', [req.params.id]); if (!e) throw httpErr(404, 'evento inesistente');
+    const { rows: [e] } = await pool.query('select tipo, codice from evento where id=$1', [req.params.id]); if (!e) throw httpErr(404, 'evento inesistente');
     const ver = e.tipo === 'olimpiadi' ? 'olimpiadi' : 'gara';
-    const r = await pool.query(`update scena s set canovaccio_id = c.id from canovaccio c where s.evento_id=$1 and s.canovaccio_id is null and c.codice = s.codice and c.versione = $2 returning s.codice`, [req.params.id, ver]);
+    // stessa lettera e stesso codice gara; in mancanza, i canovacci ancora senza codice
+    const r = await pool.query(`update scena s set canovaccio_id = x.cid from (
+        select distinct on (s2.id) s2.id as sid, c.id as cid from scena s2 join canovaccio c on c.codice = s2.codice and c.versione = $2 and (c.gara_codice = $3 or c.gara_codice is null)
+         where s2.evento_id=$1 and s2.canovaccio_id is null order by s2.id, (c.gara_codice = $3) desc nulls last) x where s.id = x.sid returning s.codice`, [req.params.id, ver, e.codice]);
     return { collegate: r.rows.map((x) => x.codice) };
   });
   // ── canovacci: descrizione completa delle scene (briefing, pazienti, triage, logistica) ──
@@ -398,14 +401,15 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (!files.length || files.length > 30) throw httpErr(400, 'carica da 1 a 30 file .docx');
     const esiti = [];
     for (const f of files) {
-      try { esiti.push({ file: f.nome, ...(await importaCanovaccio(pool, Buffer.from(String(f.dati || ''), 'base64'), f.nome || '')) }); }
+      try { esiti.push({ file: f.nome, ...(await importaCanovaccio(pool, Buffer.from(String(f.dati || ''), 'base64'), f.nome || '', req.body?.gara_codice)) }); }
       catch (e) { esiti.push({ file: f.nome, errore: e.statusCode && e.statusCode < 500 ? e.message : 'file non leggibile' }); }
     }
     return { esiti };
   });
   app.get('/api/canovacci', { preHandler: soloOrg }, async () => (await pool.query(
-    `select c.id, c.codice, c.versione, c.titolo, c.tempo_min, c.fabbisogno, jsonb_array_length(c.dati->'pazienti') as pazienti, c.updated_at,
-            (select count(*)::int from scena s where s.canovaccio_id = c.id) as scene
+    `select c.id, c.codice, c.versione, c.titolo, c.tempo_min, c.fabbisogno, c.gara_codice, jsonb_array_length(c.dati->'pazienti') as pazienti, c.updated_at,
+            (select count(*)::int from scena s where s.canovaccio_id = c.id) as scene,
+            (select coalesce(array_agg(distinct e.codice order by e.codice), '{}') from scena s join evento e on e.id = s.evento_id where s.canovaccio_id = c.id) as usato_in
        from canovaccio c order by c.codice, c.versione`)).rows);
   app.get('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => {
     const { rows: [c] } = await pool.query('select * from canovaccio where id=$1', [req.params.id]);
@@ -416,6 +420,20 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (!c) throw httpErr(404, 'canovaccio inesistente');
     const doc = creaCanovaccio(c); const chunks = []; doc.on('data', (x) => chunks.push(x)); const fine = new Promise((r) => doc.on('end', r)); doc.end(); await fine;
     return reply.type('application/pdf').header('Content-Disposition', `inline; filename="canovaccio-${c.codice}-${c.versione}.pdf"`).send(Buffer.concat(chunks));
+  });
+  // il codice della gara si scrive a mano oppure si ricava dalla gara in cui il canovaccio è già usato
+  app.patch('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => {
+    const g = String(req.body?.gara_codice ?? '').trim().toUpperCase() || null;
+    if (g && !/^[A-Z0-9][A-Z0-9_-]{1,39}$/.test(g)) throw httpErr(400, 'codice gara: lettere, numeri e trattini (es. GPSER-2027)');
+    try { const r = await pool.query('update canovaccio set gara_codice=$2, updated_at=now() where id=$1 returning id', [req.params.id, g]); if (!r.rowCount) throw httpErr(404, 'canovaccio inesistente'); }
+    catch (e) { if (e.code === '23505') throw httpErr(409, 'esiste già un canovaccio di questa scena con quel codice gara'); throw e; }
+    return { ok: true, gara_codice: g };
+  });
+  app.post('/api/canovacci/codici-mancanti', { preHandler: soloOrg }, async () => {
+    const { rows } = await pool.query(`select c.id, array_agg(distinct e.codice) as cod from canovaccio c join scena s on s.canovaccio_id=c.id join evento e on e.id=s.evento_id where c.gara_codice is null group by c.id having count(distinct e.codice) = 1`);
+    let n = 0;
+    for (const r of rows) { try { await pool.query('update canovaccio set gara_codice=$2 where id=$1', [r.id, r.cod[0]]); n++; } catch (e) { if (e.code !== '23505') throw e; } }
+    return { compilati: n };
   });
   app.delete('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => { await pool.query('delete from canovaccio where id=$1', [req.params.id]); return { ok: true }; });
   app.post('/api/eventi/:id/scene', { preHandler: soloOrg }, async (req) => {

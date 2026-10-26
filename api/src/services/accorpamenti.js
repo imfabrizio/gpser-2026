@@ -10,7 +10,7 @@ export async function trovaDoppioni(db, utente) {
   const mio = await enteUtente(db, utente);
   // ambito di chi cura il catalogo: admin tutto; l'approvatore la sua regione; la direzione la libreria generale
   const { rows: pat } = await db.query(
-    `select p.id, p.nome, p.regione, p.macro, (select count(*)::int from scena_scheda s where s.patologia_id=p.id) as usi
+    `select p.id, p.nome, p.regione, p.macro, p.tipologie, (select count(*)::int from scena_scheda s where s.patologia_id=p.id) as usi
        from patologia p where not p.bozza and not p.is_master and p.comitato is null
         and ($1::boolean or ($2::text is not null and p.regione = $2::text) or ($3::boolean and p.regione is null))`, [!!utente.admin, mio.regione, haSchede(utente)]);
   if (pat.length < 2) return [];
@@ -25,7 +25,7 @@ export async function trovaDoppioni(db, utente) {
     const sa = insiemi.get(A.id), sb = insiemi.get(B.id); if (!sa.size || !sb.size) continue;
     let inter = 0; for (const x of sa) if (sb.has(x)) inter++;
     const j2 = inter / (sa.size + sb.size - inter);
-    if (j2 >= SOGLIA) out.push({ a: { id: a.id, nome: a.nome, usi: a.usi, voci: insiemi.get(a.id).size }, b: { id: b.id, nome: b.nome, usi: b.usi, voci: insiemi.get(b.id).size }, somiglianza: Math.round(j2 * 100) / 100, regione: A.regione ?? null });
+    if (j2 >= SOGLIA) out.push({ a: { id: a.id, nome: a.nome, usi: a.usi, voci: insiemi.get(a.id).size }, b: { id: b.id, nome: b.nome, usi: b.usi, voci: insiemi.get(b.id).size }, somiglianza: Math.round(j2 * 100) / 100, regione: A.regione ?? null, tipologie: [...new Set([...(A.tipologie || []), ...(B.tipologie || [])])] });
   }
   return out.sort((x, y) => y.somiglianza - x.somiglianza).slice(0, 200);
 }

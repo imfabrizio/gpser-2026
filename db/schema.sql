@@ -2753,7 +2753,8 @@ create unique index if not exists scena_turno_una_aperta_squadra on scena_turno 
 
 insert into schema_migrazioni (nome) values ('001-revisione.sql'), ('002-giudice-master-ruolo.sql'), ('003-anagrafica-master.sql'), ('004-categorie-news-gara.sql'), ('005-pubblico-mappe.sql'), ('006-mfa-sso.sql'), ('007-richieste-accesso.sql'), ('008-ruoli-anagrafica.sql'), ('009-segreteria-badge.sql'), ('010-risorse-gara.sql'), ('011-esami-corsi.sql'), ('012-schede-comitato.sql'), ('013-aree-valutazione-documenti.sql'), ('014-tema.sql'), ('015-schede-esame-tssa.sql'), ('016-esami.sql'), ('017-megacode.sql'), ('018-comitati.sql'), ('019-comitati-emilia-romagna.sql'), ('020-comitati-italia.sql'), ('021-comitati-province-autonome.sql'), ('022-comitati-gaia-ufficiale.sql'), ('023-qualifiche-ruoli-multipli.sql'), ('024-qualifiche-corsi.sql'), ('025-eventi-ambito.sql'), ('026-organizzazione-per-evento.sql'), ('027-schede-ai.sql'), ('028-categorie-gravita.sql'), ('029-canovacci.sql'), ('030-promozioni.sql'), ('031-enti-visibilita.sql'), ('032-accorpamenti-allenamenti.sql'), ('033-notizie-ambito-corso-giudici.sql'), ('034-registrazione-password.sql'), ('035-notifiche.sql'), ('036-registrazione-tipi.sql'), ('037-coordinate-eventi.sql'), ('038-comune-evento.sql'), ('039-scene-sosta.sql'), ('040-tipologie-schede.sql'), ('041-turni-rotazione.sql'),
   ('042-revisioni-schede.sql'),
-  ('043-accompagnatore.sql');   -- lo schema qui sopra le include già tutte
+  ('043-accompagnatore.sql'),
+  ('044-canovacci-per-gara.sql');   -- lo schema qui sopra le include già tutte
 
 -- schede d'esame TSSA (stesso contenuto della migrazione 015)
 insert into scala_punteggio (codice, mb, su, ne) values ('Esame 0-1-2', 2, 1, 0) on conflict (codice) do nothing;
@@ -2918,3 +2919,6 @@ alter table patologia alter column gruppo_id set default gen_random_uuid();
 alter table patologia alter column gruppo_id set not null;
 create unique index if not exists patologia_gruppo_rev_uq on patologia (gruppo_id, revisione);
 insert into ruolo (codice, nome, sistema, aree) values ('accompagnatore', 'Accompagnatore', true, '{accompagnatore}') on conflict (codice) do nothing;
+alter table canovaccio add column if not exists gara_codice text;
+alter table canovaccio drop constraint if exists canovaccio_codice_versione_key;
+create unique index if not exists canovaccio_gara_scena_versione_uq on canovaccio ((coalesce(gara_codice, '')), codice, versione);

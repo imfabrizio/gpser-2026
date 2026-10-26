@@ -35,7 +35,7 @@ const REGOLE = [
   R('GET|PUT', '/api/eventi/:id/comitati-invitati', ['gara']), R('GET', '/api/libreria/doppioni', ['schede', 'approvazione']), R('GET', '/api/libreria/(confronta|patologie/:id/revisioni)', ['schede', 'scene', 'formazione_esame']), R('GET|POST', '/api/libreria/raggruppamenti', ['schede', 'approvazione']), R('POST', '/api/schede/:id/revisione', ['scene']), R('POST', '/api/libreria/doppioni/ignora', ['schede', 'approvazione']), R('POST', '/api/libreria/patologie/:id/unisci', ['schede', 'approvazione']),
   R('GET', '/api/(promozioni|catalogo|regioni)', ['scene', 'schede', 'formazione_esame', 'approvazione']), R('POST', '/api/promozioni/:id/(approva|rifiuta)', ['approvazione']), R('PUT', '/api/condivisione/:tipo/:id(/ricevuta)?', ['approvazione']),
   R('POST', '/api/libreria/patologie/:id/proponi', ['schede', 'formazione_esame']), R('GET', '/api/scene-condivise', ['scene', 'approvazione']), R('POST', '/api/scene-condivise/:id/copia', ['scene']),
-  R('POST', '/api/import/(excel|canovacci)', ['importa']), R('DELETE', '/api/canovacci/:id', ['importa']), R('GET', '/api/canovacci(/:id(/canovaccio.pdf)?)?', ['scene', 'schede', 'formazione_esame', 'importa']), R('GET|POST|PATCH|DELETE', '/api/persone(/:id)?', ['anagrafiche']),
+  R('POST', '/api/import/(excel|canovacci)', ['importa']), R('DELETE|PATCH', '/api/canovacci/:id', ['importa']), R('POST', '/api/canovacci/codici-mancanti', ['importa']), R('GET', '/api/canovacci(/:id(/canovaccio.pdf)?)?', ['scene', 'schede', 'formazione_esame', 'importa']), R('GET|POST|PATCH|DELETE', '/api/persone(/:id)?', ['anagrafiche']),
 ];
 // null = rotta non vincolata a un'area (la decidono i controlli della rotta stessa)
 export function areeRichieste(metodo, rotta) {
