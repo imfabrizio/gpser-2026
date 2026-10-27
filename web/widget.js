@@ -30,6 +30,20 @@
   .cn{display:flex;justify-content:space-between;align-items:center}.cn button{padding:4px 10px}
   .wed .rg{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eceef2}.wed .rg input[type=checkbox]{width:22px!important;height:22px;flex:none;margin:0;padding:0}.wed .rg label{margin:0;flex:1;min-width:0;display:block;text-align:left}.wed .rg small{display:block;color:#555}.wed .rg button{padding:3px 9px;width:auto;flex:none;min-width:0}
   .wed .ct{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;margin:6px 0}@media (max-width:600px){.wed .ct{grid-template-columns:1fr}}`;
+  stile.textContent += `
+  .calw,#dlgcal{--sez:#C8102E}
+  .cn{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.cn h4{margin:0;font-size:15px;font-weight:700;text-transform:capitalize}.cn .fr{display:flex;gap:4px}
+  .cn button{width:28px!important;height:28px;padding:0!important;border-radius:50%;border:1px solid #d3d7de;background:#fff;color:#333;font-size:16px;line-height:1;cursor:pointer;display:grid;place-items:center}.cn button:hover{background:#eef0f3}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin:0 0 6px;text-align:center}
+  .cal i{font-style:normal;font-size:11px;color:#6b7280;padding:2px 0}
+  .cal span,.cal .gg{aspect-ratio:1;display:grid;place-items:center;font-size:13px;line-height:1;border-radius:9px;padding:0;color:#2b2f36}
+  .cal .gg{border:0;background:var(--sez);color:#fff;font-weight:700;cursor:pointer;transition:transform .08s}.cal .gg:hover{transform:scale(1.08)}
+  .cal .og{box-shadow:inset 0 0 0 2px #1F2937;font-weight:700}.cal .gg.og{box-shadow:inset 0 0 0 2px #fff,0 0 0 2px #1F2937}
+  .cal .gg.sl{box-shadow:0 0 0 3px #fff,0 0 0 5px var(--sez)}
+  .gd{margin-top:8px;border-top:0;padding-top:0}.gd>small{display:block;color:#555;margin-bottom:4px}
+  .gd .r{border-top:0;border-left:3px solid var(--sez);padding:4px 8px;margin-bottom:5px;background:#fff;border-radius:0 8px 8px 0}
+  .calw .esp{width:100%;margin-top:8px;font-size:13px;padding:7px;background:#fff;border:1px solid #d3d7de;border-radius:8px;cursor:pointer}.calw .esp:hover{background:#eef0f3}
+  #dlgcal{max-width:520px}#dlgcal .cal{gap:6px}#dlgcal .cal span,#dlgcal .cal .gg{font-size:17px;border-radius:12px}#dlgcal .cn h4{font-size:20px}#dlgcal .cn button{width:36px!important;height:36px;font-size:20px}`;
   document.head.append(stile);
   const api = async (p, o = {}) => { const r = await fetch('/api' + p, { method: o.method || 'GET', headers: { Authorization: 'Bearer ' + localStorage.getItem('token'), ...(o.body ? { 'Content-Type': 'application/json' } : {}) }, body: o.body ? JSON.stringify(o.body) : undefined }); if (!r.ok) throw new Error(r.status); return r.json(); };
   const TIPO = { gara: 'Gara', olimpiadi: 'Olimpiadi', allenamento: 'Allenamento', corso: 'Corso', megacode: 'Mega Code', esame: 'Esame' };
@@ -65,7 +79,7 @@
         let cel = ['L', 'M', 'M', 'G', 'V', 'S', 'D'].map((x) => `<i>${x}</i>`).join('') + '<span></span>'.repeat(primo);
         for (let d = 1; d <= n; d++) { const ha = delGiorno(d).length > 0; cel += ha ? `<button type="button" class="gg ev ${iso(d) === oggi() ? 'og' : ''} ${sel === iso(d) ? 'sl' : ''}" data-g="${iso(d)}" aria-label="${d}: ${delGiorno(d).length} attività">${d}</button>` : `<span class="${iso(d) === oggi() ? 'og' : ''}">${d}</span>`; }
         const dett = sel && sel.startsWith(iso(1).slice(0, 8)) ? delGiorno(Number(sel.slice(8))) : [];
-        box.innerHTML = `<div class="cn"><button type="button" data-d="-1" aria-label="Mese precedente">‹</button><h4 style="margin:0">${m.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}</h4><button type="button" data-d="1" aria-label="Mese successivo">›</button></div><div class="cal">${cel}</div>
+        box.innerHTML = `<div class="cn"><h4>${m.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}</h4><span class="fr"><button type="button" data-d="-1" aria-label="Mese precedente">‹</button><button type="button" data-d="1" aria-label="Mese successivo">›</button></span></div><div class="cal">${cel}</div>
           ${dett.length ? `<div class="gd"><small><b>${dataIt(sel)}</b></small>${dett.map((e) => riga(e)).join('')}</div>` : ''}${grande ? '' : '<button type="button" class="sec esp">Ingrandisci</button>'}`;
         box.querySelectorAll('[data-d]').forEach((b) => { b.onclick = () => { m = new Date(m.getFullYear(), m.getMonth() + Number(b.dataset.d), 1); sel = null; disegna(); }; });
         box.querySelectorAll('[data-g]').forEach((b) => { b.onclick = () => { sel = sel === b.dataset.g ? null : b.dataset.g; disegna(); }; });
@@ -95,6 +109,7 @@
   const apriGrande = (c) => {
     let d = document.getElementById('dlgcal'); if (!d) { d = document.createElement('dialog'); d.id = 'dlgcal'; document.body.append(d); d.addEventListener('click', (e) => { if (e.target === d) d.close(); }); }
     d.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong>Calendario</strong><button type="button" id="dc_x">Chiudi</button></div><div id="dc_b"></div>';
+    if (window.Barra) d.style.setProperty('--sez', Barra.colore(Barra.sezione()));
     d.showModal(); d.querySelector('#dc_x').onclick = () => d.close();
     COSTRUTTORI.calendario(d.querySelector('#dc_b'), c, true);
   };
@@ -102,7 +117,8 @@
     // calendario compatto per la colonna di sinistra, con il tasto per aprirlo in una finestra
     async calendario(box) {
       if (!box) return; const me = leggi('me'); let eventi = []; try { eventi = await api('/eventi'); } catch { /* offline */ }
-      box.classList.add('calw'); await COSTRUTTORI.calendario(box, { me, eventi });
+      box.classList.add('calw'); if (window.Barra) box.style.setProperty('--sez', Barra.colore(Barra.sezione()));
+      await COSTRUTTORI.calendario(box, { me, eventi });
     },
     scelti, disponibili,
     // disegna i widget scelti dall'utente nel contenitore

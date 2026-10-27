@@ -195,8 +195,8 @@ function disegnaTabs() {
   const g = tab === 'menu' ? null : mondoCorrente(), hubForm = tab === 'hub' && fam === 'corsi', vis = g && (tab !== 'hub' || hubForm) ? figliVisibili(g) : [];
   const inizio = tab === 'menu' || (tab === 'hub' && !hubForm);
   // menu a sinistra solo dentro una sezione (è il menu di quell'area); nel portale e nei riquadri a sinistra ci sono strumenti. Nella classifica servono le linguette in alto e tutta la larghezza.
-  const laterale = tab !== 'classifiche' && (inizio || vis.length >= 2);
-  $('#tabs').hidden = inizio ? !laterale : vis.length < 2;
+  const laterale = true;                                                // le due colonne ci sono in tutte le pagine, classifiche comprese
+  $('#tabs').hidden = false;
   $('#tabs').classList.toggle('strumenti', inizio);
   document.body.classList.toggle('laterale', laterale);
   if (inizio) { $('#tabs').onclick = null; aggiornaSx(); return; }
@@ -1485,12 +1485,11 @@ async function tRuoli() {
 function aggiornaRail() {
   const r = $('#rail'); if (!r) return;
   const p = aggiornaRail0();
-  if (tab !== 'classifiche') { r.insertAdjacentHTML('beforeend', '<div id="r_w"></div>'); if (window.Widget) Widget.disegna($('#r_w'), { mondo: fam === 'corsi' ? 'formazione' : fam === 'gara' ? 'gara' : undefined }); }
+  { r.insertAdjacentHTML('beforeend', '<div id="r_w"></div>'); if (window.Widget) Widget.disegna($('#r_w'), { mondo: fam === 'corsi' ? 'formazione' : fam === 'gara' ? 'gara' : undefined }); }
   return p;
 }
 async function aggiornaRail0() {
   const r = $('#rail'); if (!r) return;
-  if (tab === 'classifiche') { r.innerHTML = ''; return; }
   if (tab === 'menu') {
     r.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt="">';
     return;

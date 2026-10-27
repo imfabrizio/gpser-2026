@@ -44,6 +44,7 @@
   }
   window.Barra = {
     marchio: MARCHIO,
+    colore: (k) => (SEZ[k] ? SEZ[k][1] : '#C8102E'),
     nomeSezione: (k) => (SEZ[k] ? SEZ[k][0] : ''),
     // titolo da mettere in alto: «CRI Eventi · Formazione»
     titolo: (k) => MARCHIO + (SEZ[k] ? ' · ' + SEZ[k][0] : ''),

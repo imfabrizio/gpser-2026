@@ -21,7 +21,7 @@
   window.Layout = {
     async disegna() {
       const me = leggi('me'), v = location.hash.slice(1).split('/')[0], mio = ++giro;
-      const senza = !me || !localStorage.getItem('token') || me.in_attesa || me.mfa_da_configurare || ['monitor', 'valuta', 'classifica'].includes(v);
+      const senza = !me || !localStorage.getItem('token') || me.in_attesa || me.mfa_da_configurare ;
       document.body.classList.toggle('laterale', !senza);
       { const h = document.getElementById('hhome'); if (h && document.getElementById('homeb')) h.hidden = true; }
       if (senza) { lat.innerHTML = ''; rail.innerHTML = ''; return; }
