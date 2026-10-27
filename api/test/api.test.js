@@ -1966,3 +1966,20 @@ test('MCP-1 esito Mega Code con equipaggio e skill incorporate; anteprime con le
   const r = await chiama('GET', `/api/schede/${k.id}/esito.pdf?squadra=${sq.id}`, { token: O });
   assert.equal(r.statusCode, 200, r.body);
 });
+
+test('ELV-1 eliminare una valutazione: solo organizzazione, risposte cancellate, resta nel registro', async () => {
+  const O = tok['org@t'], G = tok['giu@t'];
+  const corso = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'ELV-C', nome: 'Corso elv', tipo: 'corso' } }));
+  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'ELV-M', nome: 'MC elv', tipo: 'megacode', corso_id: corso.id } }));
+  const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'E1', titolo: 'Scena', ordine: 1 } }));
+  const pat = json(await chiama('GET', '/api/libreria/patologie', { token: O })).find((p) => !p.bozza && !p.is_master);
+  const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } }));
+  const sq = json(await chiama('POST', `/api/eventi/${e.id}/squadre`, { token: O, body: { nome: 'Eq' } }));
+  const sch = json(await chiama('GET', `/api/schede/${k.id}`, { token: O }));
+  const id = '11111111-2222-4333-8444-555555555555';
+  assert.equal((await chiama('POST', '/api/sync', { token: O, body: { id, scheda_id: k.id, squadra_id: sq.id, risposte: [{ voce_id: sch.voci[0].id, livello: 'MB' }] } })).statusCode, 200);
+  assert.equal((await chiama('DELETE', `/api/compilazioni/${id}`, { token: G })).statusCode, 403);
+  assert.equal((await chiama('DELETE', `/api/compilazioni/${id}`, { token: O })).statusCode, 200);
+  assert.equal(json(await chiama('GET', `/api/compilazioni?scheda=${k.id}&squadra=${sq.id}`, { token: O })).compilazione, null);
+  assert.equal((await pool.query(`select 1 from audit_log where azione='elimina_valutazione' and entita_id=$1`, [id])).rowCount, 1);
+});

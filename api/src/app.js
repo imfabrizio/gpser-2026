@@ -3,7 +3,7 @@ import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { firmaToken, leggiToken, verificaPassword, troppiTentativi, registraFallimento, azzeraFallimenti, verificaPasswordFinta } from './auth.js';
 import { inTransazione } from './db.js';
-import { sincronizza, riapri, httpErr } from './services/compilazioni.js';
+import { sincronizza, riapri, elimina, httpErr } from './services/compilazioni.js';
 import { generaPdfSchede } from './services/stampa.js';
 import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
@@ -792,6 +792,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       } catch (e) { if (e.code === '40P01' && tentativo < 4) continue; throw e; }
     }
   });
+  app.delete('/api/compilazioni/:id', async (req) => inTransazione(pool, async (db) => { await elimina(db, req.utente, req.params.id); return { ok: true }; }));
   app.post('/api/compilazioni/:id/riapri', async (req) => inTransazione(pool, async (db) => {
     await riapri(db, req.utente, req.params.id); return { ok: true };
   }));

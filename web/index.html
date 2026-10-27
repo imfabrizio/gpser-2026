@@ -572,6 +572,7 @@ async function vistaValuta(schedaId, squadraId) {
   $('#app').innerHTML = banner + (pv ? '<div class="esito" id="esito"></div>' : '') + html + `<div class="barra"><span class="stato" id="st"></span>
     <button class="btn sec" id="indietro">Indietro</button>
     ${pv && cur.compilazione ? '<button class="btn sec" id="pdfesito">PDF esito</button>' : ''}
+    ${org() && cur.compilazione ? '<button class="btn sec" id="elimina">Elimina valutazione</button>' : ''}
     ${chiusa ? (puoChiudere && cur.compilazione ? '<button class="btn" id="riapri">Riapri scheda</button>' : '')
       : `<button class="btn" id="verif">Conferma e chiudi</button>`}</div>`;
   if (soloLettura) $('#app').classList.add('sola-lettura');
@@ -641,6 +642,11 @@ async function vistaValuta(schedaId, squadraId) {
   if ($('#pdfesito')) $('#pdfesito').onclick = async () => {
     try { const r = await fetch(`/api/schede/${schedaId}/esito.pdf?squadra=${squadraId}`, { headers: { Authorization: 'Bearer ' + token } }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).errore || 'errore'); window.open(URL.createObjectURL(await r.blob()), '_blank'); }
     catch (e) { alert('PDF non disponibile: ' + e.message); }
+  };
+  if ($('#elimina')) $('#elimina').onclick = async () => {
+    if (!confirm(`Eliminare la valutazione${nomeSq ? ' di ' + nomeSq : ''}? Tutte le risposte di questa scheda vengono cancellate e non si possono recuperare.`)) return;
+    try { clearTimeout(timer); await api(`/compilazioni/${cur.compilazione.id}`, { method: 'DELETE' }); coda.scarta(chiave); location.hash = '#valutazione'; }
+    catch (e) { alert(e.message); }
   };
   if ($('#riapri')) $('#riapri').onclick = async () => {
     try { await api(`/compilazioni/${cur.compilazione.id}/riapri`, { method: 'POST', body: {} }); vistaValuta(schedaId, squadraId); }

@@ -16,7 +16,7 @@ const R = (m, rotta, aree) => [new RegExp(`^(${m})$`), new RegExp(`^${rotta}$`),
 const REGOLE = [
   R('GET', '/api/scene/:id/turno', ['gara', 'scene', 'valutazione']),
   R('POST', '/api/scene/:id/(apri|chiudi)', ['gara', 'scene', 'valutazione']),
-  R('POST', '/api/compilazioni/:id/riapri', ['valutazione']),
+  R('POST', '/api/compilazioni/:id/riapri', ['valutazione']), R('DELETE', '/api/compilazioni/:id', ['valutazione']),
   R('PUT', '/api/persone/:id/qualifiche', ['anagrafiche']),
   R('POST|DELETE', '/api/avvisi(/:id)?', ['notizie']),
   R('POST|PATCH', '/api/eventi(/:id)?', ['gara', 'esami']), R('POST', '/api/eventi/:id/attiva', ['gara']), R('PUT', '/api/eventi/:id/(ente|data-fine|posizione)', ['gara', 'esami']), R('GET|POST', '/api/eventi/:id/(inviti|invitabili)', ['gara', 'esami']), R('DELETE', '/api/eventi/:id/inviti/:utente', ['gara', 'esami']),

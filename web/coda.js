@@ -82,5 +82,6 @@ export function creaCoda({ storage, invia, chiave = 'coda_v2', nuovoId = () => c
     o.rifiutate = []; salva(o);
   }
   const elencoRifiutate = () => leggi().rifiutate;
-  return { voce, stato, pendenti, idPer, conta, svuota, riprovaRifiutate, elencoRifiutate };
+  const scarta = (k) => { const o = leggi(); delete o.schede[k]; salva(o); };   // valutazione eliminata: via anche ciò che era in coda
+  return { voce, stato, pendenti, idPer, conta, svuota, riprovaRifiutate, elencoRifiutate, scarta };
 }

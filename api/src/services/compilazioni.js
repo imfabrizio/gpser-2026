@@ -136,6 +136,20 @@ export async function riapri(db, utente, compilazioneId) {
   await db.query(`insert into audit_log (utente_id, azione, entita, entita_id) values ($1,'riapri','compilazione',$2)`, [utente.id, compilazioneId]);
 }
 
+// elimina una valutazione (risposte comprese): solo organizzazione e admin; resta nel registro
+export async function elimina(db, utente, compilazioneId) {
+  if (!UUID.test(compilazioneId || '')) throw httpErr(400, 'id non valido');
+  if (!ORG.includes(utente.ruolo)) throw httpErr(403, 'solo organizzazione o admin');
+  const { rows: [c] } = await db.query(`select c.id, c.stato, c.scheda_id, c.squadra_id, sc.evento_id, s.titolo, q.nome as squadra
+      from compilazione c join scena_scheda s on s.id=c.scheda_id join scena sc on sc.id=s.scena_id join squadra q on q.id=c.squadra_id where c.id=$1 for update of c`, [compilazioneId]);
+  if (!c) throw httpErr(404, 'valutazione inesistente');
+  await verificaAccessoEvento(db, utente, c.evento_id);
+  const { rows: [{ n }] } = await db.query('select count(*)::int n from risposta where compilazione_id=$1 and livello is not null', [c.id]);
+  await db.query('delete from compilazione where id=$1', [c.id]);
+  await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'elimina_valutazione','compilazione',$2,$3)`,
+    [utente.id, c.id, JSON.stringify({ scheda: c.titolo, squadra: c.squadra, stato: c.stato, voci: n })]);
+}
+
 export function httpErr(status, message) {
   return Object.assign(new Error(message), { statusCode: status });
 }
