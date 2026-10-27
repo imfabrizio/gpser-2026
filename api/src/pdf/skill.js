@@ -37,9 +37,9 @@ export function disegnaSkill(doc, { titolo, modello = 'SKILL', comitato = '', vo
   doc.font('Sans').fontSize(8).text('Cognome e Nome del Candidato', L + 221, 106, { lineBreak: false });
   doc.font('Sans-Bold').fontSize(11).text(candidato || '………………………………………………………………', L + 221, 124, { width: W - 227, lineBreak: false });
   // tabella voci
-  const cw = 60, xc = R - 3 * cw, yh = 150, hh = 30;
+  const NW = 24, cw = 60, xc = R - 3 * cw, yh = 150, hh = 30;
   doc.rect(L, yh, W, hh).fillAndStroke(GRIGIO, '#000');
-  doc.fillColor('#000').font('Sans-Bold').fontSize(8.5).text('LINEE GUIDA PER L’ESECUZIONE', L + 6, yh + 11, { lineBreak: false });
+  doc.fillColor('#000').font('Sans-Bold').fontSize(8.5).text('N°', L, yh + 11, { width: NW, align: 'center', lineBreak: false }); doc.moveTo(L + NW, yh).lineTo(L + NW, yh + hh).stroke(); doc.font('Sans-Bold').fontSize(8.5).text('LINEE GUIDA PER L’ESECUZIONE', L + NW + 6, yh + 11, { lineBreak: false });
   ['Non eseguito', 'Eseguito sufficientemente bene', 'Eseguito correttamente'].forEach((t, i) => {
     doc.rect(xc + i * cw, yh, cw, hh).stroke();
     doc.font('Sans-Bold').fontSize(6.3).text(t, xc + i * cw + 2, yh + 5, { width: cw - 4, align: 'center', height: hh - 6 });
@@ -52,10 +52,11 @@ export function disegnaSkill(doc, { titolo, modello = 'SKILL', comitato = '', vo
       sezione = v.sezione;
       doc.rect(L, y, W, 13).fillAndStroke('#222', '#000'); doc.fillColor('#fff').font('Sans-Bold').fontSize(7.5).text(String(sezione).toUpperCase(), L + 6, y + 3, { lineBreak: false }); y += 13;
     }
-    doc.rect(L, y, W - 3 * cw, rh).stroke().fillColor('#000');
+    doc.rect(L, y, NW, rh).fillAndStroke(GRIGIO, '#000'); doc.rect(L + NW, y, W - 3 * cw - NW, rh).stroke().fillColor('#000');
+    doc.font('Sans-Bold').fontSize(9).text(String(i + 1), L, y + (rh - 9) / 2 + 1, { width: NW, align: 'center', lineBreak: false });
     doc.font('Sans').fontSize(fs);
-    const t = `${i + 1}. ${v.testo}`, h = doc.heightOfString(t, { width: W - 3 * cw - 12 });
-    doc.text(t, L + 6, y + Math.max(1.5, (rh - h) / 2), { width: W - 3 * cw - 12, height: rh - 2 });
+    const t = String(v.testo), h = doc.heightOfString(t, { width: W - 3 * cw - NW - 12 });
+    doc.text(t, L + NW + 6, y + Math.max(1.5, (rh - h) / 2), { width: W - 3 * cw - NW - 12, height: rh - 2 });
     [0, 1, 2].forEach((k) => { doc.rect(xc + k * cw, y, cw, rh).stroke(); doc.font('Sans').fontSize(10).fillColor('#000').text(String(k), xc + k * cw, y + (rh - 10) / 2 + 1, { width: cw, align: 'center', lineBreak: false }); });
     y += rh;
   });
