@@ -400,6 +400,17 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     return { ok: true };
   });
   app.delete('/api/schede/:id', { preHandler: soloOrg }, eliminaConControllo('s.id=$1', 'scena_scheda', 'la scheda ha già valutazioni: non eliminabile'));
+  // eliminazione definitiva di un evento (corso, Mega Code, esame, gara) con tutto ciò che contiene: solo admin; un corso porta con sé i suoi Mega Code ed esami
+  app.delete('/api/eventi/:id', { preHandler: soloAdmin }, async (req) => inTransazione(pool, async (db) => {
+    const { rows: [e] } = await db.query('select id, tipo from evento where id=$1', [req.params.id]);
+    if (!e) throw httpErr(404, 'evento inesistente');
+    const ids = (await db.query(`with recursive t as (select id from evento where id=$1 union select f.id from evento f join t on f.corso_id = t.id) select id from t`, [req.params.id])).rows.map((x) => x.id);
+    await db.query(`delete from compilazione where scheda_id in (select s.id from scena_scheda s join scena sc on sc.id=s.scena_id where sc.evento_id = any($1::uuid[]))
+                      or squadra_id in (select id from squadra where evento_id = any($1::uuid[]))`, [ids]);
+    await db.query('delete from scena where evento_id = any($1::uuid[])', [ids]);
+    await db.query('delete from evento where id = any($1::uuid[])', [ids]);
+    return { ok: true, eliminati: ids.length };
+  }));
   app.delete('/api/scene/:id', { preHandler: soloOrg }, eliminaConControllo('s.scena_id=$1', 'scena', 'la scena ha già valutazioni: non eliminabile'));
 
   // ── libreria: scale e patologie modificabili ──

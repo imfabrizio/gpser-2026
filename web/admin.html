@@ -189,8 +189,8 @@ const vai = (t, daHash) => { if (t === 'monitor') { location.href = '/#monitor';
   tab = t; if (!daHash) history.replaceState(null, '', t === 'menu' ? location.pathname : '#' + t); disegnaTabs(); render(); };
 function disegnaTabs() {
   if (!TABS.some(([k]) => k === tab)) tab = 'menu';
-  const g = tab === 'menu' ? null : mondoCorrente(), vis = g && tab !== 'hub' ? figliVisibili(g) : [];
-  const inizio = tab === 'menu' || tab === 'hub';
+  const g = tab === 'menu' ? null : mondoCorrente(), hubForm = tab === 'hub' && fam === 'corsi', vis = g && (tab !== 'hub' || hubForm) ? figliVisibili(g) : [];
+  const inizio = tab === 'menu' || (tab === 'hub' && !hubForm);
   // menu a sinistra solo dentro una sezione (è il menu di quell'area); nel portale e nei riquadri a sinistra ci sono strumenti. Nella classifica servono le linguette in alto e tutta la larghezza.
   const laterale = tab !== 'classifiche' && (inizio || vis.length >= 2);
   $('#tabs').hidden = inizio ? !laterale : vis.length < 2;
@@ -264,7 +264,7 @@ async function tEvento() {
       <div><label>Regione (se proprietaria è una regione)</label><select id="e_reg"><option value="">—</option>${regioni.map((r) => `<option ${ev.regione === r && ev.livello === 'regione' ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></div></div>`
       : (ev.livello ? `<p class="nota">Materiale ${ev.livello === 'comitato' ? 'del comitato ' + esc(ev.comitato || '') : ev.livello === 'regione' ? 'della regione ' + esc(ev.regione || '') : 'nazionale'}: lo vedono solo i membri di quell'ente.</p>` : '')}
     <p><button class="b" id="e_salva">Salva</button> <button class="s" id="e_attiva" ${ev.attivo ? 'disabled' : ''}>Rendi attivo</button>
-    <button class="x" id="e_arch">Archivia</button></p></div>
+    <button class="x" id="e_arch">Archivia</button>${admin() ? ' <button class="x" id="e_del">Elimina definitivamente</button>' : ''}</p></div>
   <div class="card"><h3>Mappa del percorso</h3><label>Incorporamento Google My Maps (facoltativo)</label>
     <input id="e_map" value="${esc(ev.mappa_url || '')}" placeholder="https://www.google.com/maps/d/embed?mid=…">
     <p class="nota">Crea la mappa su Google My Maps con i punti delle scene, poi Condividi → Incorpora mappa e incolla qui solo l'indirizzo (src). Gli indirizzi o le coordinate delle singole scene si inseriscono in Scene.</p>
@@ -307,6 +307,7 @@ async function tEvento() {
     if ($('#e_geo_tutte')) $('#e_geo_tutte').onclick = async () => { $('#e_geo_tutte').disabled = true; $('#e_geo_tutte').textContent = 'Associo i comuni…';
       try { const r = await api('/eventi/ricava-coordinate', { body: {} }); await caricaEventi(); ev = eventi.find((x) => x.id === ev.id) || ev; flash(`${r.fatti.length} gare associate a un comune${r.mancanti.length ? ' · da scegliere a mano: ' + r.mancanti.join('; ') : ''}`, !r.mancanti.length); render(); } catch (e) { flash(e.message, false); render(); } };
     $('#e_attiva').onclick = () => fai(() => api(`/eventi/${ev.id}/attiva`, { method: 'POST', body: {} }).then(caricaEventi), 'Evento attivato');
+    if ($('#e_del')) $('#e_del').onclick = () => { if (confirm(`Eliminare DEFINITIVAMENTE «${ev.nome}» con scene, schede, valutazioni, squadre e iscritti${ev.tipo === 'corso' ? ', insieme ai suoi Mega Code ed esami' : ''}? Non si può annullare.`) && confirm('Sicuro? Se vuoi solo toglierlo dagli elenchi usa Archivia.')) fai(async () => { await api(`/eventi/${ev.id}`, { method: 'DELETE' }); try { localStorage.removeItem('ev_' + fam); } catch { /* ignora */ } await caricaEventi(); impostaFam(fam); }, 'Evento eliminato'); };
     $('#e_arch').onclick = () => { if (confirm('Archiviare questo evento? Sparisce dagli elenchi ma i dati restano.')) fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { archiviato: true } }).then(caricaEventi), 'Archiviato'); };
     $('#e_map_ok').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { mappa_url: $('#e_map').value.trim() } }).then(caricaEventi), 'Mappa salvata');
   }

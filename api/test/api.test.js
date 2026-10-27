@@ -1937,3 +1937,16 @@ test('DISC-1 equipaggio del Mega Code solo dai discenti del corso', async () => 
   await chiama('DELETE', `/api/eventi/${corso.id}/discenti/${d.id}`, { token: O });
   assert.equal(json(await chiama('GET', `/api/squadre/${sq.id}/membri`, { token: O })).length, 0, 'tolto dal corso, esce dall\'equipaggio');
 });
+
+test('DEL-1 solo admin elimina un evento, un corso porta con sé i suoi Mega Code', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  const corso = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'DEL-C', nome: 'Corso da eliminare', tipo: 'corso' } }));
+  const mc = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'DEL-M', nome: 'Mega Code da eliminare', tipo: 'megacode', corso_id: corso.id } }));
+  const sc = json(await chiama('POST', `/api/eventi/${mc.id}/scene`, { token: O, body: { codice: 'D1', titolo: 'Scena', ordine: 1 } }));
+  const pat = json(await chiama('GET', '/api/libreria/patologie', { token: O })).find((p) => !p.bozza && !p.is_master);
+  await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } });
+  assert.equal((await chiama('DELETE', `/api/eventi/${corso.id}`, { token: O })).statusCode, 403);
+  const r = await chiama('DELETE', `/api/eventi/${corso.id}`, { token: A }); assert.equal(r.statusCode, 200, r.body);
+  assert.equal(json(r).eliminati, 2);
+  assert.equal((await pool.query('select 1 from evento where id = any($1::uuid[])', [[corso.id, mc.id]])).rowCount, 0);
+});
