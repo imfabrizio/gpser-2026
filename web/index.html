@@ -531,8 +531,8 @@ async function preparaCoda() {
 addEventListener('online', () => coda && coda.svuota());
 
 async function vistaValuta(schedaId, squadraId) {
-  const [scheda, cur, squadreEv] = await Promise.all([api(`/schede/${schedaId}`), api(`/compilazioni?scheda=${schedaId}&squadra=${squadraId}`),
-    api(`/eventi/${window.__ev?.id || localStorage.getItem('ev')}/squadre`).catch(() => [])]);
+  const [scheda, cur] = await Promise.all([api(`/schede/${schedaId}`), api(`/compilazioni?scheda=${schedaId}&squadra=${squadraId}`)]);
+  const squadreEv = await api(`/eventi/${scheda.evento?.id || window.__ev?.id || localStorage.getItem('ev')}/squadre`).catch(() => []);
   const nomeSq = (squadreEv.find((x) => x.id === squadraId)?.nome || '').toUpperCase();
   const stato = cur.compilazione?.stato || 'bozza';
   const chiusa = stato !== 'bozza';                           // conferma del giudice = scheda chiusa
@@ -552,7 +552,7 @@ async function vistaValuta(schedaId, squadraId) {
   for (const v of scheda.voci) {
     if ((v.blocco_id || null) !== bloccoAperto) {
       chiudiBlocco();
-      if (v.blocco_id) { bloccoAperto = v.blocco_id; html += `<details class="blocco" data-b="${v.blocco_id}"><summary><span>${esc(v.blocco_nome)}</span><span class="riep vuoto" data-riep="${v.blocco_id}"></span></summary>`; }
+      if (v.blocco_id) { bloccoAperto = v.blocco_id; html += `<details class="blocco" data-b="${v.blocco_id}"${scheda.voci.some((x) => x.blocco_id === v.blocco_id && ris.has(x.id)) ? ' open' : ''}><summary><span>${esc(v.blocco_nome)}</span><span class="riep vuoto" data-riep="${v.blocco_id}"></span></summary>`; }
       sezione = null;
     }
     if (!v.blocco_id && v.sezione !== sezione) { sezione = v.sezione; html += `<div class="sezione">${esc(sezione)}</div>`; }

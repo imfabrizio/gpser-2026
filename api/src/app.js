@@ -513,7 +513,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (!s) throw httpErr(404, 'scheda inesistente');
     await accessoScheda(req.utente, s.id);
     const voci = (await pool.query('select * from scena_scheda_voce where scheda_id=$1 order by ordine', [s.id])).rows;
-    const { rows: [ve] } = await pool.query('select e.tipo, e.soglia_pct, e.mostra_punteggi from scena sc join evento e on e.id = sc.evento_id where sc.id=$1', [s.scena_id]);
+    const { rows: [ve] } = await pool.query('select e.id, e.tipo, e.soglia_pct, e.mostra_punteggi from scena sc join evento e on e.id = sc.evento_id where sc.id=$1', [s.scena_id]);
     s.evento = ve;
     const nProprie = voci.filter((v) => !v.blocco_id).length;       // le skill incorporate hanno fasce proprie
     if (!s.fasce && SKILL_AUTO.includes(ve?.tipo) && nProprie) s.fasce = fasceAuto(nProprie);
