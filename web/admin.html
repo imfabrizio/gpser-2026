@@ -525,7 +525,7 @@ async function tSquadre() {
   $('#ns_ok').onclick = () => { const n = $('#ns').value.trim(); if (n) fai(() => api(`/eventi/${ev.id}/squadre`, { body: { nome: n, comitato: $('#ns_c').value.trim() } }), 'Squadra aggiunta'); };
 }
 
-const RUOLI_MEGACODE = [['team leader', 'Team Leader'], ['vie aeree', 'Vie aeree e ventilazione'], ['compressioni', 'Compressioni'], ['defibrillatore', 'Defibrillatore e monitor'], ['accesso farmaci', 'Accesso e farmaci'], ['scriba', 'Scriba e tempi'], ['osservatore', 'Osservatore']];
+const RUOLI_MEGACODE = [['team leader', 'Team Leader'], ['autista', 'Autista'], ['barelliere', 'Barelliere']];
 const RUOLI_SQUADRA = [['capo squadra', 'Team leader'], ['componente', 'Soccorritore'], ['accompagnatore', 'Accompagnatore'], ['fotografo', 'Fotografo']];
 async function apriComponenti(squadraId, nomeSquadra) {
   const daCorso = ev && ev.tipo === 'megacode' && ev.corso_id;   // equipaggio di Mega Code: solo i discenti del corso
@@ -538,7 +538,7 @@ async function apriComponenti(squadraId, nomeSquadra) {
   let trovati = [], qtxt = '';
   const disegna = () => {
     $('#dlg').innerHTML = `<h3>Componenti · ${esc(nomeSquadra)}</h3>
-      ${discCorso ? '<p class="nota">L\'equipaggio si compone dai discenti del corso (tab Discenti). Scegli il ruolo di ciascuno: il Team Leader è quello che viene valutato di più.</p>' : '<p class="nota">Cerca tra le persone già registrate (per cognome, nome, comitato o codice fiscale) e scegli il ruolo nella squadra. I componenti possono appartenere a comitati diversi.</p>'}
+      ${discCorso ? '<p class="nota">L\'equipaggio si compone dai discenti del corso (tab Discenti). Scegli il ruolo di ciascuno: Autista, Team Leader e Barelliere (i barellieri possono essere più di uno).</p>' : '<p class="nota">Cerca tra le persone già registrate (per cognome, nome, comitato o codice fiscale) e scegli il ruolo nella squadra. I componenti possono appartenere a comitati diversi.</p>'}
       <table>${lista.length ? lista.map((m, i) => `<tr><td>${esc(m.cognome)} ${esc(m.nome)}<br><small>${esc(m.comitato || '—')}${m.provincia ? ' (' + esc(m.provincia) + ')' : ''}</small> ${avvisoTrainer(m.qualifiche)}</td>
         <td><select class="mr" data-i="${i}">${RUOLI.map(([v, t]) => `<option value="${v}" ${m.ruolo === v ? 'selected' : ''}>${t}</option>`).join('')}${m.ruolo && !RUOLI.some(([v]) => v === m.ruolo) ? `<option selected>${esc(m.ruolo)}</option>` : ''}${m.ruolo ? '' : '<option value="" selected>— ruolo —</option>'}</select></td><td><button class="x p mx" data-i="${i}">✕</button></td></tr>`).join('') : '<tr><td><em>Nessun componente</em></td></tr>'}</table>
       <div style="margin-top:10px"><label>Aggiungi ${discCorso ? 'discente' : 'persona'}</label>${discCorso ? '' : `<input id="mq" value="${esc(qtxt)}" placeholder="cognome, nome, comitato o codice fiscale" autocomplete="off">`}
