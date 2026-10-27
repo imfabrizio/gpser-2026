@@ -81,10 +81,12 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     if (!u) throw httpErr(404, 'utente inesistente');
     return u;
   });
-  app.get('/api/giudici', { preHandler: soloOrg }, async () =>
-    (await pool.query(`select * from (select id, nome, email, ruolo,
-        array_cat(array_prepend(ruolo, coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id=u.id), '{}')), (select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in ('giudice','giudice_master'))) as ruoli
-        from utente u where attivo) q where ruoli && array['giudice','giudice_master'] order by nome`)).rows);
+  app.get('/api/giudici', { preHandler: soloOrg }, async (req) => {
+    const val = req.query?.valutatori === '1' ? "'istruttore'," : '';   // nei corsi valutano gli istruttori/formatori
+    return (await pool.query(`select * from (select id, nome, email, ruolo,
+        array_cat(array_prepend(ruolo, coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id=u.id), '{}')), (select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in (${val}'giudice','giudice_master'))) as ruoli
+        from utente u where attivo) q where ruoli && array[${val}'giudice','giudice_master'] order by nome`)).rows;
+  });
 
   // ── assegnazioni giudici → schede ──
   app.get('/api/eventi/:id/assegnazioni', { preHandler: soloOrg }, async (req) =>
@@ -96,7 +98,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.put('/api/schede/:id/assegnazioni', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const ids = req.body?.utenti || [];
     if (!Array.isArray(ids)) throw httpErr(400, 'utenti: elenco di id');
-    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (ruolo in ('giudice','giudice_master') or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo in ('giudice','giudice_master')) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in ('giudice','giudice_master'))) > 0)`, [ids]);
+    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (ruolo in ('giudice','giudice_master','istruttore') or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo in ('giudice','giudice_master','istruttore')) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in ('giudice','giudice_master'))) > 0)`, [ids]);
     if (ok.length !== new Set(ids).size) throw httpErr(400, 'solo utenti attivi con ruolo giudice o giudice master');
     await db.query('delete from assegnazione where scheda_id=$1', [req.params.id]);
     for (const u of new Set(ids)) await db.query('insert into assegnazione values ($1,$2)', [req.params.id, u]);

@@ -648,8 +648,8 @@ async function tScene() {
         <div><label>Cute</label><input class="pp" data-id="${k.id}" data-k="cute" value="${esc(p.cute || '')}"></div>
         <div><label>Simulatore</label><input class="ps" data-id="${k.id}" value="${esc(d.simulatore)}"></div>
         ${d.is_master ? '' : `<div><label>Gravità</label><select class="pg" data-id="${k.id}"><option value="">—</option>${['rosso', 'giallo', 'verde'].map((g) => `<option value="${g}" ${d.gravita === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>`}</div>
-      <p><button class="s p ass-b" data-id="${k.id}">Giudici…</button>
-        <button class="x p delsk" data-id="${k.id}">Elimina scheda</button></p></div>`; }).join('')}
+      <p><button class="s p ass-b" data-id="${k.id}">${fam === 'corsi' ? 'Valutatori…' : 'Giudici…'}</button>
+        <button class="x p delsk" data-id="${k.id}">${fam === 'corsi' ? 'Togli dalla scena' : 'Elimina scheda'}</button></p></div>`; }).join('')}
     <div class="scheda"><strong>Aggiungi scheda da patologia</strong><div class="riga">
       <div style="flex:1 1 100%"><label>Scheda (${esc(TIPOLOGIE.filter((t) => tipoOk.includes(t[0])).map((t) => t[1]).join(' / ') || 'tutte')})</label><select class="a_pat">${opzioniPatologie(patEv)}</select>
         <p style="margin:6px 0 0"><button class="s a_an" type="button">Anteprima</button> <button class="s a_ed" type="button">Modifica</button> <button class="s a_nu" type="button">Nuova scheda</button> <button class="s a_rv" type="button">Revisioni</button> <small class="a_rvl"></small></p></div>
@@ -684,7 +684,7 @@ async function tScene() {
   document.querySelectorAll('.pg').forEach((i) => { i.onchange = () => fai(() => api(`/schede/${i.dataset.id}`, { method: 'PATCH', body: { gravita: i.value } }), 'Gravità aggiornata'); });
   document.querySelectorAll('.elp').forEach((b) => { b.onclick = () => fai(async () => { const r = await api(`/scene/${b.dataset.id}/elenco-pazienti`, { body: {} }); flash('Elenco nel Master: ' + r.pazienti.join(' · ')); }); });
   document.querySelectorAll('.ps').forEach((i) => { i.onchange = () => fai(() => api(`/schede/${i.dataset.id}`, { method: 'PATCH', body: { simulatore: i.value.trim() } }), 'Simulatore aggiornato'); });
-  document.querySelectorAll('.delsk').forEach((b) => { b.onclick = () => { if (confirm('Eliminare questa scheda?')) fai(() => api(`/schede/${b.dataset.id}`, { method: 'DELETE' }), 'Scheda eliminata'); }; });
+  document.querySelectorAll('.delsk').forEach((b) => { b.onclick = () => { if (confirm(fam === 'corsi' ? 'Togliere questa scheda dalla scena?' : 'Eliminare questa scheda?')) fai(() => api(`/schede/${b.dataset.id}`, { method: 'DELETE' }), fam === 'corsi' ? 'Scheda tolta dalla scena' : 'Scheda eliminata'); }; });
   document.querySelectorAll('.delsc').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la scena con tutte le sue schede?')) fai(() => api(`/scene/${b.dataset.id}`, { method: 'DELETE' }), 'Scena eliminata'); }; });
   document.querySelectorAll('.a_an').forEach((b) => { b.onclick = () => { const p = pat.find((x) => x.id === b.closest('.scheda').querySelector('.a_pat').value); if (p) anteprimaScheda(p); }; });
   document.querySelectorAll('.a_ed').forEach((b) => { b.onclick = async () => { const p = pat.find((x) => x.id === b.closest('.scheda').querySelector('.a_pat').value); if (p) editorPatologia(p, await api(`/libreria/patologie/${p.id}`)); }; });
@@ -716,8 +716,8 @@ async function apriMaster(scenaId, mas) {
     fai(() => api(`/scene/${scenaId}/master`, { method: 'PUT', body: { utenti: ids } }), 'Giudice master salvato'); };
 }
 async function apriAssegnazioni(schedaId, ass) {
-  const giud = await api('/giudici'); const sel = new Set(ass.filter((a) => a.scheda_id === schedaId).map((a) => a.utente_id));
-  dlg(`<h3>Giudici della scheda</h3>${giud.length ? giud.map((g) => `<label style="font-size:15px;color:inherit"><input type="checkbox" value="${g.id}" ${sel.has(g.id) ? 'checked' : ''}> ${esc(g.nome)} <small>${esc(g.email)}${g.ruolo === 'giudice_master' ? ' · master' : ''}</small></label>`).join('') : '<p>Nessun utente con ruolo giudice. Un admin può crearli in "Utenti".</p>'}
+  const giud = await api('/giudici' + (fam === 'corsi' ? '?valutatori=1' : '')); const sel = new Set(ass.filter((a) => a.scheda_id === schedaId).map((a) => a.utente_id));
+  dlg(`<h3>${fam === 'corsi' ? 'Valutatori della scheda' : 'Giudici della scheda'}</h3>${giud.length ? giud.map((g) => `<label style="font-size:15px;color:inherit"><input type="checkbox" value="${g.id}" ${sel.has(g.id) ? 'checked' : ''}> ${esc(g.nome)} <small>${esc(g.email)}${g.ruolo === 'giudice_master' ? ' · master' : ''}</small></label>`).join('') : `<p>Nessun utente con ruolo ${fam === 'corsi' ? 'istruttore' : 'giudice'}. Un admin può crearli in "Utenti".</p>`}
     <p><button class="b" id="as_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
   $('#as_ok').onclick = () => { const ids = [...document.querySelectorAll('#dlg input:checked')].map((i) => i.value); chiudi();
     fai(() => api(`/schede/${schedaId}/assegnazioni`, { method: 'PUT', body: { utenti: ids } }), 'Assegnazioni salvate'); };

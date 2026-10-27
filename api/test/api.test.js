@@ -1870,3 +1870,18 @@ test('REV-4: patologie diverse con molte voci generiche in comune (sigla diversa
   const prop = json(await chiama('GET', '/api/libreria/raggruppamenti', { token: org }));
   assert.equal(prop.some((p) => [p.a.id, p.b.id].includes(x.id) && [p.a.id, p.b.id].includes(y.id)), false);
 });
+
+test('VAL-1 nei corsi valutano gli istruttori: elenco valutatori, assegnazione e area valutazione', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'val1@t.it', nome: 'Vera Istruttrice', ruolo: 'istruttore', password: 'password-lunga' } }));
+  assert.ok(!json(await chiama('GET', '/api/giudici', { token: O })).some((x) => x.id === u.id), 'tra i giudici delle gare non compare');
+  assert.ok(json(await chiama('GET', '/api/giudici?valutatori=1', { token: O })).some((x) => x.id === u.id), 'tra i valutatori dei corsi sì');
+  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'VAL-MC', nome: 'Mega Code prova', tipo: 'megacode' } }));
+  const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'MC1', titolo: 'Scena', ordine: 1 } }));
+  const pat = json(await chiama('GET', '/api/libreria/patologie', { token: O })).find((p) => !p.bozza && !p.is_master);
+  const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } }));
+  const r = await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [u.id] } }); assert.equal(r.statusCode, 200, r.body);
+  const tk = json(await chiama('POST', '/api/login', { body: { email: 'val1@t.it', password: 'password-lunga' } })).token;
+  assert.equal((await chiama('GET', `/api/schede/${k.id}`, { token: tk })).statusCode, 200);
+  assert.equal((await chiama('DELETE', `/api/schede/${k.id}`, { token: O })).statusCode, 200, 'la scheda si toglie dalla scena');
+});

@@ -328,11 +328,12 @@ async function vistaSicurezza() {
 // gara corrente: chi è legato a una gara resta in quella; organizzazione e admin scelgono dal menu
 async function garaCorrente() {
   const tutti = await api('/eventi');
-  const eventi = org() ? tutti.filter((e) => ['gara', 'olimpiadi', 'allenamento', 'corso_giudici'].includes(e.tipo)) : tutti;   // la Home delle Gare non mostra corsi ed esami
+  const form = org() && localStorage.getItem('mondo') === 'formazione', chiave = form ? 'evF' : 'ev';   // nel mondo Formazione si valutano Mega Code, corsi ed esami
+  const eventi = org() ? tutti.filter((e) => (form ? ['megacode', 'corso', 'esame'] : ['gara', 'olimpiadi', 'allenamento', 'corso_giudici']).includes(e.tipo) && !(form && e.archiviato)) : tutti;
   let ev = null;
-  if (org()) ev = eventi.find((e) => e.id === localStorage.getItem('ev'));
+  if (org()) ev = eventi.find((e) => e.id === localStorage.getItem(chiave));
   ev = ev || eventi.find((e) => e.id === me.evento_id) || eventi.find((e) => e.attivo) || eventi[0] || null;
-  if (ev) localStorage.setItem('ev', ev.id);
+  if (ev) localStorage.setItem(chiave, ev.id);
   window.__ev = ev;
   return { ev, eventi };
 }
@@ -349,6 +350,7 @@ async function vistaHome() {
   const soloFormazione = org() && !me.admin && aree.every((a) => ['esami', 'formazione_esame', 'valutazione'].includes(a)) && !aree.includes('valutazione');   // es. istruttore con solo Esami
   const tileF = (href, ico, titolo, desc) => `<a class="tile" href="${href}"><i class="ico">${ICONE[ico]}</i><b>${titolo}</b><span>${desc}</span></a>`;
   const formazione = `<div class="sezione-home"><h3>Formazione</h3><div class="tiles">
+      ${org() ? tileF('#valutazione', 'valutazione', 'Valutazioni', 'Inizia la valutazione di un Mega Code o di un corso') : ''}
       ${aree.includes('esami') ? tileF('/esami.html', 'esami', 'Esami', 'Sessioni d\'esame e valutazioni') : ''}
       ${aree.includes('formazione_esame') ? tileF('/admin.html#corsi.libreria', 'libreria', 'Schede d\'esame', 'Skill e schede dei Mega Code') : ''}
       ${tileF('#documenti', 'documenti', 'Documentazione', 'Regolamento, comunicazioni, manuali')}</div></div>`;
@@ -366,11 +368,13 @@ async function vistaHome() {
     return;
   }
   if (mondo === 'formazione') {
+    try { localStorage.setItem('mondo', 'formazione'); } catch { /* ignora */ }
     const avvF = await api('/avvisi?ambito=formazione').catch(() => []);
     const corsi = (await api('/eventi').catch(() => [])).filter((e) => ['corso', 'megacode', 'esame'].includes(e.tipo) && !e.archiviato && (e.attivo || !e.data || (e.data_fine || e.data) >= oggi()));
     $('#app').innerHTML = `${cambia}${formazione.replace('<h3>Formazione</h3><div class="tiles">', '<h3>Formazione</h3><div class="tiles">' + (org() ? tileF('/admin.html#hub:corsi', 'gestione', 'Gestione', 'Corsi, scene, equipaggi, notizie') : ''))}
-      <div class="card"><strong>Corsi e prove in programma</strong>${corsi.length ? corsi.map((e) => `<div class="avv"><b>${esc(e.codice_gaia ? e.codice_gaia + ' · ' : '')}${esc(e.nome)}</b><br><small>${esc(e.tipo === 'megacode' ? 'Mega Code' : e.tipo === 'esame' ? 'Esame' : 'Corso')} · ${esc(e.luogo || '')} ${esc(e.data || '')}</small></div>`).join('') : '<p><small>Nessun corso in programma.</small></p>'}</div>
+      <div class="card"><strong>Corsi e prove in programma</strong>${corsi.length ? corsi.map((e) => `<div class="avv"><b>${esc(e.codice_gaia ? e.codice_gaia + ' · ' : '')}${esc(e.nome)}</b><br><small>${esc(e.tipo === 'megacode' ? 'Mega Code' : e.tipo === 'esame' ? 'Esame' : 'Corso')} · ${esc(e.luogo || '')} ${esc(e.data || '')}</small>${org() && e.tipo !== 'esame' ? `<br><a class="btn" href="#valutazione" data-ev="${e.id}">Inizia le valutazioni</a>` : ''}</div>`).join('') : '<p><small>Nessun corso in programma.</small></p>'}</div>
       <div class="card"><strong>Notizie per la Formazione</strong>${avvF.length ? avvF.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>`;
+    document.querySelectorAll('[data-ev]').forEach((a) => { a.onclick = () => localStorage.setItem('evF', a.dataset.ev); });
     legaCambia(); return;
   }
   if (soloFormazione) { $('#app').innerHTML = formazione; return; }
@@ -391,7 +395,7 @@ async function vistaHome() {
     ${mappaHtml(ev, scene)}
     <div class="card"><strong>Avvisi e informazioni</strong>${avvisi.length ? avvisi.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessun avviso.</small></p>'}</div>`;
   legaCambia();
-  if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem('ev', $('#selgara').value); vistaHome(); };
+  if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem(org() && localStorage.getItem('mondo') === 'formazione' ? 'evF' : 'ev', $('#selgara').value); vistaHome(); };
   const cc = coda.conta();
   if (cc.inCoda || cc.rifiutate) {
     const rif = coda.elencoRifiutate();
