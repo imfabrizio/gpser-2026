@@ -334,7 +334,7 @@ async function garaCorrente() {
   const form = org() && localStorage.getItem('mondo') === 'formazione', chiave = form ? 'evF' : 'ev';   // nel mondo Formazione si valutano Mega Code, corsi ed esami
   const eventi = org() ? tutti.filter((e) => (form ? ['megacode', 'corso', 'esame'] : ['gara', 'olimpiadi', 'allenamento', 'corso_giudici']).includes(e.tipo) && !(form && e.archiviato)) : tutti;
   let ev = null;
-  if (org()) ev = eventi.find((e) => e.id === localStorage.getItem(chiave));
+  ev = eventi.find((e) => e.id === localStorage.getItem(chiave));   // l'ultima scelta vale per tutti, non solo per l'organizzazione
   ev = ev || eventi.find((e) => e.id === me.evento_id) || eventi.find((e) => e.attivo) || eventi[0] || null;
   if (ev) localStorage.setItem(chiave, ev.id);
   window.__ev = ev;
@@ -410,16 +410,19 @@ async function vistaHome() {
 // scelta di scena, scheda e squadra della gara corrente
 async function vistaSelezione() {
   $('#esci').hidden = false; $('#hhome').hidden = false;
-  const { ev } = await garaCorrente();
+  const { ev, eventi } = await garaCorrente();
   if (!ev) { location.hash = ''; return; }
   $('#titolo').textContent = 'Valutazione';
   const [scene, squadre] = await Promise.all([api(`/eventi/${ev.id}/scene`), api(`/eventi/${ev.id}/squadre`)]);
   const scAvail = scene.filter(s => s.schede && s.schede.length);
+  const nonArch = eventi.filter((e) => !e.archiviato || e.id === ev.id);
   $('#app').innerHTML = `<div class="card"><strong>${esc(ev.nome)}</strong><br><small>${esc(ev.luogo || '')} ${esc(ev.data || '')}</small>
+    ${nonArch.length > 1 ? `<label>Evento</label>${menuGare(nonArch, ev)}` : ''}
     <label>Scena</label><select id="sc">${scAvail.map((s, i) => `<option value="${i}">${esc(s.codice)} – ${esc(s.titolo)}</option>`).join('')}</select>
     <label>Scheda</label><select id="sk"></select>
     <label>Squadra</label><select id="sq">${squadre.filter(s => s.attiva).map(s => `<option value="${s.id}">${s.numero} – ${esc(s.nome)}</option>`).join('')}</select>
     <button class="btn" id="avvia">Inizia valutazione</button> <a class="btn sec" href="#">Home</a></div>`;
+  if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem(org() && localStorage.getItem('mondo') === 'formazione' ? 'evF' : 'ev', $('#selgara').value); vistaSelezione(); };
   const chiaveSel = `selezione_${me.id}_${ev.id}`;   // l'ultima scelta resta anche tornando indietro e dopo un riavvio
   let ultima = {}; try { ultima = JSON.parse(localStorage.getItem(chiaveSel) || '{}'); } catch { /* ignora */ }
   const salvaSel = () => { try { localStorage.setItem(chiaveSel, JSON.stringify({ scena: scAvail[$('#sc').value]?.id, scheda: $('#sk').value, squadra: $('#sq').value })); } catch { /* ignora */ } };
