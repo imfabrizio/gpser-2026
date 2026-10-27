@@ -7,6 +7,7 @@
   const org = (me) => ['admin', 'organizzazione'].includes(me.ruolo);
   const CAT = [
     ['valutazioni', 'Le mie valutazioni', 'Le schede che ti sono assegnate, con il tasto per iniziare', (me) => org(me) || (me.aree || []).includes('valutazione')],
+    ['storico', 'I miei esiti', 'Le valutazioni dei tuoi Mega Code ed esami, quando il docente le pubblica', () => true],
     ['eventi', 'Prossimi eventi', 'Gare, corsi ed esami in arrivo', () => true],
     ['gara_attiva', 'Gara o corso attivo', 'Quello in corso adesso, con data e luogo', () => true],
     ['news', 'Novità e avvisi', 'Le comunicazioni pubblicate dall\'organizzazione', () => true],
@@ -15,7 +16,7 @@
     ['approvare', 'Richieste da approvare', 'Accessi in attesa di approvazione', (me) => me.ruolo === 'admin'],
   ];
   const disponibili = (me) => CAT.filter((c) => c[3](me));
-  const predefiniti = (me) => disponibili(me).map((c) => c[0]).filter((k) => ['eventi', 'news'].includes(k) || (k === 'valutazioni' && !org(me)));
+  const predefiniti = (me) => disponibili(me).map((c) => c[0]).filter((k) => ['eventi', 'news'].includes(k) || ((k === 'valutazioni' || k === 'storico') && !org(me)));
   const scelti = (me) => { const w = me?.preferenze?.widget; const ok = disponibili(me).map((c) => c[0]); return (Array.isArray(w) ? w : predefiniti(me)).filter((k) => ok.includes(k)); };
   const stile = document.createElement('style');
   stile.textContent = `.widgets{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin:0 0 10px}
@@ -61,6 +62,10 @@
     async gara_attiva(box, c) {
       const e = c.eventi.find((x) => x.attivo && (!c.mondo || TIPI[c.mondo].includes(x.tipo))) || c.eventi.find((x) => x.attivo);
       box.innerHTML = `<h4>${c.mondo === 'formazione' ? 'Evento attivo' : 'Gara attiva'}</h4>${e ? riga(e).replace(/^<div class="r">|<\/div>$/g, '') : '<small>Nessun evento attivo.</small>'}`;
+    },
+    async storico(box) {
+      let r = []; try { r = (await api('/me/storico')).righe; } catch { /* nessuno storico */ }
+      box.innerHTML = `<h4>I miei esiti</h4>${r.length ? r.slice(-3).reverse().map((x) => `<div class="r"><b>${esc(x.scheda)}</b> · ${x.punti}/${x.massimo} (${x.perc}%)<small>${esc(x.evento)}${x.giudizio ? ' · ' + esc(x.giudizio) : ''}</small></div>`).join('') + '<a class="vl" href="/#storico">Tutto lo storico</a>' : '<small>Quando un docente pubblica gli esiti dei tuoi Mega Code li trovi qui.</small>'}`;
     },
     async valutazioni(box, c) {
       const e = c.eventi.find((x) => x.attivo && (!c.mondo || TIPI[c.mondo].includes(x.tipo))) || c.eventi.find((x) => x.attivo);

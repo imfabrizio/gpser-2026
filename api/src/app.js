@@ -159,7 +159,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   });
 
   // widget della Home e contatti preferiti: ognuno li sceglie per sé
-  const WIDGET_NOTI = ['gara_attiva', 'valutazioni', 'eventi', 'calendario', 'news', 'notifiche', 'contatti', 'approvare'];
+  const WIDGET_NOTI = ['gara_attiva', 'valutazioni', 'eventi', 'calendario', 'news', 'notifiche', 'contatti', 'approvare', 'storico'];
   app.put('/api/me/preferenze', async (req) => {
     const b = req.body || {}, pref = {};
     if (b.widget !== undefined) {
@@ -561,15 +561,10 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     return s;
   });
   // esito di una scheda per una squadra/candidato (esami, corsi, allenamenti): punti, percentuale, soglia, PDF
-  app.get('/api/schede/:id/esito.pdf', async (req, reply) => {
-    const { rows: [s] } = await pool.query('select * from scena_scheda where id=$1', [req.params.id]);
-    if (!s) throw httpErr(404, 'scheda inesistente');
-    await accessoScheda(req.utente, s.id);
-    const sq = req.query.squadra;
-    if (!/^[0-9a-f-]{36}$/i.test(sq || '')) throw httpErr(400, 'squadra non valida');
-    const { rows: [e] } = await pool.query(`select e.nome, e.luogo, e.tipo, e.soglia_pct, e.mostra_punteggi, to_char(e.data,'YYYY-MM-DD') as data, sc.codice as scena
+  const generaEsito = async (s, sq, { org }) => {
+    const { rows: [e] } = await pool.query(`select e.nome, e.luogo, e.tipo, e.soglia_pct, e.mostra_punteggi, e.esiti_pubblicati_at, to_char(e.data,'YYYY-MM-DD') as data, sc.codice as scena
       from scena sc join evento e on e.id = sc.evento_id where sc.id=$1`, [s.scena_id]);
-    if (!RUOLI_ORG.includes(req.utente.ruolo) && !e.mostra_punteggi) throw httpErr(403, 'esito non disponibile per questo evento');
+    if (!org && !e.mostra_punteggi && !e.esiti_pubblicati_at) throw httpErr(403, 'esito non disponibile per questo evento');
     const { rows: [q] } = await pool.query('select nome, comitato from squadra where id=$1 and evento_id=(select evento_id from scena where id=$2)', [sq, s.scena_id]);
     if (!q) throw httpErr(404, 'squadra inesistente');
     const { rows: [c] } = await pool.query('select id, giudice, stato, completata_at from compilazione where scheda_id=$1 and squadra_id=$2', [s.id, sq]);
@@ -596,6 +591,65 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       b.giudizio = valutaEsito({ punti: b.punti, massimo: b.massimo, fasce: fasceAuto(b.voci.length), soglia: null }).giudizio;
     }
     const pdf = await generaEsitoPdf({ evento: e, scheda: s.titolo, candidato: q, equipaggio, blocchi, giudice: c?.giudice, voci, punti, massimo, soglia: e.soglia_pct ? Number(e.soglia_pct) : null, fasce: s.fasce ?? (SKILL_AUTO.includes(e.tipo) && voci.length ? fasceAuto(voci.length) : null) });
+    return pdf;
+  };
+  app.get('/api/schede/:id/esito.pdf', async (req, reply) => {
+    const { rows: [s] } = await pool.query('select * from scena_scheda where id=$1', [req.params.id]);
+    if (!s) throw httpErr(404, 'scheda inesistente');
+    await accessoScheda(req.utente, s.id);
+    const sq = req.query.squadra;
+    if (!/^[0-9a-f-]{36}$/i.test(sq || '')) throw httpErr(400, 'squadra non valida');
+    const pdf = await generaEsito(s, sq, { org: RUOLI_ORG.includes(req.utente.ruolo) });
+    return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="esito.pdf"').send(pdf);
+  });
+
+  // ── storico delle valutazioni ──
+  // elenco compilazioni di un evento/corso con punteggio: base comune al riepilogo del docente e allo storico del discente
+  const righeStorico = async (cond, par) => (await pool.query(
+    `select c.id as compilazione_id, c.stato, to_char(c.completata_at,'YYYY-MM-DD') as data_valutazione, c.giudice,
+            ev.id as evento_id, ev.nome as evento, ev.tipo, to_char(ev.data,'YYYY-MM-DD') as data_evento, ev.esiti_pubblicati_at is not null as pubblicato,
+            sq.id as squadra_id, sq.numero, sq.nome as squadra, sc.codice as scena, s.id as scheda_id, s.titolo as scheda, s.fasce,
+            coalesce(sum(case r.livello when 'MB' then v.mb when 'BE' then v.be when 'SU' then v.su when 'IN' then v."in" when 'NE' then v.ne end),0)::int as punti,
+            coalesce(sum(greatest(v.mb, v.be, v.su, v."in", v.ne)),0)::int as massimo, count(v.id)::int as n_voci, count(r.livello)::int as n_compilate
+       from compilazione c join scena_scheda s on s.id = c.scheda_id join scena sc on sc.id = s.scena_id join evento ev on ev.id = sc.evento_id
+       join squadra sq on sq.id = c.squadra_id
+       join scena_scheda_voce v on v.scheda_id = s.id left join risposta r on r.voce_id = v.id and r.compilazione_id = c.id
+      where ${cond} group by c.id, ev.id, sq.id, sc.codice, s.id order by ev.data nulls last, ev.nome, sq.numero, sc.codice`, par)).rows.map((x) => {
+    const g = valutaEsito({ punti: x.punti, massimo: x.massimo, fasce: x.fasce ?? (x.n_voci ? fasceAuto(x.n_voci) : null), soglia: null });
+    const { fasce, ...resto } = x; return { ...resto, perc: Math.round(g.perc * 10) / 10, giudizio: g.giudizio };
+  });
+  // riepilogo per il docente: tutte le valutazioni di un corso (o di un Mega Code) con equipaggio e punteggio
+  app.get('/api/eventi/:id/storico', { preHandler: soloOrg }, async (req) => {
+    const id = req.params.id;
+    const { rows: [e] } = await pool.query('select id, nome, esiti_pubblicati_at from evento where id=$1', [id]); if (!e) throw httpErr(404, 'evento inesistente');
+    const righe = await righeStorico(`ev.tipo in ('megacode','esame') and not ev.archiviato and (ev.id = $1 or ev.corso_id = $1)`, [id]);
+    const { rows: eventi } = await pool.query(`select id, nome, tipo, esiti_pubblicati_at is not null as pubblicato from evento where tipo in ('megacode','esame') and not archiviato and (id=$1 or corso_id=$1) order by data nulls last, nome`, [id]);
+    const { rows: membri } = await pool.query(`select m.squadra_id, p.cognome || ' ' || p.nome as nome, m.ruolo from squadra_membro m join partecipante p on p.id = m.partecipante_id where m.squadra_id = any($1::uuid[]) order by p.cognome, p.nome`, [[...new Set(righe.map((r) => r.squadra_id))]]);
+    return { evento: e.nome, eventi, righe: righe.map((r) => ({ ...r, equipaggio: membri.filter((m) => m.squadra_id === r.squadra_id) })) };
+  });
+  // pubblica o ritira gli esiti: finché non sono pubblicati il discente non vede nulla
+  app.post('/api/eventi/:id/esiti-pubblicati', { preHandler: soloOrg }, async (req) => {
+    const pub = !!(req.body || {}).pubblica;
+    const { rows: [e] } = await pool.query(`update evento set esiti_pubblicati_at = case when $2 then coalesce(esiti_pubblicati_at, now()) else null end where id=$1 and tipo in ('megacode','esame') returning id, esiti_pubblicati_at is not null as pubblicato`, [req.params.id, pub]);
+    if (!e) throw httpErr(404, 'solo Mega Code ed esami hanno esiti da pubblicare');
+    return e;
+  });
+  // storico del discente: solo le valutazioni completate degli eventi pubblicati in cui era in equipaggio
+  const mieSquadre = `sq.id in (select m.squadra_id from squadra_membro m join partecipante p on p.id = m.partecipante_id where p.utente_id = $1)`;
+  app.get('/api/me/storico', async (req) => {
+    const righe = await righeStorico(`${mieSquadre} and ev.esiti_pubblicati_at is not null and c.stato in ('completata','verificata')`, [req.utente.id]);
+    const { rows: ruoli } = await pool.query(`select m.squadra_id, m.ruolo from squadra_membro m join partecipante p on p.id = m.partecipante_id where p.utente_id = $1`, [req.utente.id]);
+    return { righe: righe.map((r) => ({ ...r, ruolo: ruoli.find((x) => x.squadra_id === r.squadra_id)?.ruolo ?? null })) };
+  });
+  app.get('/api/me/storico/:scheda/esito.pdf', async (req, reply) => {
+    const { rows: [s] } = await pool.query('select * from scena_scheda where id=$1', [req.params.scheda]);
+    const sq = req.query.squadra;
+    if (!s || !/^[0-9a-f-]{36}$/i.test(sq || '')) throw httpErr(404, 'valutazione inesistente');
+    const { rowCount } = await pool.query(
+      `select 1 from compilazione c join scena_scheda s on s.id = c.scheda_id join scena sc on sc.id = s.scena_id join evento ev on ev.id = sc.evento_id join squadra sq on sq.id = c.squadra_id
+        where c.scheda_id = $2 and c.squadra_id = $3 and c.stato in ('completata','verificata') and ev.esiti_pubblicati_at is not null and ${mieSquadre}`, [req.utente.id, s.id, sq]);
+    if (!rowCount) throw httpErr(404, 'valutazione non disponibile');
+    const pdf = await generaEsito(s, sq, { org: false });
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="esito.pdf"').send(pdf);
   });
   // override per scena: solo i campi presenti nel corpo vengono cambiati (null = livello non consentito)

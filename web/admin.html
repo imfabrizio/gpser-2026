@@ -162,17 +162,17 @@ window.chiudi = chiudi;
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
 const TABS = [['menu', 'Portale'], ['valutazione', 'Valutazione'], ['hub', 'Menu'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['discenti', 'Discenti'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
-  ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['statistiche', 'Statistiche corso'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
-const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', segreteria: 'segreteria', valutazione: 'valutazione', evento: 'gara', discenti: ['esami', 'gara'], scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: ['stampa', 'esami'], statistiche: ['esami', 'classifiche'], importa: 'importa' };
+  ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['statistiche', 'Statistiche corso'], ['storico', 'Esiti e storico'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
+const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', segreteria: 'segreteria', valutazione: 'valutazione', evento: 'gara', discenti: ['esami', 'gara'], scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: ['stampa', 'esami'], statistiche: ['esami', 'classifiche'], storico: ['esami', 'classifiche'], importa: 'importa' };
 const DESC = { valutazione: 'Inizia a valutare: scegli scena, scheda e squadra', discenti: 'Chi frequenta il corso: con loro si compongono gli equipaggi dei Mega Code', corsi: 'Corsi, Mega Code ed esami', evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', squadre: 'Squadre, comitato e componenti',
   segreteria: 'Registra gli arrivi e stampa i badge', persone: 'Persone e requisiti', comitati: 'Elenco dei comitati, unità territoriali e nomi da correggere', importa: 'Carica le scene dai vecchi file Excel', libreria: 'Crea e modifica le schede, anche dei comitati', punteggi: 'Valore di MB, BE, SU, IN, NE per ogni scala',
   classifiche: 'Generale, SEP, BLSD, Master, DIU', monitor: 'Avanzamento delle schede', stampa: 'Schede vuote o compilate, per scena o squadra', news: 'Avvisi per i partecipanti e notizie pubbliche', documenti: 'Regolamento, comunicazioni e manuali',
   richieste: 'Chi ha chiesto l\'accesso: approva e assegna il ruolo', ruoli: 'Crea ruoli e scegli a quali aree possono accedere', utenti: 'Accessi, ruoli e gara assegnata' };
 // tre mondi separati: si sceglie all'ingresso e dentro si vede solo ciò che li riguarda (il motore è lo stesso)
 const GRUPPI = [['gara', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede, squadre e classifiche', 'evento', ['valutazione', 'evento', 'scene', 'risorse', 'squadre', 'segreteria', 'libreria', 'punteggi', 'classifiche', 'monitor', 'stampa', 'importa', 'news', 'documenti']],
-  ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['valutazione', 'corsi', 'evento', 'discenti', 'scene', 'libreria', 'risorse', 'squadre', 'stampa', 'statistiche', 'news']],
+  ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['valutazione', 'corsi', 'evento', 'discenti', 'scene', 'libreria', 'risorse', 'squadre', 'stampa', 'statistiche', 'storico', 'news']],
   ['comune', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli', 'persone', ['persone', 'comitati', 'richieste', 'ruoli', 'utenti']]];
-const DESC_CORSI = { stampa: 'Stampa di tutti i Mega Code del corso, vuoti o compilati con le X', statistiche: 'Dove i discenti sbagliano di più: voci e skill', evento: 'Periodo, luogo e dati del corso', risorse: 'Valutatori e simulatori delle scene dei Mega Code' };
+const DESC_CORSI = { stampa: 'Stampa di tutti i Mega Code del corso, vuoti o compilati con le X', statistiche: 'Dove i discenti sbagliano di più: voci e skill', storico: 'Esiti di ogni equipaggio; pubblicali ai discenti quando hai chiuso', evento: 'Periodo, luogo e dati del corso', risorse: 'Valutatori e simulatori delle scene dei Mega Code' };
 const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli'];
 const admin = () => me.ruolo === 'admin';
 const consentito = (k) => k === 'menu' || k === 'hub' || (SOLO_ADMIN.includes(k) ? admin() : admin() || [].concat(AREA_TAB[k]).some((a) => (me.aree || []).includes(a)));
@@ -499,6 +499,29 @@ async function tStatistiche() {
     <div class="card"><h3>Dove si sbaglia di più</h3>${d.voci.length ? `<table><tr><th>Voce</th><th>Scheda / skill</th><th style="text-align:right">Non eseguito</th><th style="text-align:right">Sufficiente</th><th style="text-align:right">Valutate</th></tr>
       ${d.voci.map((v) => `<tr><td>${esc(v.testo)}</td><td><small>${v.skill ? (/^skill/i.test(v.skill) ? '' : 'Skill · ') + esc(v.skill) : esc(v.scheda)}</small></td><td style="text-align:right"><b>${v.ne}</b> <small>(${v.perc_ne}%)</small></td><td style="text-align:right">${v.su} <small>(${v.perc_su}%)</small></td><td style="text-align:right">${v.tot}</td></tr>`).join('')}</table>` : '<p class="nota">Nessuna voce con errori nelle valutazioni compilate finora.</p>'}</div>`;
   legaSelettore();
+}
+
+// ───────── ESITI E STORICO ─────────
+async function tStorico() {
+  if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Scegli prima un corso.</div>'; return; }
+  const idc = ev.tipo === 'corso' ? ev.id : (ev.corso_id || ev.id);
+  const d = await api(`/eventi/${idc}/storico`), corso = eventi.find((x) => x.id === idc);
+  const pdf = async (sch, sq) => { const w = window.open('', '_blank');
+    try { const r = await fetch(`/api/schede/${sch}/esito.pdf?squadra=${sq}`, { headers: { Authorization: 'Bearer ' + token } });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).errore || r.statusText); w.location = URL.createObjectURL(await r.blob());
+    } catch (e) { w.close(); flash(e.message, false); } };
+  const blocchi = d.eventi.map((x) => {
+    const righe = d.righe.filter((r) => r.evento_id === x.id);
+    return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">${esc(x.nome)}</h3>
+      <span>${x.pubblicato ? `<span class="tag ok">Visibile ai discenti</span> <button class="s" data-pub="${x.id}" data-val="0">Ritira</button>` : `<span class="tag">Non ancora pubblicato</span> <button class="b" data-pub="${x.id}" data-val="1">Pubblica ai discenti</button>`}</span></div>
+      ${righe.length ? `<table><tr><th>Equipaggio</th><th>Scena</th><th>Scheda</th><th style="text-align:right">Punti</th><th style="text-align:right">%</th><th>Giudizio</th><th></th></tr>
+      ${righe.map((r) => `<tr><td><b>${r.numero} · ${esc(r.squadra)}</b><br><small>${r.equipaggio.map((m) => esc(m.nome) + (m.ruolo ? ' (' + esc(m.ruolo) + ')' : '')).join(', ')}</small></td><td>${esc(r.scena)}</td><td>${esc(r.scheda)}${r.stato === 'bozza' ? ' <small>(in corso)</small>' : ''}</td><td style="text-align:right">${r.punti} / ${r.massimo}</td><td style="text-align:right">${r.perc}%</td><td>${esc(r.giudizio || '')}</td><td><button class="s" data-pdf="${r.scheda_id}|${r.squadra_id}">PDF</button></td></tr>`).join('')}</table>` : '<p class="nota">Nessuna valutazione compilata.</p>'}</div>`;
+  }).join('');
+  $('#app').innerHTML = selettoreEvento() + `<div class="card"><h3>Esiti · ${esc(corso ? corso.nome : d.evento)}</h3>
+    <p class="nota">Riepilogo di ogni equipaggio, scena per scena. Finché non pubblichi, i discenti non vedono nulla; dopo la pubblicazione ognuno ritrova i propri esiti nel suo storico. Puoi ritirare la pubblicazione quando vuoi.</p></div>${blocchi || '<div class="card">Il corso non ha ancora Mega Code.</div>'}`;
+  legaSelettore();
+  document.querySelectorAll('[data-pdf]').forEach((b) => b.onclick = () => pdf(...b.dataset.pdf.split('|')));
+  document.querySelectorAll('[data-pub]').forEach((b) => b.onclick = async () => { try { await api(`/eventi/${b.dataset.pub}/esiti-pubblicati`, { method: 'POST', body: { pubblica: b.dataset.val === '1' } }); flash(b.dataset.val === '1' ? 'Esiti pubblicati ai discenti' : 'Pubblicazione ritirata'); tStorico(); } catch (e) { flash(e.message, false); } });
 }
 
 // ───────── STAMPA ─────────
@@ -1517,7 +1540,7 @@ async function aggiornaRail0() {
 async function render() {
   if (!consentito(tab)) tab = 'menu';
   try {
-    if (tab === 'menu') tMenu(); else if (tab === 'hub') tHub(); else if (tab === 'corsi') await tCorsi(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'statistiche') await tStatistiche(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'discenti') await tDiscenti(); else if (tab === 'scene') await tScene();
+    if (tab === 'menu') tMenu(); else if (tab === 'hub') tHub(); else if (tab === 'corsi') await tCorsi(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'statistiche') await tStatistiche(); else if (tab === 'storico') await tStorico(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'discenti') await tDiscenti(); else if (tab === 'scene') await tScene();
     else if (tab === 'persone') await tPersone(); else if (tab === 'comitati') await tComitati(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   const mo = mondoCorrente(), molti = mondiVisibili().length > 1;

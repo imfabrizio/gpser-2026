@@ -437,7 +437,17 @@ async function vistaSelezione() {
     for (const id of ['sc', 'sk']) { const e = $('#' + id); e.hidden = true; if (e.previousElementSibling && e.previousElementSibling.tagName === 'LABEL') e.previousElementSibling.hidden = true; }
   }
   $('#sc').onchange = () => { aggSchede(); salvaSel(); }; $('#sk').onchange = salvaSel; $('#sq').onchange = salvaSel;
-  $('#avvia').onclick = () => { salvaSel(); location.hash = `#valuta/${$('#sk').value}/${$('#sq').value}/${ev.id}`; };
+  $('#avvia').onclick = async () => {
+    salvaSel(); const vai = () => { location.hash = `#valuta/${$('#sk').value}/${$('#sq').value}/${ev.id}`; };
+    let c = null; try { c = (await api(`/compilazioni?scheda=${$('#sk').value}&squadra=${$('#sq').value}`)).compilazione; } catch { /* offline: si prosegue */ }
+    if (!c || !['completata', 'verificata'].includes(c.stato)) return vai();
+    const puoModificare = org() || master();
+    $('#gia')?.remove();
+    $('#avvia').closest('.card').insertAdjacentHTML('beforeend', `<div class="avviso" id="gia"><strong>Già valutato</strong><br><small>${esc($('#sk').selectedOptions[0]?.textContent || '')} · squadra ${esc($('#sq').selectedOptions[0]?.textContent || '')}${c.giudice ? ' · da ' + esc(c.giudice) : ''}${c.completata_at ? ' · ' + new Date(c.completata_at).toLocaleDateString('it-IT') : ''}</small><br>
+      <button class="btn" id="gia_c" type="button">Consulta</button> ${puoModificare ? '<button class="btn sec" id="gia_m" type="button">Modifica</button>' : '<small>Solo il giudice master o l\'organizzazione possono modificarla.</small>'}</div>`);
+    $('#gia_c').onclick = vai;
+    if ($('#gia_m')) $('#gia_m').onclick = async () => { try { await api(`/compilazioni/${c.id}/riapri`, { body: {} }); vai(); } catch (e) { alert(e.message); } };
+  };
   if (ev.modalita === 'online') selezioneOnline(ev, scAvail, squadre.filter((x) => x.attiva));
 }
 
@@ -669,6 +679,22 @@ async function vistaValuta(schedaId, squadraId) {
   invia().catch(() => {});                                             // eventuali dati rimasti da una sessione precedente
 }
 
+// storico personale: gli esiti dei Mega Code a cui ho partecipato, visibili dopo la pubblicazione del docente
+async function vistaStorico() {
+  $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'I miei esiti';
+  const { righe } = await api('/me/storico');
+  const per = {}; for (const r of righe) (per[r.evento_id] ||= { nome: r.evento, data: r.data_evento, r: [] }).r.push(r);
+  const tot = righe.length ? Math.round(10 * righe.reduce((a, r) => a + r.perc, 0) / righe.length) / 10 : 0;
+  $('#app').innerHTML = righe.length ? `<div class="card"><b>${righe.length}</b> valutazioni · media <b>${tot}%</b></div>` + Object.values(per).map((g) => `<div class="card"><h3>${esc(g.nome)}</h3><small>${esc(g.data || '')}</small>
+      ${g.r.map((r) => `<div class="r" style="display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid #eee;padding:8px 0">
+        <div><b>${esc(r.scheda)}</b><br><small>Scena ${esc(r.scena)} · equipaggio ${esc(r.squadra)}${r.ruolo ? ' · ' + esc(r.ruolo) : ''}</small></div>
+        <div style="text-align:right"><b>${r.punti}/${r.massimo}</b> · ${r.perc}%<br><small>${esc(r.giudizio || '')}</small></div>
+        <button class="btn sec" data-pdf="${r.scheda_id}|${r.squadra_id}">PDF</button></div>`).join('')}</div>`).join('')
+    : '<div class="card">Non ci sono ancora esiti pubblicati. Compaiono qui quando il docente chiude e pubblica il Mega Code.</div>';
+  document.querySelectorAll('[data-pdf]').forEach((b) => b.onclick = async () => { const [s, q] = b.dataset.pdf.split('|'); const w = window.open('', '_blank');
+    try { const r = await fetch(`/api/me/storico/${s}/esito.pdf?squadra=${q}`, { headers: { Authorization: 'Bearer ' + token } }); if (!r.ok) throw new Error('PDF non disponibile'); w.location = URL.createObjectURL(await r.blob()); } catch (e) { w.close(); alert(e.message); } });
+}
+
 async function vistaDocumenti() {
   $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'Documentazione';
   const d = await api('/documenti');
@@ -733,6 +759,7 @@ async function route() {
     if (v === 'classifica') { location.href = '/admin.html#classifiche'; return; }
     if (v === 'monitor') return await vistaMonitor();
     if (v === 'documenti') return await vistaDocumenti();
+    if (v === 'storico') return await vistaStorico();
     return await vistaHome();
   } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }

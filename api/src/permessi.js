@@ -27,7 +27,7 @@ const REGOLE = [
   R('GET', '/api/libreria/(scale|voci|patologie(/:id)?)', ['schede', 'scene', 'formazione_esame']), R('POST', '/api/libreria/scale', ['schede']), R('POST', '/api/libreria/patologie', ['schede', 'formazione_esame']),
   R('GET', '/api/ai/stato', ['schede', 'formazione_esame']), R('POST', '/api/libreria/genera', ['schede', 'formazione_esame']), R('POST', '/api/libreria/patologie/:id/pubblica', ['schede', 'formazione_esame']),
   R('PUT|DELETE', '/api/libreria/patologie/:id', ['schede', 'formazione_esame']),
-  R('GET', '/api/eventi/:id/(classifica|classifica.pdf|monitor|avanzamento)', ['classifiche']), R('GET', '/api/eventi/:id/stampa.pdf', ['stampa', 'esami']), R('GET', '/api/eventi/:id/statistiche', ['esami', 'classifiche']),
+  R('GET', '/api/eventi/:id/(classifica|classifica.pdf|monitor|avanzamento)', ['classifiche']), R('GET', '/api/eventi/:id/stampa.pdf', ['stampa', 'esami']), R('GET', '/api/eventi/:id/storico', ['esami', 'classifiche']), R('POST', '/api/eventi/:id/esiti-pubblicati', ['esami']), R('GET', '/api/eventi/:id/statistiche', ['esami', 'classifiche']),
   R('POST', '/api/sync', ['valutazione']), R('GET', '/api/compilazioni', ['valutazione']), R('GET', '/api/schede/:id/esito.pdf', ['valutazione']), R('GET', '/api/schede/:id', ['valutazione', 'scene']),
   R('POST|PATCH|DELETE', '/api/documenti(/:id)?', ['documentazione']),
   R('GET|POST|PATCH|PUT|DELETE', '/api/esami/.*', ['esami']), R('GET|POST|PATCH|PUT|DELETE', '/api/esami', ['esami']),

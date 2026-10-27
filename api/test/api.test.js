@@ -1922,6 +1922,36 @@ test('STAT-1 statistiche del corso, stampa unica dei Mega Code, esito con riepil
   const r = await chiama('GET', `/api/schede/${k.id}/esito.pdf?squadra=${sq.id}`, { token: O }); assert.equal(r.statusCode, 200, r.body);
 });
 
+test('STO-1 storico: il discente vede gli esiti solo dopo la pubblicazione del docente', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  const { rows: [mc] } = await pool.query(`select id from patologia where codice='mc-scenario-2-scoop'`);
+  const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'sto1@t.it', nome: 'Stefano Storico', ruolo: 'partecipante', password: 'password-lunga' } }));
+  const pe = json(await chiama('GET', '/api/persone?q=Storico', { token: O })).find((x) => x.utente_id === u.id);
+  const T = json(await chiama('POST', '/api/login', { body: { email: 'sto1@t.it', password: 'password-lunga' } })).token;
+  const corso = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'STO-C', nome: 'Corso storico', tipo: 'corso' } }));
+  await chiama('POST', `/api/eventi/${corso.id}/discenti`, { token: O, body: { partecipante_id: pe.id } });
+  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'STO-M', nome: 'MC storico', tipo: 'megacode', corso_id: corso.id } }));
+  const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'S1', titolo: 'Scena', ordine: 1 } }));
+  const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: mc.id, slot: 1, simulatore: '01' } }));
+  const sq = json(await chiama('POST', `/api/eventi/${e.id}/squadre`, { token: O, body: { nome: 'Eq Storico' } }));
+  assert.equal((await chiama('PUT', `/api/squadre/${sq.id}/membri`, { token: O, body: { membri: [{ partecipante_id: pe.id, ruolo: 'team leader' }] } })).statusCode, 200);
+  const sch = json(await chiama('GET', `/api/schede/${k.id}`, { token: O }));
+  await chiama('POST', '/api/sync', { token: O, body: { id: '33333333-4444-4555-8666-777777777777', scheda_id: k.id, squadra_id: sq.id, stato: 'completata', risposte: sch.voci.filter((v) => !v.blocco_id).slice(0, 2).map((v) => ({ voce_id: v.id, livello: 'MB' })) } });
+  assert.equal(json(await chiama('GET', '/api/me/storico', { token: T })).righe.length, 0, 'non pubblicato: nulla');
+  assert.equal((await chiama('GET', `/api/me/storico/${k.id}/esito.pdf?squadra=${sq.id}`, { token: T })).statusCode, 404);
+  const rec = json(await chiama('GET', `/api/eventi/${corso.id}/storico`, { token: O }));
+  assert.equal(rec.righe.length, 1); assert.equal(rec.righe[0].equipaggio.length, 1);
+  assert.equal((await chiama('GET', `/api/eventi/${corso.id}/storico`, { token: T })).statusCode, 403);
+  assert.equal((await chiama('POST', `/api/eventi/${e.id}/esiti-pubblicati`, { token: T, body: { pubblica: true } })).statusCode, 403);
+  assert.equal(json(await chiama('POST', `/api/eventi/${e.id}/esiti-pubblicati`, { token: O, body: { pubblica: true } })).pubblicato, true);
+  const m = json(await chiama('GET', '/api/me/storico', { token: T }));
+  assert.equal(m.righe.length, 1); assert.equal(m.righe[0].ruolo, 'team leader'); assert.ok(m.righe[0].massimo > 0 && m.righe[0].punti > 0);
+  assert.equal((await chiama('GET', `/api/me/storico/${k.id}/esito.pdf?squadra=${sq.id}`, { token: T })).statusCode, 200);
+  assert.equal(json(await chiama('GET', '/api/me/storico', { token: tok['giu@t'] })).righe.length, 0, 'solo il proprio storico');
+  await chiama('POST', `/api/eventi/${e.id}/esiti-pubblicati`, { token: O, body: { pubblica: false } });
+  assert.equal(json(await chiama('GET', '/api/me/storico', { token: T })).righe.length, 0, 'ritirato');
+});
+
 test('QUA-1 la qualifica di formazione porta il ruolo omonimo; discente TSSA solo etichetta', async () => {
   const O = tok['org@t'], A = tok['adm@t'];
   const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'qua1@t.it', nome: 'Quinto Qualifica', ruolo: 'giudice', password: 'password-lunga' } }));
