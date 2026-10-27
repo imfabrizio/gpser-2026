@@ -15,6 +15,9 @@ import { confronta, revisioni, proposteRaggruppamento, raggruppa, salvaRevisione
 import { proponi, approva, rifiuta, tutteLeRegioni, impostaCondivisione } from './services/promozioni.js';
 import { importaCanovaccio } from './services/canovaccio.js';
 import { creaCanovaccio } from './pdf/canovaccio.js';
+import fs from 'node:fs';
+import { creaScenario } from './pdf/scenario.js';
+import { normalizzaDati, validaIntestazione } from './services/canovaccio-nuovo.js';
 import { aggiungiSchedaDaPatologia, CODICE_SCENA, creaScena, duplicaScena, aggiornaElencoPazienti } from './services/scene.js';
 import { importaExcel } from './services/import-excel.js';
 import { èAllInOne, importaAllInOne, importaValutazioniAllInOne } from './services/import-allinone.js';
@@ -409,7 +412,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   // collega ai canovacci le scene dell'evento che non ne hanno uno: stessa lettera, versione Gara oppure Olimpiadi in base al tipo di evento
   app.post('/api/eventi/:id/collega-canovacci', { preHandler: soloOrg }, async (req) => {
     const { rows: [e] } = await pool.query('select tipo, codice from evento where id=$1', [req.params.id]); if (!e) throw httpErr(404, 'evento inesistente');
-    const ver = e.tipo === 'olimpiadi' ? 'olimpiadi' : 'gara';
+    const ver = e.tipo === 'olimpiadi' ? 'olimpiadi' : e.tipo === 'megacode' ? 'megacode' : 'gara';
     // stessa lettera e stesso codice gara; in mancanza, i canovacci ancora senza codice
     const r = await pool.query(`update scena s set canovaccio_id = x.cid from (
         select distinct on (s2.id) s2.id as sid, c.id as cid from scena s2 join canovaccio c on c.codice = s2.codice and c.versione = $2 and (c.gara_codice = $3 or c.gara_codice is null)
@@ -439,8 +442,37 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/canovacci/:id/canovaccio.pdf', { preHandler: soloOrg }, async (req, reply) => {
     const { rows: [c] } = await pool.query('select * from canovaccio where id=$1', [req.params.id]);
     if (!c) throw httpErr(404, 'canovaccio inesistente');
-    const doc = creaCanovaccio(c); const chunks = []; doc.on('data', (x) => chunks.push(x)); const fine = new Promise((r) => doc.on('end', r)); doc.end(); await fine;
+    const doc = (c.versione === 'megacode' ? creaScenario : creaCanovaccio)(c); const chunks = []; doc.on('data', (x) => chunks.push(x)); const fine = new Promise((r) => doc.on('end', r)); doc.end(); await fine;
     return reply.type('application/pdf').header('Content-Disposition', `inline; filename="canovaccio-${c.codice}-${c.versione}.pdf"`).send(Buffer.concat(chunks));
+  });
+  // nuovo canovaccio da modulo (Gara, Olimpiadi o scenario di Mega Code) e modifica del suo contenuto
+  const salvaCanovaccio = async (id, versione, b) => {
+    const h = validaIntestazione(b, versione), dati = normalizzaDati(versione, b.dati);
+    try {
+      if (id) {
+        const { rows: [vecchio] } = await pool.query('select dati from canovaccio where id=$1', [id]); if (!vecchio) throw httpErr(404, 'canovaccio inesistente');
+        if (versione !== 'megacode') { dati.pazienti = vecchio.dati?.pazienti ?? []; dati.triage = vecchio.dati?.triage ?? []; }
+        const r = await pool.query('update canovaccio set codice=$2, titolo=$3, tempo_min=$4, gara_codice=$5, dati=$6, updated_at=now() where id=$1 returning id', [id, h.codice, h.titolo, h.tempo, h.gara, dati]);
+        return { id: r.rows[0].id };
+      }
+      const r = await pool.query('insert into canovaccio (codice, versione, titolo, tempo_min, dati, fabbisogno, gara_codice) values ($1,$2,$3,$4,$5,$6,$7) returning id', [h.codice, versione, h.titolo, h.tempo, dati, {}, h.gara]);
+      return { id: r.rows[0].id };
+    } catch (e) { if (e.code === '23505') throw httpErr(409, 'esiste già un canovaccio con questa lettera, questo tipo e questo codice evento'); throw e; }
+  };
+  // i quattro scenari di esempio (Spinale, Scoop e casco, XT, Sospetto ictus): bozza modificabile per iniziare un Mega Code
+  app.post('/api/canovacci/esempi-megacode', { preHandler: soloOrg }, async () => {
+    const esempi = JSON.parse(fs.readFileSync(new URL('./dati/megacode-esempio.json', import.meta.url), 'utf8')); let creati = 0;
+    for (const e of esempi) {
+      const r = await pool.query(`insert into canovaccio (codice, versione, titolo, tempo_min, dati, fabbisogno, gara_codice) values ($1,'megacode',$2,$3,$4,'{}','MC-ESEMPIO') on conflict ((coalesce(gara_codice, '')), codice, versione) do nothing`,
+        [e.codice, e.titolo, e.tempo_min ?? null, normalizzaDati('megacode', e.dati)]); creati += r.rowCount;
+    }
+    return { creati };
+  });
+  app.post('/api/canovacci', { preHandler: soloOrg }, async (req) => salvaCanovaccio(null, req.body?.versione, req.body || {}));
+  app.put('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => {
+    const { rows: [c] } = await pool.query('select versione from canovaccio where id=$1', [req.params.id]); if (!c) throw httpErr(404, 'canovaccio inesistente');
+    if (c.versione !== 'megacode') throw httpErr(400, 'i canovacci di gara e olimpiadi importati da file non si modificano da qui');
+    return salvaCanovaccio(req.params.id, c.versione, req.body || {});
   });
   // il codice della gara si scrive a mano oppure si ricava dalla gara in cui il canovaccio è già usato
   app.patch('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => {

@@ -1,0 +1,210 @@
+[
+ {
+  "codice": "S1",
+  "titolo": "Infortunio domestico in spazio angusto",
+  "tempo_min": null,
+  "dati": {
+   "dispatch": "KC01G. Uomo di 45 anni, caduto da una scala all'interno della propria abitazione. È cosciente ma lamenta forte dolore alla schiena e non riesce a muoversi. Visitato NO, Cosciente SÌ, Respira SÌ. Chiamata ricevuta dalla moglie. MSA non disponibile nell'immediato.",
+   "scena": "Ripostiglio/lavanderia molto stretto. Una scala pieghevole in alluminio è parzialmente abbattuta e incastrata contro una lavatrice. Il paziente giace immobile a terra in posizione prona. Spazio di manovra ridotto. Scena sicura ma fortemente limitata logisticamente.",
+   "racconto": "Stavo cambiando la lampadina del ripostiglio e sono salito in cima alla scala. Tutto ad un tratto la scala è volata via. Sono caduto ed ho battuto violentemente la schiena contro lo spigolo della lavatrice, poi sono finito a terra a pancia in giù. Ho provato a girarmi, ma ho molto dolore. Mi fanno malissimo la schiena ed il petto e sento le gambe completamente addormentate.",
+   "quick_look": [
+    "No emorragie massive",
+    "Cosciente",
+    "Respira",
+    "Accessibile in spazio estremamente angusto",
+    "Caduta da circa 1,5 metri con impatto della colonna contro spigolo (dinamica di trauma maggiore)"
+   ],
+   "abcde": {
+    "A": "Vie aeree pervie, cosciente e orientato, molto spaventato.",
+    "B": "Espansione toracica simmetrica, nessun rumore respiratorio. Lieve dolore alla respirazione profonda. FR 20 atti/min, saturazione 95% in aria ambiente.",
+    "C": "Polso radiale presente, ritmico, pieno. FC 90 bpm, PA 120/75 mmHg. Cute normale ma fredda. Temperatura 36,3 °C. Nessuna emorragia. Refill capillare 2 secondi.",
+    "D": "AVPU: A. Parestesia intensa e ridotta sensibilità bilaterale agli arti inferiori, totale incapacità di muovere i piedi.",
+    "E": "Dolore acuto alla palpazione della colonna dorso-lombare. Inizio di brivido/tremore fino a protezione termica."
+   },
+   "sample": {
+    "S": "Forte mal di schiena (dorso-lombare), parestesia e deficit motorio agli arti inferiori, dolore toracico.",
+    "A": "Nessuna allergia nota",
+    "M": "Nessun farmaco assunto regolarmente",
+    "P": "Nessuna patologia pregressa",
+    "L": "Pranzo leggero circa 3 ore prima",
+    "E": "Cedimento strutturale della scala domestica con caduta e impatto della colonna vertebrale"
+   },
+   "opqrst": "Dolore trafittivo al centro della schiena (8/10), non si irradia ma peggiora a ogni minimo movimento o respirazione profonda.",
+   "evoluzione": "Con la protezione termica (metallina) il brivido scompare. Il dolore si riduce parzialmente con l'immobilizzazione e la FC si stabilizza a 80 bpm con PA 120/75 mmHg.",
+   "destinazione": "MSA non disponibile all'intervento ma possibile rendez-vous. Trasporto in codice 2.",
+   "trucchi": [
+    "Lividi lungo la schiena"
+   ],
+   "comportamenti": [
+    "Spaventato e agitato",
+    "Dolore toracico alla respirazione profonda",
+    "Formicolio agli arti inferiori, non muove i piedi",
+    "Dolore alla palpazione della colonna",
+    "Tremolio fino alla protezione termica",
+    "Dolore alla schiena durante gli spostamenti"
+   ],
+   "presidi": [
+    "Collare cervicale",
+    "Spinale + kit per immobilizzazione",
+    "O2 + mascherina",
+    "Zaino con almeno prova parametri",
+    "Metallina"
+   ],
+   "note": "Serve un secondo simulatore per la moglie (può farlo il trainer). Ambiente: stretto, con una scala."
+  }
+ },
+ {
+  "codice": "S2",
+  "titolo": "Incidente in moto con crollo in abitazione",
+  "dati": {
+   "dispatch": "KC01G. Ragazza di 36 anni, crollata a terra all'interno della propria abitazione dopo essere rientrata da un incidente in moto. È cosciente, supina, indossa ancora il casco integrale. Lamenta lancinante dolore al collo con forte nausea. Visitato NO, Cosciente SÌ, Respira SÌ. Chiamata ricevuta dal convivente. MSA non disponibile.",
+   "scena": "Ampio salone al primo piano di un'abitazione. Al centro, sul pavimento in posizione supina, una ragazza con giacca tecnica da moto e casco integrale chiuso. Ambiente sicuro e privo di ostacoli: la squadra può girare liberamente attorno alla testa e ai lati della paziente.",
+   "racconto": "(Convivente) È entrata in casa meno di cinque minuti fa, era pallidissima e tremava. Mi ha detto che un'auto l'ha urtata alla rotonda qui sotto, è scivolata sull'asfalto ed è rotolata diverse volte; si è rialzata per la rabbia e lo shock ed è salita a piedi al primo piano. Appena entrata nel salone ha detto: «Ho sentito un crack dietro al collo, la testa mi pesa una tonnellata e mi gira tutto», poi è crollata a terra. Ho avuto paura a toglierle il casco. Dice che ha una nausea tremenda e le sembra di svenire.",
+   "quick_look": [
+    "No emorragie massive",
+    "Cosciente",
+    "Respira",
+    "Accessibile",
+    "Dinamica di trauma maggiore (impatto e rotolamento da incidente in moto) con ritardo dei sintomi per picco di adrenalina"
+   ],
+   "abcde": {
+    "A": "Vie aeree pervie, fortemente ansiosa e agitata.",
+    "B": "Espansione toracica simmetrica, nessun rumore respiratorio, nessun segno di trauma sul torace (protetto dalla giacca). FR 22 atti/min, saturazione 97% in aria ambiente.",
+    "C": "Polso radiale presente, ritmico, pieno. FC 105 bpm, PA 135/80 mmHg. Colorito pallido, cute calda. Temperatura 36,5 °C. Nessuna emorragia. Refill capillare 2 secondi.",
+    "D": "AVPU: A. Muove tutti e quattro gli arti, sensibilità periferica conservata.",
+    "E": "Forte dolore in corrispondenza delle vertebre cervicali. Nessuna lesione macroscopica visibile."
+   },
+   "sample": {
+    "S": "Dolore cervicale acuto, cefalea, nausea.",
+    "A": "Nessuna allergia nota",
+    "M": "Nessun farmaco, solo integratori salini",
+    "P": "Nessuna patologia pregressa",
+    "L": "Snack 1 ora fa",
+    "E": "Incidente in moto (scivolata ed eiezione) seguito da sforzo fisico (scale a piedi) in stato di shock"
+   },
+   "opqrst": "Dolore gravativo e opprimente alla base del collo (6/10), avvertito subito dopo il trauma ma acutizzatosi all'improvviso negli ultimi minuti; si irradia alla nuca e peggiora in modo intollerabile al minimo movimento del capo.",
+   "evoluzione": "Una volta immobilizzata sulla scoop e rassicurata, la FC scende a 88-90 bpm e il respiro si regolarizza; la paziente si tranquillizza.",
+   "destinazione": "MSA non disponibile. La Centrale Operativa dispone il rientro in codice 2 urgente con dispositivi attivi.",
+   "trucchi": [
+    "Colorito della pelle pallido"
+   ],
+   "comportamenti": [
+    "Ansia e agitazione",
+    "Pesantezza della testa con dolore alla base del collo",
+    "Mal di testa, nausea",
+    "Dinamica: scivolata in moto, eiettata a 3 metri, caduta battendo collo e schiena"
+   ],
+   "presidi": [
+    "Scoop + kit per immobilizzazione",
+    "Collare cervicale",
+    "O2 + mascherina",
+    "Zaino con almeno prova parametri",
+    "Metallina",
+    "Casco + cuffietta copri capo"
+   ],
+   "note": "Serve un secondo simulatore per il compagno della vittima (può farlo il trainer)."
+  }
+ },
+ {
+  "codice": "S3",
+  "titolo": "Auto contro albero (estricazione cautelativa)",
+  "dati": {
+   "dispatch": "SC01G. Uomo di 50 anni, alla guida, uscito di strada e impattato contro un albero. È ancora seduto al volante e lamenta dolore alla schiena. Visitato NO, Cosciente SÌ, Respira SÌ. Chiamata ricevuta da passanti sulla ciclopedonale. MSA disponibile ma non allertata.",
+   "scena": "Un'auto è finita frontalmente contro il tronco di un grosso albero a bordo carreggiata. La parte anteriore è pesantemente distrutta e rientrata verso l'abitacolo. I fari sono ancora accesi. All'interno, un uomo di 50 anni è seduto al posto di guida, cosciente ma parzialmente accasciato di lato.",
+   "racconto": "Mi è partita la vibrazione del telefono sul sedile passeggero, mi sono girato un secondo per prenderlo e guardare lo schermo e ho perso la traiettoria. Quando ho rialzato gli occhi l'albero era già davanti a me, non ho fatto in tempo nemmeno a toccare i freni. Ho sentito un botto tremendo. Adesso sento un dolore indescrivibile alla schiena, a metà della colonna, come se mi fossi spezzato in due, e una morsa fortissima al petto che non mi fa respirare bene.",
+   "quick_look": [
+    "No emorragie massive",
+    "Cosciente",
+    "Respira",
+    "Accessibile non incarcerato"
+   ],
+   "abcde": {
+    "A": "Vie aeree pervie, cosciente e orientato, molto spaventato.",
+    "B": "Espansione toracica simmetrica, uso dei muscoli del collo per respirare. Nessun rumore respiratorio, dolore alla palpazione, ematomi e segni da cintura di sicurezza sul torace. FR 26 atti/min, saturazione 90% in aria ambiente.",
+    "C": "Polso radiale presente, debole e veloce. FC 115 bpm, PA 100/60 mmHg. Cute pallida e sudata. Temperatura 36,2 °C. Nessuna emorragia visibile. Refill 4 secondi.",
+    "D": "AVPU: A. Orientato, ma totale ipoestesia e incapacità di muovere gli arti inferiori.",
+    "E": "Forte dolore alla palpazione lungo la colonna (zona dorsale) ed esteso ematoma lineare sul torace da cintura di sicurezza."
+   },
+   "sample": {
+    "S": "Dolore dorsale, dolore toracico, dispnea, paralisi/ipoestesia agli arti inferiori.",
+    "A": "Nessuna allergia nota",
+    "M": "Statine per l'ipercolesterolemia",
+    "P": "Ipercolesterolemia, per il resto sano",
+    "L": "Pranzo completo circa 2 ore prima",
+    "E": "Uscita autonoma di strada a circa 60 km/h per distrazione da telefono cellulare"
+   },
+   "opqrst": "Dolore a metà della schiena, insorto con l'impatto frontale, «come essersi spezzato in due» (7/10); non si irradia ma peggiora a ogni movimento, con una morsa oppressiva al petto.",
+   "evoluzione": "Con il paziente sulla spinale e l'ossigenoterapia avviata, la saturazione sale al 95%. Resta cosciente ma in stato di shock. Arrivano insieme la Polizia Locale (viabilità) e la MSA (stabilizzazione avanzata e analgesia prima del trasporto).",
+   "destinazione": "Trasporto in codice 2 con dispositivi.",
+   "trucchi": [
+    "Segni sul torace dati dalla cintura di sicurezza",
+    "Cute pallida e sudata"
+   ],
+   "comportamenti": [
+    "Spaventato e agitato",
+    "Uso dei muscoli accessori e frequenza respiratoria elevata",
+    "Dolore alla palpazione del torace sul segno della cintura",
+    "Perdita di sensibilità e incapacità di muovere gli arti inferiori",
+    "Dolore alla palpazione della zona dorsale"
+   ],
+   "presidi": [
+    "XT",
+    "Collare cervicale",
+    "Spinale",
+    "O2 + mascherina",
+    "Zaino con almeno prova parametri",
+    "Metallina"
+   ],
+   "note": "Scena: auto contro un muro o un albero, non accessibile dalla parte frontale; fari accesi, chiavi nel quadro."
+  }
+ },
+ {
+  "codice": "S4",
+  "titolo": "Sospetto ictus: sedia cardiologica e trasferimento su barella",
+  "dati": {
+   "dispatch": "KC04R. Uomo di 74 anni in abitazione, colto da improvviso malore. Non riesce più a muovere un lato del corpo e fa fatica a parlare. Visitato NO, Cosciente SÌ, Respira SÌ. Chiamata ricevuta dalla moglie. MSA non disponibile nell'immediato.",
+   "scena": "Villetta bifamiliare con accesso esclusivo da una rampa di scale che porta al primo piano; niente ascensore né montascale. Il paziente è seduto su una sedia in cucina, vigile ma con lo sguardo sbarrato e molto spaventato. Ambiente interno sicuro.",
+   "racconto": "(Moglie) Eravamo seduti qui a fare colazione, erano esattamente le 08:15 perché guardavo l'orologio per dargli le medicine. Chiacchieravamo quando, all'improvviso, ho visto la sua bocca storcersi verso sinistra. Ha provato a dirmi qualcosa ma uscivano solo suoni confusi, farfugliava come ubriaco. Un secondo dopo gli è caduta la tazza di caffè dalla mano destra e quando ho provato ad aiutarlo ad alzarsi ho capito che non reggeva più la gamba. Ho avuto paura a farlo muovere, anche perché per uscire di casa dobbiamo fare quelle brutte scale esterne.",
+   "quick_look": [
+    "No emorragie massive",
+    "Cosciente",
+    "Respira",
+    "Accessibile (seduto in cucina)",
+    "Deviazione evidente della rima buccale"
+   ],
+   "abcde": {
+    "A": "Vie aeree pervie, cosciente ma afasico/disartrico (difficoltà severa ad articolare le parole).",
+    "B": "Espansione toracica simmetrica, nessun rumore respiratorio, nessun dolore né segni sul torace. FR 16 atti/min, saturazione 96% in aria ambiente.",
+    "C": "Polso radiale presente, pieno, marcatamente aritmico. FC 94 bpm, PA 175/100 mmHg. Cute calda, colorito normale. Nessuna emorragia. Temperatura 36,5 °C. Refill 2 secondi.",
+    "D": "AVPU: A. Segue con gli occhi i soccorritori ma non riesce a rispondere alle domande. FAST/Cincinnati: paresi facciale presente (bocca asimmetrica, lato destro cadente); caduta del braccio presente (il braccio destro cade inerte se sollevato); linguaggio alterato (eloquio farfugliato).",
+    "E": "Nessun trauma evidente. Assenza di dolore ma sensazione di pesantezza e impotenza motoria all'emicorpo destro."
+   },
+   "sample": {
+    "S": "Emiparesi destra (faccia-braccio-gamba), afasia, ipertensione, forte ansia.",
+    "A": "Nessuna allergia nota",
+    "M": "Cardioaspirina (antiaggregante) e antipertensivi al mattino",
+    "P": "Fibrillazione atriale cronica, ipertensione arteriosa",
+    "L": "Colazione parziale interrotta circa 20 minuti fa",
+    "E": "Insorgenza acuta e improvvisa dei sintomi neurologici alle ore 08:15"
+   },
+   "opqrst": "",
+   "evoluzione": "Durante il trasporto il quadro neurologico resta stabile, ma solo se il paziente è semiseduto.",
+   "destinazione": "MSA non disponibile. Trasporto in codice 2.",
+   "trucchi": [
+    "Vestiti bagnati e sporchi di caffè"
+   ],
+   "comportamenti": [
+    "Deviazione della rima buccale e difficoltà ad articolare le parole",
+    "Segue con gli occhi i soccorritori ma non riesce a rispondere",
+    "Bocca asimmetrica lato destro, braccio destro cadente"
+   ],
+   "presidi": [
+    "Sedia cardiologica",
+    "Barella autocaricante",
+    "O2 + mascherina (per vedere se decidono di usarlo)",
+    "Zaino con almeno prova parametri"
+   ],
+   "note": "Serve un secondo simulatore per la moglie (può farlo il trainer). In scena: tazzina di caffè rotta per terra con caffè fuoriuscito."
+  }
+ }
+]

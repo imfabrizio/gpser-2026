@@ -1016,6 +1016,28 @@ test('COMP-1: scheda composta — la skill incorporata si apre dopo la voce indi
   assert.equal(st.pagine, nsq * 2);      // per ogni squadra: la scheda e il foglio della skill incorporata
 });
 
+test('CAN-3: canovaccio di Mega Code creato da modulo — descrizione scenario, PDF, collegamento alla scena', async () => {
+  const O = tok['org@t'], G = tok['giu@t'];
+  const body = { versione: 'megacode', codice: 'S1', gara_codice: 'mc-2026', titolo: 'Infortunio domestico', tempo_min: 15, dati: { dispatch: 'Uomo di 45 anni caduto da una scala', scena: 'Ripostiglio stretto', racconto: 'Sono caduto',
+    quick_look: ['Cosciente', 'Respira'], abcde: { A: 'pervie', B: 'FR 20', C: 'FC 90', D: 'AVPU A', E: 'dolore dorso-lombare' }, sample: { S: 'mal di schiena' }, trucchi: 'lividi sulla schiena', presidi: ['Collare', 'Spinale'] } };
+  assert.equal((await chiama('POST', '/api/canovacci', { token: G, body })).statusCode, 403);
+  assert.equal((await chiama('POST', '/api/canovacci', { token: O, body: { ...body, versione: 'altro' } })).statusCode, 400);
+  assert.equal((await chiama('POST', '/api/canovacci', { token: O, body: { ...body, titolo: '' } })).statusCode, 400);
+  const r = json(await chiama('POST', '/api/canovacci', { token: O, body })); assert.ok(r.id);
+  assert.equal((await chiama('POST', '/api/canovacci', { token: O, body })).statusCode, 409);
+  const c = json(await chiama('GET', `/api/canovacci/${r.id}`, { token: O }));
+  assert.equal(c.versione, 'megacode'); assert.equal(c.gara_codice, 'MC-2026'); assert.deepEqual(c.dati.trucchi, ['lividi sulla schiena']); assert.equal(c.dati.abcde.D, 'AVPU A');
+  assert.equal((await chiama('PUT', `/api/canovacci/${r.id}`, { token: O, body: { ...body, titolo: 'Infortunio domestico 2', dati: { ...body.dati, evoluzione: 'migliora' } } })).statusCode, 200);
+  assert.equal(json(await chiama('GET', `/api/canovacci/${r.id}`, { token: O })).dati.evoluzione, 'migliora');
+  const pdf = await chiama('GET', `/api/canovacci/${r.id}/canovaccio.pdf`, { token: O }); assert.equal(pdf.statusCode, 200); assert.match(String(pdf.headers['content-type']), /pdf/);
+  assert.ok(json(await chiama('GET', '/api/canovacci', { token: O })).some((x) => x.id === r.id && x.versione === 'megacode'));
+  const g = json(await chiama('POST', '/api/canovacci', { token: O, body: { versione: 'gara', codice: 'Q', gara_codice: 'GPSER-2099', titolo: 'Gara da modulo', dati: { briefing: 'Squadra, siete intervenuti…', logistica: 'Simulatori: 2' } } }));
+  assert.equal((await chiama('GET', `/api/canovacci/${g.id}/canovaccio.pdf`, { token: O })).statusCode, 200);
+  const es = json(await chiama('POST', '/api/canovacci/esempi-megacode', { token: O, body: {} })); assert.equal(es.creati, 4);
+  assert.equal(json(await chiama('POST', '/api/canovacci/esempi-megacode', { token: O, body: {} })).creati, 0);
+  assert.equal((await chiama('PUT', `/api/canovacci/${g.id}`, { token: O, body: { versione: 'gara', codice: 'Q', titolo: 'x' } })).statusCode, 400);   // gara/olimpiadi importate da file: solo via import
+});
+
 test('ESA-1 area Esami: sessione, principale + secondari, valore diverso per un candidato, errore grave, chiusura, PDF', async () => {
   const O = tok['org@t'], G = tok['giu@t'];
   assert.equal((await chiama('GET', '/api/esami/sessioni', { token: G })).statusCode, 403);          // il giudice non entra

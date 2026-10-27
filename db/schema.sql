@@ -2935,7 +2935,7 @@ create table if not exists sessione_esame_invito (
   primary key (sessione_id, utente_id)
 );
 create index if not exists sessione_esame_invito_utente_idx on sessione_esame_invito (utente_id);
-insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql') on conflict do nothing;
+insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql') on conflict do nothing;
 
 -- 046-skill-fasce-scoop
 -- Skill: fasce di giudizio automatiche (75/80/85/95%, calcolate sul numero di voci) e Barella Scoop in due schede (trasporto, semi-verticalizzazione).
@@ -3069,3 +3069,8 @@ join scena_scheda s on s.scena_id = sc.id
 join scena_scheda_voce v on v.scheda_id = s.id
 where v.blocco_id is null
 group by sc.evento_id;
+
+-- 049-canovacci-megacode
+-- Canovacci: oltre a Gara e Olimpiadi, la descrizione di uno scenario di Mega Code
+alter table canovaccio drop constraint if exists canovaccio_versione_check;
+alter table canovaccio add constraint canovaccio_versione_check check (versione in ('gara','olimpiadi','megacode'));
