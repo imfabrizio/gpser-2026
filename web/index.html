@@ -4,7 +4,7 @@
 <link rel="icon" href="data:,">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GPSER-2026</title>
+<title>CRI Eventi</title>
 <style>
   :root { --rosso:#E3001B; --bg:#f4f4f6; --card:#fff; --testo:#1c1c1e; --bordo:#d6d6da;
           --mb:#15803D; --be:#84CC16; --su:#FACC15; --in:#F97316; --ne:#B91C1C; }   /* semaforo a cinque toni ben distinti: verde, lime, giallo, arancio, rosso */   /* dal verde smeraldo (molto bene) al rosso (non eseguito) */
@@ -68,9 +68,10 @@
 <link rel="stylesheet" href="stile.css">
 <script src="comitati.js"></script>
 <script src="barra.js"></script>
+<script src="widget.js"></script>
 </head>
 <body>
-<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">GPSER-2026</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#account" hidden title="Il mio account">Il mio account</a><button id="esci" hidden>Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">CRI Eventi</h1><a id="hhome" href="#" hidden>Home</a><a id="hsic" href="#account" hidden title="Il mio account">Il mio account</a><button id="esci" hidden>Esci</button></header>
 <main id="app"></main>
 <script src="layout.js"></script>
 <script>
@@ -285,6 +286,7 @@ async function vistaSicurezza() {
   const obbl = me && me.mfa_da_configurare;
   $('#app').innerHTML = `${obbl ? '<div class="avviso"><strong>Per continuare devi attivare la verifica in due passaggi.</strong> Serve un\'app di autenticazione (Microsoft Authenticator, Google Authenticator, …).</div>' : ''}
     <div class="card"><h2>${esc(me.nome)}</h2><p>${esc(me.email || '')}</p><p><small>Ruolo: ${esc(me.ruolo_nome || me.ruolo_codice || me.ruolo)}${me.admin ? ' · amministratore' : ''}</small></p></div>
+    ${obbl ? '' : '<div id="widget-ed"></div>'}
     <div class="card"><h2>Password</h2><p><small>Se accedi solo con Google o Microsoft non hai una password del sito.</small></p>
       <label>Password attuale</label><input id="pw0" type="password" autocomplete="current-password"><label>Nuova password (min. 8 caratteri)</label><input id="pw1" type="password" autocomplete="new-password">
       <button class="btn" id="pwok">Cambia password</button><p id="pwmsg" class="err"></p></div>
@@ -299,6 +301,7 @@ async function vistaSicurezza() {
       <button class="btn" id="k_ok">Salva chiave</button><p id="kmsg" class="err"></p></div>` : ''}
     <div class="card"><strong>Accesso con provider esterni</strong><p>${st.identita.length ? 'Collegato a: ' + st.identita.map(esc).join(', ') : 'Nessun provider collegato. Si collega al primo accesso con Google o Microsoft, se la tua email è quella registrata.'}</p></div>
     ${obbl ? '' : '<a class="btn sec" href="#">Home</a>'}`;
+  if ($('#widget-ed')) Widget.editor($('#widget-ed'), (pref) => { me.preferenze = pref; });
   $('#pwok').onclick = async () => { try { await api('/me/password', { body: { attuale: $('#pw0').value, nuova: $('#pw1').value } }); $('#pw0').value = $('#pw1').value = ''; $('#pwmsg').className = 'ok'; $('#pwmsg').textContent = 'Password cambiata.'; } catch (e) { $('#pwmsg').className = 'err'; $('#pwmsg').textContent = e.message; } };
   if ($('#k_ok')) $('#k_ok').onclick = async () => { try { await api('/me/chiavi-ai', { method: 'PUT', body: { provider: $('#k_p').value, chiave: $('#k_k').value } }); vistaSicurezza(); } catch (e) { $('#kmsg').textContent = e.message; } };
   document.querySelectorAll('.kdel').forEach((a) => { a.onclick = async (e) => { e.preventDefault(); await api('/me/chiavi-ai/' + a.dataset.p, { method: 'DELETE' }); vistaSicurezza(); }; });
@@ -345,9 +348,10 @@ function menuGare(eventi, corrente) {
   return `<select id="selgara">${gruppi.filter(([, l]) => l.length).map(([n, l]) => `<optgroup label="${n}">${l.map((e) => `<option value="${e.id}" ${corrente && e.id === corrente.id ? 'selected' : ''}>${esc(e.nome)} · ${esc(e.luogo || '')} ${esc(e.data || '')}</option>`).join('')}</optgroup>`).join('')}</select>`;
 }
 async function vistaHome() {
-  $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'GPSER-2026';
+  $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'CRI Eventi';
   const aree = me.aree || [];
   const soloFormazione = org() && !me.admin && aree.every((a) => ['esami', 'formazione_esame', 'valutazione'].includes(a)) && !aree.includes('valutazione');   // es. istruttore con solo Esami
+  const widgetHome = '<div class="sezione-home"><h3>Per te</h3><div id="widgets"></div><p><small><a href="#account">Scegli i widget da mostrare</a></small></p></div>';
   const tileF = (href, ico, titolo, desc) => `<a class="tile" href="${href}"><i class="ico">${ICONE[ico]}</i><b>${titolo}</b><span>${desc}</span></a>`;
   const formazione = `<div class="sezione-home"><h3>Formazione</h3><div class="tiles">
       ${org() ? tileF('#valutazione', 'valutazione', 'Valutazioni', 'Inizia la valutazione di un Mega Code o di un corso') : ''}
@@ -360,6 +364,7 @@ async function vistaHome() {
   const tileComune = haComune ? tileF('/admin.html#hub:comune', 'documenti', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli') : '';
   let mondo = haGara && haForm ? localStorage.getItem('mondo') : (haForm ? 'formazione' : 'gara');
   const cambia = '';   // l'area si cambia dal menu in alto
+  if (org() && (haForm || haComune) && ['gara', 'formazione'].includes(mondo) && window.Barra) $('#titolo').textContent = Barra.titolo(mondo);
   const legaCambia = () => { if ($('#cambia_area')) $('#cambia_area').onclick = (e) => { e.preventDefault(); localStorage.removeItem('mondo'); vistaHome(); }; };
   if (haGara && haForm && !['gara', 'formazione'].includes(mondo)) {
     $('#app').innerHTML = `<div class="sezione-home"><div class="tiles">${tileF('#', 'gestione', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede e classifiche').replace('<a class="tile" href="#"', '<a class="tile" href="#" data-m="gara"')}
@@ -369,18 +374,13 @@ async function vistaHome() {
   }
   if (mondo === 'formazione') {
     try { localStorage.setItem('mondo', 'formazione'); } catch { /* ignora */ }
-    const avvF = await api('/avvisi?ambito=formazione').catch(() => []);
-    const corsi = (await api('/eventi').catch(() => [])).filter((e) => ['corso', 'megacode', 'esame'].includes(e.tipo) && !e.archiviato && (e.attivo || !e.data || (e.data_fine || e.data) >= oggi()));
-    $('#app').innerHTML = `${cambia}${formazione.replace('<h3>Formazione</h3><div class="tiles">', '<h3>Formazione</h3><div class="tiles">' + (org() ? tileF('/admin.html#hub:corsi', 'gestione', 'Gestione', 'Corsi, scene, equipaggi, notizie') : ''))}
-      <div class="card"><strong>Corsi e prove in programma</strong>${corsi.length ? corsi.map((e) => `<div class="avv"><b>${esc(e.codice_gaia ? e.codice_gaia + ' · ' : '')}${esc(e.nome)}</b><br><small>${esc(e.tipo === 'megacode' ? 'Mega Code' : e.tipo === 'esame' ? 'Esame' : 'Corso')} · ${esc(e.luogo || '')} ${esc(e.data || '')}</small>${org() && e.tipo !== 'esame' ? `<br><a class="btn" href="#valutazione" data-ev="${e.id}">Inizia le valutazioni</a>` : ''}</div>`).join('') : '<p><small>Nessun corso in programma.</small></p>'}</div>
-      <div class="card"><strong>Notizie per la Formazione</strong>${avvF.length ? avvF.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>`;
-    document.querySelectorAll('[data-ev]').forEach((a) => { a.onclick = () => localStorage.setItem('evF', a.dataset.ev); });
+    $('#app').innerHTML = `${cambia}${formazione.replace('<h3>Formazione</h3><div class="tiles">', '<h3>Formazione</h3><div class="tiles">' + (org() ? tileF('/admin.html#hub:corsi', 'gestione', 'Gestione', 'Corsi, scene, equipaggi, notizie') : ''))}${widgetHome}`;
+    Widget.disegna($('#widgets'), { mondo: 'formazione' });
     legaCambia(); return;
   }
   if (soloFormazione) { $('#app').innerHTML = formazione; return; }
   const { ev, eventi } = await garaCorrente();
   if (!ev) { $('#app').innerHTML = '<div class="card">Nessuna gara.' + (org() ? ' <a class="btn" href="/admin.html#hub:gara">Vai a Gestione per crearne una</a>' : ' Chiedi all\'organizzazione di assegnartene una.') + '</div>' + cambia; legaCambia(); return; }
-  const avvisi = await api(`/avvisi?evento=${ev.id}`).catch(() => []);
   const scene = await api(`/eventi/${ev.id}/scene`).catch(() => []);
   const tipoGara = TIPO_EV[ev.tipo] || 'Gara';
   const gestioneGara = org() && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame'].includes(a));
@@ -393,8 +393,8 @@ async function vistaHome() {
     ${org() ? `<label>Cambia gara</label>${menuGare(eventi, ev)}` : ''}</div>
     ${tileGara.trim() ? `<div class="sezione-home"><h3>Gara</h3><div class="tiles">${tileGara}</div></div>` : ''}
     ${mappaHtml(ev, scene)}
-    <div class="card"><strong>Avvisi e informazioni</strong>${avvisi.length ? avvisi.map((a) => `<div class="avv"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessun avviso.</small></p>'}</div>`;
-  legaCambia();
+    ${widgetHome}`;
+  legaCambia(); Widget.disegna($('#widgets'), { mondo: 'gara' });
   if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem(org() && localStorage.getItem('mondo') === 'formazione' ? 'evF' : 'ev', $('#selgara').value); vistaHome(); };
   const cc = coda.conta();
   if (cc.inCoda || cc.rifiutate) {
@@ -664,7 +664,7 @@ async function vistaDocumenti() {
 }
 let monTimer = null;
 async function vistaMonitor() {
-  $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'GPSER-2026 – Monitor';
+  $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'Monitor';
   const tutti = (await api('/eventi')).filter((e) => !e.archiviato && ['gara', 'olimpiadi', 'allenamento', 'corso_giudici'].includes(e.tipo));
   let id; try { id = localStorage.getItem('monEv'); } catch { /* niente */ }
   let ev = tutti.find((e) => e.id === id) || window.__ev && tutti.find((e) => e.id === window.__ev.id) || tutti.find((e) => e.attivo) || tutti[0];

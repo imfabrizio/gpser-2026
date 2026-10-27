@@ -15,7 +15,7 @@ export const SQL_UTENTE = `select u.*,
   coalesce((select array_agg(i.evento_id) from iscrizione i join partecipante p on p.id = i.partecipante_id join evento e on e.id = i.evento_id
              where p.utente_id = u.id and not e.archiviato and i.ruolo = 'organizzazione'), '{}') as ev_org from utente u`;
 export const mfaObbligatoria = (u, via) => process.env.MFA_ORG !== '0' && eStaff(u) && !u.mfa_attiva && via === 'pwd';
-export const profilo = (u, via) => ({ id: u.id, nome: u.nome, email: u.email, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, ruoli_extra: u.ruoli_extra || [], per_evento: !!u.per_evento, admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, tema: u.tema ?? null, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
+export const profilo = (u, via) => ({ id: u.id, nome: u.nome, email: u.email, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, ruoli_extra: u.ruoli_extra || [], per_evento: !!u.per_evento, admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, tema: u.tema ?? null, preferenze: u.preferenze || {}, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
 export const creaSessione = (u, via) => ({ token: firmaToken({ id: u.id, via }), utente: profilo(u, via) });
 
 // ── provider esterni (OpenID Connect, flusso "authorization code" + PKCE) ──

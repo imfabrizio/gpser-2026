@@ -1887,6 +1887,17 @@ test('VAL-1 nei corsi valutano gli istruttori: elenco valutatori, assegnazione e
   assert.equal((await chiama('DELETE', `/api/schede/${k.id}`, { token: O })).statusCode, 200, 'la scheda si toglie dalla scena');
 });
 
+test('WID-1: preferenze personali (widget e contatti)', async () => {
+  const O = tok['org@t'];
+  assert.deepEqual(json(await chiama('GET', '/api/me', { token: O })).preferenze, {});
+  assert.equal((await chiama('PUT', '/api/me/preferenze', { token: O, body: { widget: ['eventi', 'inventato'] } })).statusCode, 400);
+  const r = json(await chiama('PUT', '/api/me/preferenze', { token: O, body: { widget: ['calendario', 'eventi', 'calendario'], contatti: [{ nome: ' Sala ', tel: '051 123' }, { nome: 'senza recapito' }] } }));
+  assert.deepEqual(r.widget, ['calendario', 'eventi']); assert.deepEqual(r.contatti, [{ nome: 'Sala', tel: '051 123', email: '' }]);
+  assert.deepEqual(json(await chiama('GET', '/api/me', { token: O })).preferenze.widget, ['calendario', 'eventi']);
+  json(await chiama('PUT', '/api/me/preferenze', { token: O, body: { widget: [] } }));
+  assert.equal(json(await chiama('GET', '/api/me', { token: O })).preferenze.contatti.length, 1);   // aggiornare i widget non cancella i contatti
+});
+
 test('QUA-1 la qualifica di formazione porta il ruolo omonimo; discente TSSA solo etichetta', async () => {
   const O = tok['org@t'], A = tok['adm@t'];
   const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'qua1@t.it', nome: 'Quinto Qualifica', ruolo: 'giudice', password: 'password-lunga' } }));

@@ -4,7 +4,7 @@
 <link rel="icon" href="data:,">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GPSER-2026 – Gestione</title>
+<title>CRI Eventi – Gestione</title>
 <style>
 body.corsi .csep{display:none}
   :root { --rosso:#E3001B; --bg:#f4f4f6; --card:#fff; --testo:#1c1c1e; --bordo:#d6d6da; --grigio:#e7e6e6; }
@@ -84,7 +84,7 @@ body.corsi .csep{display:none}
 <body>
 <script src="comitati.js"></script>
 <script src="barra.js"></script>
-<header><img class="logo" src="/logo-cri.jpg" alt="CRI"><a class="home" href="/" title="Torna alla Home" aria-label="Home"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></a><h1 id="tit">GPSER-2026</h1><a id="chi" href="/#account" title="Il mio account">Il mio account</a><button id="esci">Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="CRI"><a class="home" href="/" title="Torna alla Home" aria-label="Home"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></a><h1 id="tit">CRI Eventi</h1><a id="chi" href="/#account" title="Il mio account">Il mio account</a><button id="esci">Esci</button></header>
 <nav id="tabs" hidden></nav>
 <main id="app"></main>
 <aside id="rail" aria-label="Riepilogo"></aside>
@@ -198,16 +198,17 @@ function disegnaTabs() {
   $('#tabs').classList.toggle('strumenti', inizio);
   document.body.classList.toggle('laterale', laterale);
   if (inizio) { $('#tabs').onclick = null; aggiornaSx(); return; }
-  $('#tabs').innerHTML = vis.map((k) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${nomeTab(k)}</button>`).join('');
+  $('#tabs').innerHTML = bandaSez() + vis.map((k) => `<button data-t="${k}" class="${k === tab ? 'on' : ''}">${nomeTab(k)}</button>`).join('');
   equipaggi($('#tabs'));
   $('#tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) { vai(b.dataset.t); } };
 }
+const bandaSez = () => (window.Barra ? Barra.banda(fam === 'corsi' ? 'formazione' : fam) : '');
 // colonna di sinistra del portale e dei riquadri: strumenti, non navigazione
 async function aggiornaSx() {
   const t = $('#tabs'); if (!t.classList.contains('strumenti')) return;
   const att = (eventi.length ? eventi : await api('/eventi').catch(() => [])).find((e) => e.attivo);
   if (!t.classList.contains('strumenti')) return;
-  t.innerHTML = `<div class="w"><h4>Gara attiva</h4>${att ? `<b class="n">${esc(att.nome)}</b><small>${esc([dataIt(att.data), att.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small>` : '<small>Nessuna gara attiva</small>'}</div>
+  t.innerHTML = `${tab === 'menu' ? '' : bandaSez()}<div class="w"><h4>Gara attiva</h4>${att ? `<b class="n">${esc(att.nome)}</b><small>${esc([dataIt(att.data), att.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small>` : '<small>Nessuna gara attiva</small>'}</div>
     <div class="w" id="sx_ri" hidden><h4>Da approvare</h4><b class="n"></b><a href="#" data-v="richieste">Apri le richieste</a></div>`;
   t.querySelectorAll('[data-v]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); vai(a.dataset.v); }; });
   if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { if (c.n && $('#sx_ri')) { $('#sx_ri').hidden = false; $('#sx_ri b').textContent = c.n + (c.n === 1 ? ' richiesta di accesso' : ' richieste di accesso'); } }).catch(() => {});
@@ -1434,7 +1435,7 @@ async function aggiornaRail() {
   const r = $('#rail'); if (!r) return;
   if (tab === 'classifiche') { r.innerHTML = ''; return; }
   if (tab === 'menu') {
-    r.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w" id="rail_av" hidden><h4>Avvisi</h4></div><div class="w"><h4>Scorciatoie</h4><a href="/#valutazione">Valutazione</a><a href="/#monitor">Monitor</a><a href="/#documenti">Documentazione</a></div>';
+    r.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w" id="rail_av" hidden><h4>Avvisi</h4></div>';
     api('/avvisi').then((av) => { if (av.length && $('#rail_av')) { $('#rail_av').hidden = false; $('#rail_av').insertAdjacentHTML('beforeend', av.slice(0, 3).map((a) => `<div style="padding:6px 0;border-top:1px solid #e3e5ea"><b>${esc(a.titolo)}</b><small style="display:block">${esc((a.testo || '').slice(0, 90))}</small></div>`).join('')); } }).catch(() => {});
     return;
   }
@@ -1444,10 +1445,8 @@ async function aggiornaRail() {
     if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { if (c.n && $('#rail_ri')) { $('#rail_ri').hidden = false; $('#rail_ri b').textContent = c.n + (c.n === 1 ? ' richiesta di accesso' : ' richieste di accesso'); } }).catch(() => {});
     return;
   }
-  const link = (t, k) => `<a href="#" data-v="${k}">${t}</a>`;
   r.innerHTML = `<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w"><h4>${fam === 'corsi' ? 'Evento scelto' : 'Gara scelta'}</h4><b class="n">${esc(ev.nome)}</b><small>${esc([dataIt(ev.data), ev.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small>${ev.attivo ? '<br><span class="tag ok">attivo</span>' : ''}</div>
-    <div class="w" id="rail_av"><h4>Avanzamento</h4><small>Carico…</small></div>
-    <div class="w"><h4>Scorciatoie</h4>${link('Scene', 'scene')}${link('Squadre', 'squadre')}${link('Classifiche', 'classifiche')}${link('Monitor', 'monitor')}</div>`;
+    <div class="w" id="rail_av"><h4>Avanzamento</h4><small>Carico…</small></div>`;
   r.querySelectorAll('[data-v]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); vai(a.dataset.v); }; });
   if (fam === 'corsi') { $('#rail_av').remove(); return; }
   const id = ev.id;
@@ -1467,10 +1466,9 @@ async function render() {
     else if (tab === 'persone') await tPersone(); else if (tab === 'comitati') await tComitati(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   const mo = mondoCorrente(), molti = mondiVisibili().length > 1;
-  { const t = $('#tit'); if (t) t.textContent = 'GPSER-2026 – ' + (tab === 'menu' || !mo ? 'Portale' : mo[1]); }
+  { const t = $('#tit'); if (t) t.textContent = window.Barra ? Barra.titolo(tab === 'menu' || !mo ? '' : (fam === 'corsi' ? 'formazione' : fam)) : 'CRI Eventi'; }
   const briciole = tab === 'menu' ? '' : `<a href="#" id="dv_g">${molti ? 'Portale' : esc(mo[1])}</a>${molti && mo ? ` › <a href="#" id="dv_m">${esc(mo[1])}</a>` : ''}${tab !== 'hub' ? ` › <b>${esc(nomeTab(tab))}</b>` : ''}`;
-  if (tab !== 'menu') $('#app').insertAdjacentHTML('afterbegin', `<div class="dove">${briciole}</div><div class="navbar"><button id="nv_g">← ${tab === 'hub' ? (molti ? 'Portale' : 'Menu') : 'Torna a ' + esc(mo[1])}</button><a href="/#">Torna alla Home</a></div>`);
-  if ($('#nv_g')) $('#nv_g').onclick = () => vai(tab === 'hub' && molti ? 'menu' : 'hub');
+  if (tab !== 'menu') $('#app').insertAdjacentHTML('afterbegin', `<div class="dove">${briciole}</div>`);
   if ($('#dv_g')) $('#dv_g').onclick = (e) => { e.preventDefault(); vai(molti ? 'menu' : 'hub'); };
   if ($('#dv_m')) $('#dv_m').onclick = (e) => { e.preventDefault(); vai('hub'); };
   equipaggi($('#app')); aggiornaRail();

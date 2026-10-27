@@ -24,12 +24,11 @@
       document.body.classList.toggle('laterale', !senza);
       { const h = document.getElementById('hhome'); if (h && document.getElementById('homeb')) h.hidden = true; }
       if (senza) { lat.innerHTML = ''; rail.innerHTML = ''; return; }
-      const org = ['admin', 'organizzazione'].includes(me.ruolo), part = me.ruolo === 'partecipante';
-      const link = (h, t) => `<a href="${h}">${esc(t)}</a>`;
-      // a sinistra gli strumenti (gara attiva, notifiche), a destra avvisi e scorciatoie: niente menu di navigazione che non c'entra con la pagina
-      lat.innerHTML = '<div class="w" id="r_ev"><h4>Gara attiva</h4><small>Carico…</small></div><div class="w" id="r_nt" hidden><h4>Notifiche</h4></div>';
-      rail.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w" id="r_av" hidden><h4>Avvisi</h4></div>'
-        + `<div class="w"><h4>Scorciatoie</h4>${link('#', 'Home')}${part ? '' : link('#valutazione', 'Valutazione')}${link('#documenti', 'Documentazione')}${org ? link('/#monitor', 'Monitor') + link('/admin.html#classifiche', 'Classifiche') + link('/admin.html#hub:gara', 'Gestione') : ''}${link('#account', 'Il mio account')}</div>`;
+      const part = me.ruolo === 'partecipante';
+      // a sinistra la sezione in cui sei e gli strumenti (gara attiva, notifiche), a destra gli avvisi
+      const sez = window.Barra ? Barra.sezione() : null;
+      lat.innerHTML = (sez ? Barra.banda(sez) : '') + '<div class="w" id="r_ev"><h4>Gara attiva</h4><small>Carico…</small></div><div class="w" id="r_nt" hidden><h4>Notifiche</h4></div>';
+      rail.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w" id="r_av" hidden><h4>Avvisi</h4></div>';
       if (!part) try {
         const evs = await api('/eventi'); if (mio !== giro) return; const e = evs.find((x) => x.attivo);
         $r('r_ev').innerHTML = e ? `<h4>Gara attiva</h4><b class="n">${esc(e.nome)}</b><small>${esc([dataIt(e.data), e.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small>` : '<h4>Gara attiva</h4><small>Nessuna gara attiva</small>';

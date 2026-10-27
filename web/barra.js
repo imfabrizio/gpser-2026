@@ -5,6 +5,7 @@
   const stile = document.createElement('style');
   stile.textContent = `#aree{border:1.5px solid #8C94A3;border-radius:999px;padding:7px 12px;font:inherit;font-size:14px;font-weight:700;background:#fff;color:inherit;max-width:190px}
   #campana{position:relative;padding:8px 12px!important;line-height:1}#campana .nb{position:absolute;top:-6px;right:-4px;background:#C62828;color:#fff;border-radius:999px;font-size:12px;min-width:20px;padding:1px 5px;font-weight:700}
+  .banda{display:flex;gap:10px;align-items:center;border-radius:12px;padding:14px 12px;margin-bottom:12px;color:#fff;white-space:normal;text-align:left}.banda svg{flex:none;width:30px;height:30px}.banda b{display:block;font-size:17px;line-height:1.15;color:#fff}.banda small{display:block;font-size:12px;color:#fff;margin-top:2px}
   #dlgn{border:0;border-radius:14px;max-width:460px;width:92vw;padding:0;box-shadow:0 12px 40px #0004}#dlgn .nt{padding:12px 16px;border-bottom:1px solid #e3e5ea;cursor:pointer}#dlgn .nt.nl{background:#fff4f4}#dlgn .nt small{color:#666;display:block}`;
   document.head.append(stile);
   const aree = (me) => {
@@ -17,6 +18,13 @@
     return out;
   };
   const api = async (p, body) => { const t = localStorage.getItem('token'); const r = await fetch('/api' + p, { method: body ? 'POST' : 'GET', headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), Authorization: 'Bearer ' + t }, body: body ? JSON.stringify(body) : undefined }); if (!r.ok) throw new Error(r.status); return r.json(); };
+  // nome breve del programma e banda colorata che dice in che sezione sei
+  const MARCHIO = 'CRI Eventi';
+  const SEZ = {
+    gara: ['Gare e Olimpiadi', '#C8102E', 'Gare, allenamenti, scene e classifiche', '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'],
+    formazione: ['Formazione', '#1F5F8B', 'Corsi, Mega Code ed esami', '<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5"/>'],
+    comune: ['Gestione comune', '#4A5260', 'Anagrafiche, utenti e ruoli', '<path d="M4 21V7l8-4 8 4v14M9 21v-6h6v6M9 10h1M14 10h1"/>'],
+  };
   let sede = 'index', timer = null;
   // «Home» riporta alla pagina d'ingresso con le tre aree: si dimentica l'area scelta
   document.addEventListener('click', (e) => { if (e.target.closest('a[href="/"], a[href="/#"], a.home, #hhome, #homeb')) { try { localStorage.removeItem('mondo'); } catch { /* niente */ } } }, true);
@@ -35,6 +43,13 @@
     dlg.querySelectorAll('.nt').forEach((el) => { el.onclick = async () => { await api('/me/notifiche/lette', { id: el.dataset.id }).catch(() => {}); dlg.close(); conta(); if (el.dataset.l) { if (el.dataset.l.startsWith('/admin.html#') && location.pathname === '/admin.html') location.hash = el.dataset.l.split('#')[1]; else location.href = el.dataset.l; } }; });
   }
   window.Barra = {
+    marchio: MARCHIO,
+    nomeSezione: (k) => (SEZ[k] ? SEZ[k][0] : ''),
+    // titolo da mettere in alto: «CRI Eventi · Formazione»
+    titolo: (k) => MARCHIO + (SEZ[k] ? ' · ' + SEZ[k][0] : ''),
+    banda(k) { const z = SEZ[k]; return z ? `<div class="banda" style="background:${z[1]}" role="note" aria-label="Sezione: ${z[0]}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${z[3]}</svg><span><b>${z[0]}</b><small>${z[2]}</small></span></div>` : ''; },
+    // sezione in cui si trova l'utente (solo per chi ha accesso alle aree dell'organizzazione)
+    sezione(corrente) { const me = leggi('me'); if (!me) return null; const l = aree(me); if (!l.length) return null; const att = corrente || localStorage.getItem('mondo') || 'gara'; return l.some(([k]) => k === att) ? att : l[0][0]; },
     disegna(dove, corrente) {
       sede = dove || sede; const me = leggi('me'), h = document.querySelector('header'); if (!h || !me || !localStorage.getItem('token') || me.in_attesa) { document.getElementById('aree')?.remove(); document.getElementById('campana')?.remove(); return; }
       const lista = aree(me);

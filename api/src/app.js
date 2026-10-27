@@ -158,6 +158,23 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     return { ok: true, tema: t };
   });
 
+  // widget della Home e contatti preferiti: ognuno li sceglie per sé
+  const WIDGET_NOTI = ['gara_attiva', 'valutazioni', 'eventi', 'calendario', 'news', 'notifiche', 'contatti', 'approvare'];
+  app.put('/api/me/preferenze', async (req) => {
+    const b = req.body || {}, pref = {};
+    if (b.widget !== undefined) {
+      if (!Array.isArray(b.widget) || b.widget.length > 12 || b.widget.some((w) => !WIDGET_NOTI.includes(w))) throw httpErr(400, 'widget non valido');
+      pref.widget = [...new Set(b.widget)];
+    }
+    if (b.contatti !== undefined) {
+      if (!Array.isArray(b.contatti) || b.contatti.length > 20) throw httpErr(400, 'contatti: massimo 20');
+      const t = (x, n) => String(x ?? '').trim().slice(0, n);
+      pref.contatti = b.contatti.map((c) => ({ nome: t(c?.nome, 80), tel: t(c?.tel, 30), email: t(c?.email, 120) })).filter((c) => c.nome && (c.tel || c.email));
+    }
+    const { rows: [r] } = await pool.query(`update utente set preferenze = preferenze || $2::jsonb where id=$1 returning preferenze`, [req.utente.id, JSON.stringify(pref)]);
+    return r.preferenze;
+  });
+
   // ── pagina pubblica (senza login): notizie, gare, percorso ──
   // La pagina pubblica mostra solo gare e Olimpiadi, nella finestra di tre mesi prima e dopo (modificabile qui sotto)
   const FINESTRA_GIORNI = 92;

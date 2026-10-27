@@ -2935,7 +2935,7 @@ create table if not exists sessione_esame_invito (
   primary key (sessione_id, utente_id)
 );
 create index if not exists sessione_esame_invito_utente_idx on sessione_esame_invito (utente_id);
-insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql') on conflict do nothing;
+insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql'), ('055-preferenze-utente.sql') on conflict do nothing;
 
 -- 046-skill-fasce-scoop
 -- Skill: fasce di giudizio automatiche (75/80/85/95%, calcolate sul numero di voci) e Barella Scoop in due schede (trasporto, semi-verticalizzazione).
@@ -3536,3 +3536,6 @@ from patologia p, (values
   (41, 'Valutazione del soccorso (aggiuntiva)', 'Comunicazione efficace')
 ) as t(n, sez, testo) where p.codice='mc-scenario-4-ictus' and not exists (select 1 from patologia_voce x where x.patologia_id=p.id);
 insert into patologia_skill (patologia_id, dopo_ordine, skill_id) select p.id, 26, s.id from patologia p, patologia s where p.codice='mc-scenario-4-ictus' and s.codice='skill-12-sedia-portantina' on conflict do nothing;
+
+-- 055-preferenze-utente
+alter table utente add column if not exists preferenze jsonb not null default '{}'::jsonb;
