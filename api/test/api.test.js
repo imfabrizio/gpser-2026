@@ -35,7 +35,7 @@ after(async () => { await app.close(); await pool.end(); });
 test('SEC esami locali, inviti esterni revocabili e isolamento di prove e candidati', async () => {
   const users = [];
   for (const [email, comitato] of [['local@security.invalid', 'Modena'], ['peer@security.invalid', 'Modena'], ['external@security.invalid', 'Parma']]) {
-    const { rows: [u] } = await pool.query("insert into utente (email,nome,ruolo,password_hash) values ($1,$1,'istruttore',$2) returning id", [email, hashPassword('test-password')]);
+    const { rows: [u] } = await pool.query("insert into utente (email,nome,ruolo,password_hash) values ($1,$1,'istruttore_du',$2) returning id", [email, hashPassword('test-password')]);
     await pool.query('insert into partecipante (nome,cognome,comitato,utente_id) values ($1,$1,$2,$3)', [email, comitato, u.id]);
     users.push({ id: u.id, token: firmaToken({ id: u.id, via: 'sso' }) });
   }
@@ -1099,7 +1099,7 @@ test('COM-1 comitati: import, ricerca con suggerimenti, nomi liberi ricondotti a
 test('CM-1 schede dei comitati: private al comitato, la direzione le vede solo su richiesta e non le modifica', async () => {
   const A = tok['adm@t'], O = tok['org@t'];
   const mk = async (email, comitato) => {
-    const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome: 'Is', cognome: email, ruolo: 'istruttore', password: 'password-lunga' } }));
+    const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome: 'Is', cognome: email, ruolo: 'istruttore_du', password: 'password-lunga' } }));
     if (comitato) await pool.query('update partecipante set comitato=$2 where utente_id=$1', [u.id, comitato]);
     return json(await chiama('POST', '/api/login', { body: { email, password: 'password-lunga' } })).token;
   };
@@ -1212,7 +1212,7 @@ test('EV-1 accesso giudice legato alla gara: iscritto come giudice vede solo que
 test('AMB-1 ambito dei corsi: trainer locale solo per il proprio comitato, formatore nazionale, invito al singolo corso', async () => {
   const O = tok['org@t'], A = tok['adm@t'];
   const crea = async (email, nome, comitato, qual) => {
-    const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome, ruolo: 'istruttore', password: 'password-lunga' } }));
+    const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome, ruolo: 'istruttore_du', password: 'password-lunga' } }));
     const pe = json(await chiama('GET', `/api/persone?q=${encodeURIComponent(nome.split(' ')[1])}`, { token: O })).find((x) => x.utente_id === u.id);
     { const r = await chiama('PATCH', `/api/persone/${pe.id}`, { token: O, body: { cognome: pe.cognome, nome: pe.nome, email, comitato } }); assert.equal(r.statusCode, 200, r.body); }
     await chiama('PUT', `/api/persone/${pe.id}/qualifiche`, { token: O, body: { qualifiche: [qual] } });
@@ -1873,7 +1873,7 @@ test('REV-4: patologie diverse con molte voci generiche in comune (sigla diversa
 
 test('VAL-1 nei corsi valutano gli istruttori: elenco valutatori, assegnazione e area valutazione', async () => {
   const O = tok['org@t'], A = tok['adm@t'];
-  const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'val1@t.it', nome: 'Vera Istruttrice', ruolo: 'istruttore', password: 'password-lunga' } }));
+  const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'val1@t.it', nome: 'Vera Istruttrice', ruolo: 'istruttore_du', password: 'password-lunga' } }));
   assert.ok(!json(await chiama('GET', '/api/giudici', { token: O })).some((x) => x.id === u.id), 'tra i giudici delle gare non compare');
   assert.ok(json(await chiama('GET', '/api/giudici?valutatori=1', { token: O })).some((x) => x.id === u.id), 'tra i valutatori dei corsi sì');
   assert.ok(json(await chiama('GET', '/api/giudici?valutatori=1', { token: O })).some((x) => x.email === 'org@t'), 'anche l\'organizzazione può valutare');
@@ -1899,4 +1899,23 @@ test('QUA-1 la qualifica di formazione porta il ruolo omonimo; discente TSSA sol
   assert.deepEqual(await extra(), []);
   const { rows } = await pool.query(`select codice from ruolo where codice in ('manovre_salvavita','trainer_ms','formatore_tssa','capo_monitore','istruttore_du','truccatore')`);
   assert.deepEqual(rows.map((r) => r.codice).sort(), ['capo_monitore', 'formatore_tssa', 'istruttore_du', 'trainer_ms', 'truccatore']);
+});
+
+test('VAL-2 nei Mega Code non valutano i trainer MS', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  const mk = async (email, nome, q) => {
+    const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome, ruolo: 'partecipante', password: 'password-lunga' } }));
+    const pe = json(await chiama('GET', `/api/persone?q=${encodeURIComponent(nome.split(' ')[1])}`, { token: O })).find((x) => x.utente_id === u.id);
+    await chiama('PUT', `/api/persone/${pe.id}/qualifiche`, { token: O, body: { qualifiche: [q] } });
+    return u;
+  };
+  const ms = await mk('vms@t.it', 'Tito Emmesse', 'trainer_ms'), ts = await mk('vts@t.it', 'Tina Titiesse', 'trainer_tssa');
+  const el = json(await chiama('GET', '/api/giudici?valutatori=megacode', { token: O }));
+  assert.ok(el.some((x) => x.id === ts.id), 'ts presente ' + JSON.stringify(el.map((x) => x.email))); assert.ok(!el.some((x) => x.id === ms.id), 'ms assente');
+  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'VAL-MC2', nome: 'Mega Code due', tipo: 'megacode' } }));
+  const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'M1', titolo: 'Scena', ordine: 1 } }));
+  const pat = json(await chiama('GET', '/api/libreria/patologie', { token: O })).find((p) => !p.bozza && !p.is_master);
+  const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } }));
+  assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [ms.id] } })).statusCode, 400);
+  assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [ts.id] } })).statusCode, 200);
 });

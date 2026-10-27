@@ -2935,7 +2935,7 @@ create table if not exists sessione_esame_invito (
   primary key (sessione_id, utente_id)
 );
 create index if not exists sessione_esame_invito_utente_idx on sessione_esame_invito (utente_id);
-insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql') on conflict do nothing;
+insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql') on conflict do nothing;
 
 -- 046-skill-fasce-scoop
 -- Skill: fasce di giudizio automatiche (75/80/85/95%, calcolate sul numero di voci) e Barella Scoop in due schede (trasporto, semi-verticalizzazione).
@@ -3107,3 +3107,10 @@ insert into utente_ruolo_extra
   select distinct p.utente_id, pq.qualifica from persona_qualifica pq
   join partecipante p on p.id = pq.partecipante_id join utente u on u.id = p.utente_id join ruolo r on r.codice = pq.qualifica
   where u.ruolo <> pq.qualifica on conflict do nothing;
+
+-- 053-via-istruttore-generico
+-- Il ruolo generico «Istruttore» era un'impostazione iniziale sbagliata: chi lo aveva passa a «Istruttore DU» (stessi permessi)
+update utente set ruolo = 'istruttore_du' where ruolo = 'istruttore';
+insert into utente_ruolo_extra select utente_id, 'istruttore_du' from utente_ruolo_extra where ruolo = 'istruttore' on conflict do nothing;
+delete from utente_ruolo_extra where ruolo = 'istruttore';
+delete from ruolo where codice = 'istruttore';

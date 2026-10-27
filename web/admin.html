@@ -718,8 +718,8 @@ async function apriMaster(scenaId, mas) {
     fai(() => api(`/scene/${scenaId}/master`, { method: 'PUT', body: { utenti: ids } }), 'Giudice master salvato'); };
 }
 async function apriAssegnazioni(schedaId, ass) {
-  const giud = await api('/giudici' + (fam === 'corsi' ? '?valutatori=1' : '')); const sel = new Set(ass.filter((a) => a.scheda_id === schedaId).map((a) => a.utente_id));
-  dlg(`<h3>${fam === 'corsi' ? 'Valutatori della scheda' : 'Giudici della scheda'}</h3>${giud.length ? giud.map((g) => `<label style="font-size:15px;color:inherit"><input type="checkbox" value="${g.id}" ${sel.has(g.id) ? 'checked' : ''}> ${esc(g.nome)} <small>${esc(g.email)}${g.ruolo === 'giudice_master' ? ' · master' : ''}</small></label>`).join('') : `<p>Nessun utente con ruolo ${fam === 'corsi' ? 'istruttore' : 'giudice'}. Un admin può crearli in "Utenti".</p>`}
+  const giud = await api('/giudici' + (fam === 'corsi' ? '?valutatori=' + (ev?.tipo === 'megacode' ? 'megacode' : '1') : '')); const sel = new Set(ass.filter((a) => a.scheda_id === schedaId).map((a) => a.utente_id));
+  dlg(`<h3>${fam === 'corsi' ? 'Valutatori della scheda' : 'Giudici della scheda'}</h3>${giud.length ? giud.map((g) => `<label style="font-size:15px;color:inherit"><input type="checkbox" value="${g.id}" ${sel.has(g.id) ? 'checked' : ''}> ${esc(g.nome)} <small>${esc(g.email)}${g.ruolo === 'giudice_master' ? ' · master' : ''}</small></label>`).join('') : `<p>Nessun utente con ruolo ${fam === 'corsi' ? 'di formazione' : 'giudice'}. Un admin può crearli in "Utenti".</p>`}
     <p><button class="b" id="as_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
   $('#as_ok').onclick = () => { const ids = [...document.querySelectorAll('#dlg input:checked')].map((i) => i.value); chiudi();
     fai(() => api(`/schede/${schedaId}/assegnazioni`, { method: 'PUT', body: { utenti: ids } }), 'Assegnazioni salvate'); };

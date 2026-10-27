@@ -12,7 +12,9 @@ import { verificaCodiceFiscale } from './codice-fiscale.js';
 import { datiCf, hashCf } from './anagrafica.js';
 
 // ruoli che possono valutare nei corsi e nei Mega Code
-const VALUTATORI_CORSI = ['istruttore', 'monitore', 'capo_monitore', 'formatore_ms', 'formatore_tssa', 'trainer_ms', 'trainer_tssa', 'istruttore_du', 'admin', 'organizzazione'];
+const VALUTATORI_CORSI = ['monitore', 'capo_monitore', 'formatore_ms', 'formatore_tssa', 'trainer_ms', 'trainer_tssa', 'istruttore_du', 'admin', 'organizzazione'];
+// i Mega Code sono TSSA: non vi valutano i trainer e i formatori MS
+const VALUTATORI_MEGACODE = VALUTATORI_CORSI.filter((x) => !['trainer_ms', 'formatore_ms'].includes(x));
 // le qualifiche che hanno un ruolo con lo stesso codice (formazione, simulatore, truccatore) danno il ruolo all'accesso della persona, come ruolo aggiuntivo
 async function sincronizzaRuoliQualifiche(db, partecipanteId) {
   const { rows: [p] } = await db.query('select p.utente_id, u.ruolo from partecipante p join utente u on u.id = p.utente_id where p.id=$1', [partecipanteId]);
@@ -95,7 +97,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     return u;
   });
   app.get('/api/giudici', { preHandler: soloOrg }, async (req) => {
-    const val = req.query?.valutatori === '1' ? VALUTATORI_CORSI.map((x) => `'${x}',`).join('') : '';   // nei corsi valutano gli istruttori/formatori
+    const val = req.query?.valutatori ? (req.query.valutatori === 'megacode' ? VALUTATORI_MEGACODE : VALUTATORI_CORSI).map((x) => `'${x}',`).join('') : '';   // nei corsi valutano gli istruttori/formatori
     return (await pool.query(`select * from (select id, nome, email, ruolo,
         array_cat(array_prepend(ruolo, coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id=u.id), '{}')), (select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in (${val}'giudice','giudice_master'))) as ruoli
         from utente u where attivo) q where ruoli && array[${val}'giudice','giudice_master'] order by nome`)).rows;
@@ -111,8 +113,9 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.put('/api/schede/:id/assegnazioni', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const ids = req.body?.utenti || [];
     if (!Array.isArray(ids)) throw httpErr(400, 'utenti: elenco di id');
-    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (ruolo = any($2::text[]) or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo = any($2::text[])) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in ('giudice','giudice_master'))) > 0)`, [ids, ['giudice', 'giudice_master', ...VALUTATORI_CORSI]]);
-    if (ok.length !== new Set(ids).size) throw httpErr(400, 'solo utenti attivi con ruolo giudice o giudice master');
+    const megacode = !!(await db.query(`select 1 from scena_scheda s join scena sc on sc.id=s.scena_id join evento e on e.id=sc.evento_id where s.id=$1 and e.tipo='megacode'`, [req.params.id])).rowCount;
+    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (ruolo = any($2::text[]) or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo = any($2::text[])) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in ('giudice','giudice_master'))) > 0)`, [ids, ['giudice', 'giudice_master', ...(megacode ? VALUTATORI_MEGACODE : VALUTATORI_CORSI)]]);
+    if (ok.length !== new Set(ids).size) throw httpErr(400, megacode ? 'nei Mega Code valutano solo istruttori e formatori TSSA (non MS), oltre all\'organizzazione' : 'solo utenti attivi con ruolo giudice, giudice master o di formazione');
     await db.query('delete from assegnazione where scheda_id=$1', [req.params.id]);
     for (const u of new Set(ids)) await db.query('insert into assegnazione values ($1,$2)', [req.params.id, u]);
     return { ok: true, assegnati: ids.length };
