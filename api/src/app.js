@@ -486,12 +486,19 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     s.voci = voci.map((v) => {
       const consentiti = LIVELLI.filter((l) => v[l] !== null).map((l) => l.toUpperCase());
       if (!RUOLI_ORG.includes(req.utente.ruolo)) {      // chi inserisce i dati non deve conoscere il valore dei punti (salvo esami, corsi e allenamenti)
-        const base = { id: v.id, scheda_id: v.scheda_id, ordine: v.ordine, sezione: v.sezione, testo: v.testo, consentiti };
+        const base = { id: v.id, scheda_id: v.scheda_id, ordine: v.ordine, sezione: v.sezione, testo: v.testo, consentiti, blocco_id: v.blocco_id, blocco_nome: v.blocco_nome };
         if (ve?.mostra_punteggi) base.punti = Object.fromEntries(LIVELLI.filter((l) => v[l] !== null).map((l) => [l.toUpperCase(), v[l]]));
         return base;
       }
       return { ...v, consentiti };
     });
+    // skill incorporate: fasce proprie (calcolate sulle loro voci) ed errori gravi
+    const bl = new Map();
+    for (const v of voci) if (v.blocco_id) bl.set(v.blocco_id, { id: v.blocco_id, nome: v.blocco_nome, n: (bl.get(v.blocco_id)?.n ?? 0) + 1 });
+    if (bl.size) {
+      const { rows: pg } = await pool.query('select id, errori_gravi, fasce from patologia where id = any($1::uuid[])', [[...bl.keys()]]);
+      s.blocchi = [...bl.values()].map((b) => { const p = pg.find((x) => x.id === b.id); return { ...b, fasce: p?.fasce?.length ? p.fasce : fasceAuto(b.n), errori_gravi: p?.errori_gravi ?? [] }; });
+    }
     return s;
   });
   // esito di una scheda per una squadra/candidato (esami, corsi, allenamenti): punti, percentuale, soglia, PDF
@@ -511,7 +518,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       `select v.ordine, v.sezione, v.testo, r.livello,
               case r.livello when 'MB' then v.mb when 'BE' then v.be when 'SU' then v.su when 'IN' then v."in" when 'NE' then v.ne end as punti,
               coalesce(greatest(v.mb, v.be, v.su, v."in", v.ne), 0) as max, (v.be is null and v."in" is null) as tre
-         from scena_scheda_voce v left join risposta r on r.voce_id = v.id and r.compilazione_id = $2 where v.scheda_id=$1 order by v.ordine`, [s.id, c?.id ?? null]);
+         from scena_scheda_voce v left join risposta r on r.voce_id = v.id and r.compilazione_id = $2 where v.scheda_id=$1 and v.blocco_id is null order by v.ordine`, [s.id, c?.id ?? null]);
     const punti = voci.reduce((a, v) => a + (v.livello ? Number(v.punti) : 0), 0), massimo = voci.reduce((a, v) => a + Number(v.max), 0);
     const pdf = await generaEsitoPdf({ evento: e, scheda: s.titolo, candidato: q, giudice: c?.giudice, voci, punti, massimo, soglia: e.soglia_pct ? Number(e.soglia_pct) : null, fasce: s.fasce ?? (SKILL_AUTO.includes(e.tipo) && voci.length ? fasceAuto(voci.length) : null) });
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="esito.pdf"').send(pdf);
@@ -621,6 +628,36 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     `select pv.ordine, pv.sezione, v.testo, sp.codice as scala, pv.is_sep from patologia_voce pv
        join voce v on v.id=pv.voce_id join scala_punteggio sp on sp.id=pv.scala_id
       where pv.patologia_id=$1 order by pv.ordine`, [req.params.id])).rows; });
+  // skill incorporate in una scheda composta: dopo quale voce si aprono
+  app.get('/api/libreria/patologie/:id/skill', { preHandler: soloOrg }, async (req) => {
+    await controllaScheda(pool, req.utente, req.params.id, { modifica: false });
+    return (await pool.query(`select ps.dopo_ordine, ps.skill_id, p.nome, p.sigla, (select count(*)::int from patologia_voce where patologia_id=p.id) as voci
+      from patologia_skill ps join patologia p on p.id=ps.skill_id where ps.patologia_id=$1 order by ps.dopo_ordine, p.nome`, [req.params.id])).rows;
+  });
+  app.put('/api/libreria/patologie/:id/skill', { preHandler: soloOrg }, async (req) => {
+    await controllaScheda(pool, req.utente, req.params.id, { modifica: true });
+    const l = Array.isArray(req.body?.skill) ? req.body.skill : null;
+    if (!l || l.length > 20) throw httpErr(400, 'elenco delle skill non valido');
+    const { rows: [{ n }] } = await pool.query('select count(*)::int n from patologia_voce where patologia_id=$1', [req.params.id]);
+    const visti = new Set();
+    for (const x of l) {
+      if (!/^[0-9a-f-]{36}$/i.test(x?.skill_id || '') || !Number.isInteger(x.dopo_ordine) || x.dopo_ordine < 0 || x.dopo_ordine > n) throw httpErr(400, 'skill o posizione non valida');
+      if (x.skill_id === req.params.id) throw httpErr(400, 'una scheda non può incorporare se stessa');
+      if (visti.has(x.skill_id)) throw httpErr(400, 'la stessa skill non può comparire due volte: il suo punteggio è uno solo');
+      visti.add(x.skill_id);
+      const { rows: [sk] } = await pool.query('select tipologie, categoria from patologia where id=$1', [x.skill_id]);
+      if (!sk) throw httpErr(404, 'skill inesistente');
+      if (!èSkill(sk)) throw httpErr(400, 'si possono incorporare solo schede di tipo skill');
+      if ((await pool.query('select 1 from patologia_skill where patologia_id=$1', [x.skill_id])).rowCount) throw httpErr(400, 'una skill che ne incorpora altre non può essere incorporata');
+    }
+    const c = await pool.connect();
+    try {
+      await c.query('begin'); await c.query('delete from patologia_skill where patologia_id=$1', [req.params.id]);
+      for (const x of l) await c.query('insert into patologia_skill (patologia_id, dopo_ordine, skill_id) values ($1,$2,$3)', [req.params.id, x.dopo_ordine, x.skill_id]);
+      await c.query('commit');
+    } catch (e) { await c.query('rollback'); throw e; } finally { c.release(); }
+    return { ok: true };
+  });
   // anteprima di una scheda della libreria con lo stesso template delle schede stampate (PDF)
   app.get('/api/libreria/patologie/:id/anteprima.pdf', { preHandler: soloOrg }, async (req, reply) => {
     await controllaScheda(pool, req.utente, req.params.id, { modifica: false });

@@ -38,8 +38,7 @@ export async function aggiungiSchedaDaPatologia(db, {
      join scala_punteggio sp on sp.id = pv.scala_id
      where pv.patologia_id = $2`, [scheda.id, pat.id]);
   const { rows: [{ righe }] } = await db.query(
-    `select count(*)::int + count(distinct sezione)::int as righe from scena_scheda_voce where scheda_id=$1`, [scheda.id]);
-  if (righe > RIGHE_MAX) throw httpErr(400, `la scheda "${scheda.titolo}" avrebbe ${righe} righe: troppe per una pagina (max ${RIGHE_MAX})`);
+    `select count(*)::int + count(distinct sezione)::int as righe from scena_scheda_voce where scheda_id=$1`, [scheda.id]);   // le skill incorporate si stampano a parte: contano solo le voci della scheda
   for (const o of overrides) {
     await db.query(
       `update scena_scheda_voce set
@@ -49,6 +48,21 @@ export async function aggiungiSchedaDaPatologia(db, {
        where scheda_id = $1 and ordine = $2`,
       [scheda.id, o.ordine, o.mb ?? null, o.be ?? null, o.su ?? null, o.in ?? null, o.ne ?? null, o.is_sep ?? null]);
   }
+  // skill incorporate: i loro punteggi restano separati (blocco_id) e le voci si inseriscono dopo la voce indicata (ordine = dopo × 1000 + n)
+  await db.query(
+    `insert into scena_scheda_voce (scheda_id, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep, blocco_id, blocco_nome)
+     select $1, ps.dopo_ordine * 1000 + pv.ordine, sk.nome, v.id, v.testo, sp.codice, sp.mb, sp.be, sp.su, sp."in", sp.ne, false, sk.id, sk.nome
+       from patologia_skill ps join patologia sk on sk.id = ps.skill_id
+       join patologia_voce pv on pv.patologia_id = sk.id join voce v on v.id = pv.voce_id join scala_punteggio sp on sp.id = pv.scala_id
+      where ps.patologia_id = $2`, [scheda.id, pat.id]);
+  // ordine definitivo 1..n: le voci della scheda valgono ordine × 1000, quelle delle skill dopo × 1000 + n
+  const { rowCount: nSkill } = await db.query('select 1 from scena_scheda_voce where scheda_id=$1 and blocco_id is not null limit 1', [scheda.id]);
+  if (nSkill) {
+    await db.query(`update scena_scheda_voce v set ordine = k.rn + 1000000 from (
+        select id, row_number() over (order by case when blocco_id is null then ordine * 1000 else ordine end) as rn from scena_scheda_voce where scheda_id=$1) k where v.id = k.id`, [scheda.id]);
+    await db.query('update scena_scheda_voce set ordine = ordine - 1000000 where scheda_id=$1', [scheda.id]);
+  }
+  if (righe > RIGHE_MAX) throw httpErr(400, `la scheda "${scheda.titolo}" avrebbe ${righe} righe: troppe per una pagina (max ${RIGHE_MAX})`);
   return scheda;
 }
 
@@ -65,8 +79,8 @@ export async function duplicaScena(db, { scenaId, eventoDestId, nuovoCodice }) {
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`,
       [nuova.id, sc.slot, sc.patologia_id, sc.titolo, sc.sigla, sc.simulatore, sc.is_bls, sc.is_master, sc.is_diu, sc.parametri, sc.fasce ? JSON.stringify(sc.fasce) : null, sc.gravita, sc.macro]);
     await db.query(
-      `insert into scena_scheda_voce (scheda_id, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep)
-       select $1, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep
+      `insert into scena_scheda_voce (scheda_id, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep, blocco_id, blocco_nome)
+       select $1, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep, blocco_id, blocco_nome
        from scena_scheda_voce where scheda_id = $2`, [n.id, sc.id]);
   }
   return nuova;

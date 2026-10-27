@@ -984,6 +984,31 @@ test('SKILL-1: le skill hanno stampa propria (0-1-2, giudizi, errori gravi) e le
   }
 });
 
+test('COMP-1: scheda composta — la skill incorporata si apre dopo la voce indicata, con punteggio separato dai totali', async () => {
+  const O = tok['org@t'], G = tok['giu@t'];
+  const comp = json(await chiama('POST', '/api/libreria/patologie', { token: O, body: { codice: 'COMP_X', nome: 'Valutazione composta', sigla: 'VCX', voci: [
+    { sezione: 'A', testo: 'comp voce uno', scala: 'Standard' }, { sezione: 'A', testo: 'comp voce due', scala: 'Standard' }, { sezione: 'B', testo: 'comp voce tre', scala: 'Standard' }] } }));
+  const { rows: [sk] } = await pool.query(`select id from patologia where codice='skill-scoop-trasporto'`);
+  assert.equal((await chiama('PUT', `/api/libreria/patologie/${comp.id}/skill`, { token: G, body: { skill: [{ skill_id: sk.id, dopo_ordine: 2 }] } })).statusCode, 403);
+  assert.equal((await chiama('PUT', `/api/libreria/patologie/${comp.id}/skill`, { token: O, body: { skill: [{ skill_id: sk.id, dopo_ordine: 2 }, { skill_id: sk.id, dopo_ordine: 1 }] } })).statusCode, 400);   // la stessa skill una volta sola
+  assert.equal((await chiama('PUT', `/api/libreria/patologie/${comp.id}/skill`, { token: O, body: { skill: [{ skill_id: comp.id, dopo_ordine: 1 }] } })).statusCode, 400);
+  assert.equal((await chiama('PUT', `/api/libreria/patologie/${comp.id}/skill`, { token: O, body: { skill: [{ skill_id: sk.id, dopo_ordine: 2 }] } })).statusCode, 200);
+  assert.equal(json(await chiama('GET', `/api/libreria/patologie/${comp.id}/skill`, { token: O })).length, 1);
+  const { rows: [ev] } = await pool.query(`select id from evento order by codice limit 1`);
+  const sc = json(await chiama('POST', `/api/eventi/${ev.id}/scene`, { token: O, body: { codice: 'CP', titolo: 'Composta' } }));
+  const s = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { slot: 0, patologiaId: comp.id, simulatore: 'M' } }));
+  const g = json(await chiama('GET', `/api/schede/${s.id}`, { token: O }));
+  assert.equal(g.voci.length, 3 + 19);
+  assert.deepEqual(g.voci.map((v) => v.testo).slice(0, 4), ['comp voce uno', 'comp voce due', 'Mantiene sempre il capo (il soccorritore di testa non lascia la presa fino al montaggio della cintura H)', 'Posiziona il cuscino e la base fermacapo sotto la testa']);
+  assert.equal(g.voci[g.voci.length - 1].testo, 'comp voce tre');
+  assert.equal(g.voci.filter((v) => v.blocco_id).length, 19);
+  assert.equal(g.blocchi.length, 1); assert.equal(g.blocchi[0].n, 19); assert.equal(g.blocchi[0].fasce.find((f) => f.nome === 'Sufficiente').da, 29); assert.equal(g.blocchi[0].errori_gravi.length, 3);
+  const { rows: [mx] } = await pool.query(`select max_totale from v_massimi_evento where evento_id=$1`, [ev.id]);
+  const { rows: [sm] } = await pool.query(`select coalesce(sum(greatest(mb,be,su,"in",ne)),0)::int as t from scena_scheda_voce where scheda_id=$1 and blocco_id is null`, [s.id]);
+  assert.ok(Number(mx.max_totale) >= sm.t);
+  const pdf = await chiama('GET', `/api/schede/${s.id}/anteprima.pdf`, { token: O }); assert.equal(pdf.statusCode, 200);
+});
+
 test('ESA-1 area Esami: sessione, principale + secondari, valore diverso per un candidato, errore grave, chiusura, PDF', async () => {
   const O = tok['org@t'], G = tok['giu@t'];
   assert.equal((await chiama('GET', '/api/esami/sessioni', { token: G })).statusCode, 403);          // il giudice non entra

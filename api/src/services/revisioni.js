@@ -139,7 +139,7 @@ async function trovaOCreaVoce(db, testo) {
   return (await db.query('insert into voce (testo) values ($1) returning id', [testo])).rows[0].id;
 }
 async function copiaVociInPatologia(db, schedaId, patId) {
-  const { rows } = await db.query('select * from scena_scheda_voce where scheda_id=$1 order by ordine', [schedaId]);
+  const { rows } = await db.query('select * from scena_scheda_voce where scheda_id=$1 and blocco_id is null order by ordine', [schedaId]);   // le skill incorporate restano nella loro scheda
   await db.query('delete from patologia_voce where patologia_id=$1', [patId]);
   for (const [k, v] of rows.entries()) await db.query('insert into patologia_voce (patologia_id, ordine, sezione, voce_id, scala_id, is_sep) values ($1,$2,$3,$4,$5,$6)',
     [patId, k + 1, v.sezione, await trovaOCreaVoce(db, v.testo), await trovaOCreaScala(db, v), v.is_sep]);
@@ -161,6 +161,7 @@ export async function salvaRevisioneDaScena(db, utente, schedaId, { modo, confer
        select $2, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2, fasce, descrizione, comitato, $3, false, macro, macro2, gravita, livello, regione, tipologie, gruppo_id, $4, $5, errori_gravi from patologia where id=$1 returning id`,
       [p.id, `${p.codice}-R${r}-${Math.random().toString(36).slice(2, 6)}`, utente.id, r, s.evento_id]);
     await copiaVociInPatologia(db, schedaId, n.id);
+    await db.query('insert into patologia_skill (patologia_id, dopo_ordine, skill_id) select $2, dopo_ordine, skill_id from patologia_skill where patologia_id=$1', [p.id, n.id]);
     await db.query('update scena_scheda set patologia_id=$2 where id=$1', [schedaId, n.id]);
     return { ok: true, id: n.id, revisione: r };
   }
@@ -177,8 +178,8 @@ export async function salvaRevisioneDaScena(db, utente, schedaId, { modo, confer
   const n = await copiaVociInPatologia(db, schedaId, p.id);
   for (const x of daAggiornare) {
     await db.query('delete from scena_scheda_voce where scheda_id=$1', [x.id]);
-    await db.query(`insert into scena_scheda_voce (scheda_id, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep)
-      select $1, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep from scena_scheda_voce where scheda_id=$2`, [x.id, schedaId]);
+    await db.query(`insert into scena_scheda_voce (scheda_id, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep, blocco_id, blocco_nome)
+      select $1, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep, blocco_id, blocco_nome from scena_scheda_voce where scheda_id=$2`, [x.id, schedaId]);
   }
   await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'correggi_revisione','patologia',$2,$3)`, [utente.id, p.id, JSON.stringify({ voci: n, scene_aggiornate: daAggiornare.length })]);
   return { ok: true, id: p.id, revisione: p.revisione, aggiornate: daAggiornare.length, intatte: intatte.length };
