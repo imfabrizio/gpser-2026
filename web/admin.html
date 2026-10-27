@@ -283,7 +283,8 @@ async function tEvento() {
     ${fam === 'corsi' ? '<div><label>N° corso su Gaia</label><input id="n_gaia" placeholder="es. 12345"></div>' : ''}
     ${fam !== 'corsi' ? '' : `<div><label>Corso di riferimento (Mega Code, esami)</label><select id="n_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato).map((x) => `<option value="${x.id}">${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div>`}</div>
     <p class="nota" style="margin:8px 0 0"><b>Luogo</b> (comune dell'evento)</p>${htmlComune('nc')}
-    <p><button class="b" id="n_crea">Crea evento</button></p></div>`}`;
+    <p><button class="b" id="n_crea">Crea evento</button></p></div>`}${cardArchiviati(FAM_TIPI[fam === 'corsi' ? 'corsi' : 'gara'], fam === 'corsi' ? 'Archiviati' : 'Gare e allenamenti archiviati')}`;
+  legaRiapri();
   if (ev && fam !== 'corsi') caricaRotazione();
   if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});
   legaSelettore();
@@ -405,6 +406,9 @@ async function anteprimaCanovaccio(c) {
 }
 
 // ───────── CORSI: corso (n. Gaia) con i suoi Mega Code ed esami ─────────
+// elenco di ciò che è stato archiviato, con il tasto per riaprirlo (utile per le prove)
+const cardArchiviati = (tipi, titolo) => { const l = eventi.filter((e) => e.archiviato && tipi.includes(e.tipo)); return l.length ? `<div class="card"><h3>${titolo}</h3>${l.map((e) => `<div class="riga" style="align-items:center"><div style="flex:3"><b>${esc(e.nome)}</b> <small>${esc(NOME_TIPO[e.tipo] || e.tipo)}${e.data ? ' · ' + esc(periodo(e)) : ''}</small></div><div class="stretto"><button class="s p riap" data-id="${e.id}">Riapri</button></div></div>`).join('')}</div>` : ''; };
+const legaRiapri = () => document.querySelectorAll('.riap').forEach((b) => { b.onclick = () => fai(() => api(`/eventi/${b.dataset.id}`, { method: 'PATCH', body: { archiviato: false } }).then(caricaEventi), 'Riaperto'); });
 let creaCorso = false;
 const periodo = (c) => (c.data ? dataIt(c.data) + (c.data_fine && c.data_fine !== c.data ? ' – ' + dataIt(c.data_fine) : '') : 'date da indicare');
 async function tNuovoCorso() {
@@ -434,7 +438,8 @@ async function tCorsi() {
       <p><b>Sessioni d'esame</b> ${sess.filter((x) => x.evento_id === c.id).map((x) => `<button class="s p" onclick="location.href='/esami.html#s/${x.id}'">${esc(x.nome)} (${x.prove})</button>`).join(' ') || '<small>nessuna</small>'} <button class="b p" onclick="location.href='/esami.html'">Crea esame</button></p>
       <p><b>Formatori invitati</b> ${extra[c.id][0].map((i) => `<span class="tag">${esc(i.nome)}${i.comitato ? ' · ' + esc(i.comitato) : ''} <a href="#" class="dinv" data-e="${c.id}" data-u="${i.utente_id}" title="Togli">×</a></span>`).join(' ') || '<small>nessuno</small>'}
         <select class="inv" data-e="${c.id}"><option value="">Invita un trainer / formatore…</option>${extra[c.id][1].map((x) => `<option value="${x.id}">${esc(x.cognome + ' ' + x.nome)}${x.comitato ? ' · ' + esc(x.comitato) : ''}</option>`).join('')}</select></p>
-      <p><button class="s p apri" data-id="${c.id}">Dati del corso</button> <button class="s p dsc" data-id="${c.id}">Discenti</button></p></div>`).join('') || '<div class="card"><em>Nessun corso: creane uno con «Crea nuovo corso».</em></div>'}`;
+      <p><button class="s p apri" data-id="${c.id}">Dati del corso</button> <button class="s p dsc" data-id="${c.id}">Discenti</button></p></div>`).join('') || '<div class="card"><em>Nessun corso: creane uno con «Crea nuovo corso».</em></div>'}${cardArchiviati(['corso', 'megacode', 'esame'], 'Archiviati')}`;
+  legaRiapri();
   $('#c_nuovo').onclick = () => { creaCorso = true; render(); };
   document.querySelectorAll('.nmc').forEach((b) => { b.onclick = () => { const c = eventi.find((e) => e.id === b.dataset.id), n = figli(c).filter((e) => e.tipo === 'megacode').length + 1;
     fai(async () => { const e = await api('/eventi', { body: { codice: `${c.codice}-MC${n}`, tipo: 'megacode', nome: `Mega Code ${n} · ${c.nome}`, titolo_stampa: `Mega Code ${n}`, luogo: c.luogo, data: c.data, corso_id: c.id } });

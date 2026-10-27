@@ -2935,7 +2935,7 @@ create table if not exists sessione_esame_invito (
   primary key (sessione_id, utente_id)
 );
 create index if not exists sessione_esame_invito_utente_idx on sessione_esame_invito (utente_id);
-insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql'), ('055-preferenze-utente.sql') on conflict do nothing;
+insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql'), ('055-preferenze-utente.sql'), ('056-istruttore-du-apre-corsi.sql') on conflict do nothing;
 
 -- 046-skill-fasce-scoop
 -- Skill: fasce di giudizio automatiche (75/80/85/95%, calcolate sul numero di voci) e Barella Scoop in due schede (trasporto, semi-verticalizzazione).
@@ -3539,3 +3539,6 @@ insert into patologia_skill (patologia_id, dopo_ordine, skill_id) select p.id, 2
 
 -- 055-preferenze-utente
 alter table utente add column if not exists preferenze jsonb not null default '{}'::jsonb;
+
+-- 056-istruttore-du-apre-corsi
+update qualifica set ambito = 'locale' where codice = 'istruttore_du' and ambito is null;
