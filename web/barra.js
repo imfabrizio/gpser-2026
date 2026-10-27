@@ -55,9 +55,11 @@
       sede = dove || sede; const me = leggi('me'), h = document.querySelector('header'); if (!h || !me || !localStorage.getItem('token') || me.in_attesa) { document.getElementById('aree')?.remove(); document.getElementById('campana')?.remove(); return; }
       const lista = aree(me);
       let s = document.getElementById('aree');
-      if (lista.length > 1 && sede !== 'admin' && !document.getElementById('homeb')) { const a = document.createElement('a'); a.id = 'homeb'; a.href = '/'; a.title = 'Home: scelta dell\'area'; a.textContent = 'Home'; (h.querySelector('h1') || h.firstChild).after(a); }
+      // icona Home sempre presente, in ogni pagina, accanto al logo
+      if (!h.querySelector('a.home') && !document.getElementById('homeb')) { const a = document.createElement('a'); a.id = 'homeb'; a.className = 'home'; a.href = '/'; a.title = 'Home'; a.setAttribute('aria-label', 'Home'); a.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg>'; (h.querySelector('img') || h.firstChild).after(a); }
+      document.getElementById('hhome')?.setAttribute('hidden', '');
       if (lista.length > 1) {
-        if (!s) { s = document.createElement('select'); s.id = 'aree'; s.title = 'Cambia area'; s.setAttribute('aria-label', 'Area'); const h1 = h.querySelector('h1'); (document.getElementById('homeb') || h1 || h.firstChild).after(s);
+        if (!s) { s = document.createElement('select'); s.id = 'aree'; s.title = 'Cambia area'; s.setAttribute('aria-label', 'Area'); const h1 = h.querySelector('h1'); (h.querySelector('a.home') || h1 || h.firstChild).after(s);
           s.onchange = () => { const v = s.value; if (v === 'comune') { location.href = '/admin.html#hub:comune'; return; }
             if (sede === 'admin') { location.hash = '#hub:' + (v === 'formazione' ? 'corsi' : 'gara'); return; }
             localStorage.setItem('mondo', v); if (location.pathname === '/' && !location.hash) location.reload(); else location.href = '/'; }; }

@@ -32,10 +32,13 @@
   .sezione { background:var(--inchiostro); color:#fff; font-family:var(--titoli); font-size:18px; border-radius:6px; padding:6px 10px; margin:10px 0 6px; }
   .grave { display:flex; gap:8px; align-items:center; font-weight:700; } .grave input { width:22px; height:22px; }
   .sola-lettura .liv button { pointer-events:none; }
+  a.indietro { display:inline-flex; align-items:center; gap:4px; padding:8px 14px; border:1.5px solid #8C94A3; border-radius:999px; background:#fff; color:inherit; font-weight:700; text-decoration:none; }
+  a.indietro:hover { background:#eef0f3; }
   @media (max-width:700px) { .liv { width:100%; } .liv button { flex:1 1 0; width:auto; min-width:0; } }
 </style></head><body>
-<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">Esami</h1><a class="home" href="/" title="Torna alla Home" aria-label="Home"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg></a><a id="chi" href="/#account" title="Il mio account">Il mio account</a><button id="esci">Esci</button></header>
+<header><img class="logo" src="/logo-cri.jpg" alt="Croce Rossa Italiana"><h1 id="titolo">Esami</h1><a id="chi" href="/#account" title="Il mio account">Il mio account</a><button id="esci">Esci</button></header>
 <main id="app"><p>Caricamento…</p></main>
+<script src="barra.js"></script><script src="widget.js"></script><script src="layout.js"></script>
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -73,7 +76,7 @@ async function sessione(sid) {
   const [d, schede] = await Promise.all([api('/esami/sessioni/' + sid), api('/esami/schede')]);
   $('#titolo').textContent = d.sessione.nome;
   const cr = (i) => `<div class="riga" style="margin-bottom:6px"><div style="flex:2"><label>${i === 0 ? 'Candidato principale' : 'Candidato secondario (facoltativo)'}</label><input class="c_n" list="pers" autocomplete="off"></div><div><label>Comitato</label><input class="c_c"></div></div>`;
-  $('#app').innerHTML = `<p><a href="#">← Tutte le sessioni</a> · ${esc(d.sessione.luogo || '')} ${dataIt(d.sessione.data)}</p>
+  $('#app').innerHTML = `<p><a class="indietro" href="#">‹ Tutte le sessioni</a> ${esc(d.sessione.luogo || '')} ${dataIt(d.sessione.data)}</p>
     ${d.prove.map((p) => `<div class="card"><div class="riga"><div><a href="#p/${p.id}"><b style="font-size:18px">${esc(p.titolo)}</b></a><br><small>Valutatore: ${esc(p.valutatore || '—')} · ${p.stato === 'chiusa' ? 'chiusa' : 'in compilazione'}</small></div>
       <div class="stretto"><a class="btn" href="#p/${p.id}">${p.stato === 'chiusa' ? 'Apri' : 'Compila'}</a> <button class="s delp" data-id="${p.id}">Elimina</button></div></div>
       ${p.candidati.map((c) => `<div class="cand"><span>${esc(c.nome)}${c.comitato ? ' <small>(' + esc(c.comitato) + ')</small>' : ''} <small>${c.ruolo}</small></span><span>${c.esito.punti}/${c.esito.massimo}${c.esito.giudizio && c.esito.completa ? ' · ' + esc(c.esito.giudizio) : ''} ${badge(c.esito)}</span></div>`).join('')}</div>`).join('') || '<p class="nota">Nessuna prova: aggiungine una qui sotto.</p>'}
@@ -125,7 +128,7 @@ async function prova(pid, p) {
       ['NE', 'SU', 'MB'].map((k) => `<button data-l="${k}" class="${cur === k ? 'on' : ''}${sel && cur === k && !div ? ' ered' : ''}">${ET[k]} (${v[k.toLowerCase()]})</button>`).join('') + '</div></div>';
   }
   const graveVal = sel ? (sel.errore_grave ?? p.errore_grave) : p.errore_grave;
-  $('#app').innerHTML = `<p><a href="#s/${p.sessione_id}">← Sessione</a></p>
+  $('#app').innerHTML = `<p><a class="indietro" href="#s/${p.sessione_id}">‹ Torna alla sessione</a></p>
     <div class="stato-bar">${p.candidati.map((c) => `<div><b>${esc(c.nome)}</b> ${c.esito.punti}/${c.esito.massimo}${c.esito.giudizio ? ' · ' + esc(c.esito.giudizio) : ''} ${badge(c.esito)}</div>`).join('')}</div>
     ${p.candidati.length > 1 ? `<div><small>Sto valutando</small><div class="chips"><button class="chip${modo ? '' : ' on'}" data-m="">Tutti i candidati</button>${p.candidati.map((c) => `<button class="chip${modo === c.id ? ' on' : ''}" data-m="${c.id}">Solo ${esc(c.nome)}</button>`).join('')}</div>
     <p class="nota">${sel ? `Ogni voce che cambi vale solo per ${esc(sel.nome)}; le altre restano uguali a quelle di tutti.` : 'Ogni voce che segni vale per tutti i candidati.'}</p></div>` : ''}
@@ -152,5 +155,7 @@ async function route() {
   try { if (t === 's' && id) await sessione(id); else if (t === 'p' && id) { modo = null; await prova(id); } else await elenco(); }
   catch (e) { $('#app').innerHTML = `<div class="card"><b>${esc(e.message)}</b><p><a href="/">Torna alla Home</a></p></div>`; }
 }
-window.onhashchange = route; route();
+try { localStorage.setItem('mondo', 'formazione'); } catch { /* ignora */ }
+const routeB = async () => { await route(); window.Barra && Barra.disegna('esami', 'formazione'); window.Layout && Layout.disegna(); };
+window.onhashchange = routeB; routeB();
 </script></body></html>
