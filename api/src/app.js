@@ -32,12 +32,14 @@ import { registraComitati } from './routes-comitati.js';
 import { canonico } from './comitati.js';
 import { generaClassificaPdf } from './pdf/classifica.js';
 import { generaEsitoPdf } from './pdf/esito.js';
+import { fasceAuto } from './esito.js';
 import { registraAi } from './routes-ai.js';
 import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO } from './ambito.js';
 import { haSchede, comitatoDi, controllaScheda, tipologieValide } from './libreria-ambito.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
+const SKILL_AUTO = ['esame', 'corso', 'megacode'];   // schede con fasce di giudizio calcolate sul numero di voci quando non ne hanno di proprie
 const TIPI_EVENTO = ['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode', 'corso_giudici'];
 
 export function buildApp(pool, { logger = false, fetchImpl } = {}) {
@@ -476,6 +478,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const voci = (await pool.query('select * from scena_scheda_voce where scheda_id=$1 order by ordine', [s.id])).rows;
     const { rows: [ve] } = await pool.query('select e.tipo, e.soglia_pct, e.mostra_punteggi from scena sc join evento e on e.id = sc.evento_id where sc.id=$1', [s.scena_id]);
     s.evento = ve;
+    if (!s.fasce && SKILL_AUTO.includes(ve?.tipo) && voci.length) s.fasce = fasceAuto(voci.length);
     const LIVELLI = ['mb', 'be', 'su', 'in', 'ne'];
     s.voci = voci.map((v) => {
       const consentiti = LIVELLI.filter((l) => v[l] !== null).map((l) => l.toUpperCase());
@@ -507,7 +510,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
               coalesce(greatest(v.mb, v.be, v.su, v."in", v.ne), 0) as max, (v.be is null and v."in" is null) as tre
          from scena_scheda_voce v left join risposta r on r.voce_id = v.id and r.compilazione_id = $2 where v.scheda_id=$1 order by v.ordine`, [s.id, c?.id ?? null]);
     const punti = voci.reduce((a, v) => a + (v.livello ? Number(v.punti) : 0), 0), massimo = voci.reduce((a, v) => a + Number(v.max), 0);
-    const pdf = await generaEsitoPdf({ evento: e, scheda: s.titolo, candidato: q, giudice: c?.giudice, voci, punti, massimo, soglia: e.soglia_pct ? Number(e.soglia_pct) : null, fasce: s.fasce });
+    const pdf = await generaEsitoPdf({ evento: e, scheda: s.titolo, candidato: q, giudice: c?.giudice, voci, punti, massimo, soglia: e.soglia_pct ? Number(e.soglia_pct) : null, fasce: s.fasce ?? (SKILL_AUTO.includes(e.tipo) && voci.length ? fasceAuto(voci.length) : null) });
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="esito.pdf"').send(pdf);
   });
   // override per scena: solo i campi presenti nel corpo vengono cambiati (null = livello non consentito)

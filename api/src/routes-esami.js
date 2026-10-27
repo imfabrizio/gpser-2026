@@ -2,7 +2,7 @@
 // su una singola voce si può dare un valore diverso a un candidato. L'esito è Superato / Non superato.
 import { httpErr } from './services/compilazioni.js';
 import { canonico } from './comitati.js';
-import { valutaEsito } from './esito.js';
+import { valutaEsito, fasceAuto } from './esito.js';
 import { generaEsitoPdf } from './pdf/esito.js';
 import { generaRiepilogoEsamiPdf } from './pdf/riepilogo-esami.js';
 import { accessoSessione } from './esami-accesso.js';
@@ -27,7 +27,7 @@ export function esitoCandidato(prova, cand, risposte) {
     return { ordine: v.ordine, sezione: v.sezione, testo: v.testo, livello, punti: p, max, diverso: propri.has(v.ordine), tre: true };
   });
   const erroreGrave = cand.errore_grave ?? prova.errore_grave;
-  const e = valutaEsito({ punti, massimo, fasce: prova.fasce, soglia: SOGLIA_DEFAULT });
+  const e = valutaEsito({ punti, massimo, fasce: prova.fasce ?? fasceAuto(prova.voci.length), soglia: SOGLIA_DEFAULT });
   return { punti, massimo, perc: e.perc, giudizio: e.giudizio, sogliaPunti: e.sogliaPunti, erroreGrave, completa: date === prova.voci.length,
     superato: !erroreGrave && !!e.superato, righe };
 }
@@ -207,7 +207,7 @@ export function registraEsami(app, pool, { soloOrg }) {
     const principale = p.candidati.find((x) => x.ruolo === 'principale');
     const nota = c.ruolo === 'secondario' ? `valutato con ${principale?.nome || 'il candidato principale'}` : null;
     const pdf = await generaEsitoPdf({ evento: { ...s, tipo: 'esame' }, scheda: p.titolo, candidato: c, giudice: p.valutatore,
-      voci: c.esito.righe, punti: c.esito.punti, massimo: c.esito.massimo, soglia: SOGLIA_DEFAULT, fasce: p.fasce, erroreGrave: !!c.esito.erroreGrave, nota });
+      voci: c.esito.righe, punti: c.esito.punti, massimo: c.esito.massimo, soglia: SOGLIA_DEFAULT, fasce: p.fasce ?? fasceAuto(p.voci.length), erroreGrave: !!c.esito.erroreGrave, nota });
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="esito.pdf"').send(pdf);
   });
   app.get('/api/esami/sessioni/:id/riepilogo.pdf', { preHandler: soloOrg }, async (req, reply) => {

@@ -968,7 +968,7 @@ test('ES-2 schede d\'esame TSSA: 4 schede in libreria, scala 0-1-2, fasce di giu
   const sq = json(await chiama('POST', `/api/eventi/${ev2.id}/squadre`, { token: O, body: { nome: 'Candidato prova' } }));
   const g = json(await chiama('GET', `/api/schede/${sk.id}`, { token: G }));
   assert.equal(g.voci.length, 22); assert.deepEqual(g.voci[0].consentiti.sort(), ['MB', 'NE', 'SU']); assert.deepEqual(g.voci[0].punti, { MB: 2, SU: 1, NE: 0 });
-  assert.equal(g.fasce.find((f) => f.nome === 'Sufficiente').da, 32);
+  assert.equal(g.fasce.find((f) => f.nome === 'Sufficiente').da, 33);   // 75% di 44, arrotondato per eccesso
   const pdf = await chiama('GET', `/api/schede/${sk.id}/esito.pdf?squadra=${sq.id}`, { token: G });
   assert.equal(pdf.statusCode, 200);
 });
