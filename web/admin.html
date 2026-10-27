@@ -44,6 +44,8 @@ body.corsi .csep{display:none}
   table.punteggi input[type=checkbox] { display:block; margin:0 auto; }
   .griglia { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; }
   .scena { border-left:6px solid var(--rosso); padding:0; overflow:hidden } .scena.sosta { border-left-color:#7a8cab }
+  .sez-c { padding:10px 14px; border-top:1px solid #e3e5ea } .sez-t { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px } .sez-r { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 0; border-top:1px solid #f0f1f4 } .sez-a { display:flex; gap:8px; justify-content:flex-end; align-items:center }
+  details.aggiungi { margin:0 14px 10px; border:1px solid #d9dce3; border-radius:10px; padding:8px 12px } details.aggiungi summary { cursor:pointer; font-weight:700 } .lista-t { max-height:260px; overflow:auto; margin:8px 0; border:1px solid #eee; border-radius:8px; padding:6px 10px } .gr-t { margin-bottom:8px } .ck-t { display:block; font-size:15px; color:inherit; padding:3px 0; margin:0 } .ck-t input { width:auto; margin-right:6px }
   .scena .sc-testa { display:flex; align-items:center; gap:10px; padding:12px 14px; background:#f6f7f9; flex-wrap:wrap } .scena .sc-testa h3 { margin:0; flex:1 1 280px } .scena .sc-t { border:0; background:#fff; border:1px solid var(--bordo); border-radius:8px; width:36px; height:36px; font-size:18px; cursor:pointer } .scena .sc-sint { color:#555 }
   .scena .sc-corpo { padding:14px; border-top:1px solid var(--bordo) } .scena .sc-corpo[hidden] { display:none }
   #tabs.strumenti { display:none } #tabs .w { background:#f6f7f9; border-radius:12px; padding:12px; margin-bottom:12px; font-size:14px; white-space:normal } #tabs .w h4 { margin:0 0 6px; font-size:13px; color:#555; font-weight:600 }
@@ -223,10 +225,13 @@ async function caricaEventi() {
   impostaFam(fam);
 }
 const etichettaEv = (e) => `${esc(e.codice)} – ${esc(e.nome)}${e.attivo ? ' (attivo)' : ''}${e.invitato ? ' · invitato' : ''}`;
+// nei corsi i Mega Code stanno dentro il loro corso, non in un elenco a parte
+const raggruppaCorsi = (l, opt) => { const corsi = l.filter((e) => e.tipo === 'corso'), id = new Set(corsi.map((c) => c.id)), resto = l.filter((e) => e.tipo !== 'corso' && !id.has(e.corso_id));
+  return corsi.map((c) => `<optgroup label="${esc(c.nome)}">${opt(c)}${l.filter((e) => e.corso_id === c.id).map((e) => opt(e).replace('>', '>↳ ')).join('')}</optgroup>`).join('') + (resto.length ? `<optgroup label="Altri">${resto.map(opt).join('')}</optgroup>` : ''); };
 const selettoreEvento = () => { const l = eventiFam(), opt = (e) => `<option value="${e.id}" ${ev && e.id === ev.id ? 'selected' : ''}>${etichettaEv(e)}</option>`;
   const all = l.filter((e) => e.tipo === 'allenamento'), altri = l.filter((e) => e.tipo !== 'allenamento');
   return `<div class="card"><label>${fam === 'corsi' ? 'Corso / evento' : 'Gara o allenamento'}</label><div class="riga">
-  <select id="selev">${fam === 'gara' && all.length && altri.length ? `<optgroup label="Gare e Olimpiadi">${altri.map(opt).join('')}</optgroup><optgroup label="Allenamenti">${all.map(opt).join('')}</optgroup>` : l.map(opt).join('')}</select></div></div>`; };
+  <select id="selev">${fam === 'corsi' ? raggruppaCorsi(l, opt) : fam === 'gara' && all.length && altri.length ? `<optgroup label="Gare e Olimpiadi">${altri.map(opt).join('')}</optgroup><optgroup label="Allenamenti">${all.map(opt).join('')}</optgroup>` : l.map(opt).join('')}</select></div></div>`; };
 const legaSelettore = () => { const s = $('#selev'); if (s) s.onchange = () => { ev = eventi.find((e) => e.id === s.value); localStorage.setItem('ev_' + fam, ev.id); render(); }; };
 
 // ───────── EVENTO ─────────
@@ -356,7 +361,7 @@ async function anteprimaScheda(p) {
 
 
 // nuovo canovaccio (o modifica di uno scenario Mega Code): si sceglie prima il tipo, poi si compila il modulo adatto
-function dialogCanovaccio(c) {
+function dialogCanovaccio(c, ctx) {
   const linee = (v) => (Array.isArray(v) ? v : []).join('\n');
   const ta = (id, et, v, righe = 3, nota = '') => `<label>${et}${nota ? ` <small>${nota}</small>` : ''}</label><textarea id="${id}" rows="${righe}" style="width:100%">${esc(v || '')}</textarea>`;
   const scelta = () => {
@@ -365,35 +370,42 @@ function dialogCanovaccio(c) {
     document.querySelectorAll('.cv_t').forEach((b) => { b.onclick = () => modulo(b.dataset.v, null); });
   };
   const modulo = (v, esist) => {
-    const d = esist?.dati || {}, mc = v === 'megacode';
+    const d = esist?.dati || {}, mc = v === 'megacode', pre = !esist && ctx ? { codice: ctx.scena.codice, titolo: ctx.scena.titolo, gara_codice: ctx.evento.codice } : {};
+    if (pre.codice !== undefined) esist = null;
     const sez = (t) => linee((d.sezioni || []).find((x) => x.tipo === t)?.blocchi?.map((b) => b.testo));
     dlg(`<h3>${esist ? 'Modifica' : 'Nuovo'} canovaccio · ${esc(VERS_NOME[v])}</h3>
-      <div class="riga"><div class="stretto"><label>${mc ? 'Scenario (1-3 caratteri)' : 'Lettera della scena'}</label><input id="cn_c" maxlength="3" value="${esc(esist?.codice || '')}" style="text-transform:uppercase"></div>
-        <div style="flex:3"><label>Titolo</label><input id="cn_t" value="${esc(esist?.titolo || '')}"></div>
-        <div><label>Codice evento</label><input id="cn_g" placeholder="${mc ? 'es. MC-2026' : 'es. GPSER-2027'}" value="${esc(esist?.gara_codice || '')}"></div>
+      <div class="riga"><div class="stretto"><label>${mc ? 'Scenario (1-3 caratteri)' : 'Lettera della scena'}</label><input id="cn_c" maxlength="3" value="${esc(esist?.codice || pre.codice || '')}" style="text-transform:uppercase"></div>
+        <div style="flex:3"><label>Titolo</label><input id="cn_t" value="${esc(esist?.titolo || pre.titolo || '')}"></div>
+        <div><label>Codice evento</label><input id="cn_g" placeholder="${mc ? 'es. MC-2026' : 'es. GPSER-2027'}" value="${esc(esist?.gara_codice || pre.gara_codice || '')}"></div>
         <div class="stretto"><label>Minuti</label><input id="cn_m" type="number" min="1" max="600" value="${esist?.tempo_min || ''}" style="width:80px"></div></div>
-      ${mc ? `${ta('cn_dispatch', 'Dispatch', d.dispatch, 3, '(informazioni dalla centrale)')}${ta('cn_scena', 'Scena', d.scena, 3, '(com\'è l\'ambiente, pericoli)')}${ta('cn_racconto', 'Racconto del paziente', d.racconto, 3)}
-        ${ta('cn_ql', 'Quick look', linee(d.quick_look), 3, '(una voce per riga)')}
-        <div class="riga">${['A', 'B', 'C', 'D', 'E'].map((k) => `<div>${ta('cn_ab' + k, k + ' · ' + ({ A: 'Vie aeree', B: 'Respiro', C: 'Circolo', D: 'Neurologico', E: 'Esposizione' })[k], d.abcde?.[k], 3)}</div>`).join('')}</div>
-        <div class="riga">${['S', 'A', 'M', 'P', 'L', 'E'].map((k) => `<div>${ta('cn_sa' + k, k + ' · ' + ({ S: 'Sintomi', A: 'Allergie', M: 'Medicinali', P: 'Patologie', L: 'Ultimo pasto', E: 'Eventi' })[k], d.sample?.[k], 2)}</div>`).join('')}</div>
-        ${ta('cn_opq', 'OPQRST', d.opqrst, 2)}${ta('cn_evo', 'Evoluzione', d.evoluzione, 3, '(cosa cambia dopo gli interventi)')}${ta('cn_dest', 'Destinazione', d.destinazione, 1, '(codice di trasporto, rendez-vous…)')}
-        ${ta('cn_tru', 'Trucchi del simulatore', linee(d.trucchi), 3, '(uno per riga)')}${ta('cn_com', 'Comportamenti del simulatore', linee(d.comportamenti), 4, '(uno per riga)')}${ta('cn_pre', 'Presidi', linee(d.presidi), 3, '(uno per riga)')}${ta('cn_note', 'Note', d.note, 2)}`
+      ${mc ? `<p class="nota" id="cn_pas"></p>
+        <div class="cn-p">${ta('cn_dispatch', 'Dispatch', d.dispatch, 3, '(cosa dice la centrale: luogo, motivo della chiamata, codice)')}${ta('cn_scena', 'Scena', d.scena, 3, '(com\'è l\'ambiente, i pericoli, quante persone ci sono)')}${ta('cn_racconto', 'Racconto del paziente', d.racconto, 3, '(cosa dice il paziente e cosa raccontano i presenti)')}</div>
+        <div class="cn-p" hidden>${ta('cn_ql', 'Quick look', linee(d.quick_look), 3, '(una voce per riga: aspetto generale, respiro, colorito…)')}
+          <div class="riga">${['A', 'B', 'C', 'D', 'E'].map((k) => `<div>${ta('cn_ab' + k, k + ' · ' + ({ A: 'Vie aeree', B: 'Respiro', C: 'Circolo', D: 'Neurologico', E: 'Esposizione' })[k], d.abcde?.[k], 3)}</div>`).join('')}</div></div>
+        <div class="cn-p" hidden><div class="riga">${['S', 'A', 'M', 'P', 'L', 'E'].map((k) => `<div>${ta('cn_sa' + k, k + ' · ' + ({ S: 'Sintomi', A: 'Allergie', M: 'Medicinali', P: 'Patologie', L: 'Ultimo pasto', E: 'Eventi' })[k], d.sample?.[k], 2)}</div>`).join('')}</div>
+          ${ta('cn_opq', 'OPQRST', d.opqrst, 2, '(Insorgenza, Provocazione, Qualità, Irradiazione, Severità, Tempo)')}${ta('cn_evo', 'Evoluzione', d.evoluzione, 3, '(cosa cambia dopo gli interventi)')}${ta('cn_dest', 'Destinazione', d.destinazione, 1, '(codice di trasporto, rendez-vous…)')}</div>
+        <div class="cn-p" hidden>${ta('cn_tru', 'Trucchi del simulatore', linee(d.trucchi), 3, '(uno per riga)')}${ta('cn_com', 'Comportamenti del simulatore', linee(d.comportamenti), 4, '(uno per riga)')}${ta('cn_pre', 'Presidi', linee(d.presidi), 3, '(uno per riga)')}${ta('cn_note', 'Note', d.note, 2)}</div>`
       : `<div class="riga"><div><label>Sottotitolo</label><input id="cn_sub" value="${esc(d.sottotitolo || '')}"></div><div><label>Squadra</label><input id="cn_sq" value="${esc(d.squadra || '')}" placeholder="1 Team Leader + 4 soccorritori"></div></div>
         ${ta('cn_bri', 'Briefing per la squadra', sez('briefing'), 4, '(un paragrafo per riga)')}${ta('cn_des', 'Descrizione della scena', sez('descrizione'), 4)}${ta('cn_rec', 'Scena recitata', sez('scena_recitata'), 4)}
         ${ta('cn_log', 'Logistica', (d.logistica || []).map((x) => x.k + ': ' + x.v).join('\n'), 3, '(una riga per voce, es. «Simulatori: 2»)')}
         <p class="nota">Pazienti e triage si caricano importando il file .docx del canovaccio.</p>`}
-      <p class="err" id="cn_e" hidden></p><p><button class="b" id="cn_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
+      <p class="err" id="cn_e" hidden></p><p style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">${mc ? '<button class="s" id="cn_ind" type="button">‹ Indietro</button><button class="s" id="cn_av" type="button">Avanti ›</button>' : ''}<button class="b" id="cn_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
     const val = (id) => $('#' + id).value;
+    if (mc) { const pg = [...document.querySelectorAll('.cn-p')], nomi = ['Scenario', 'Valutazione del paziente', 'Storia clinica ed evoluzione', 'Simulatore e presidi']; let k = 0;
+      const mostra = () => { pg.forEach((x, i) => { x.hidden = i !== k; }); $('#cn_pas').innerHTML = `<b>Passo ${k + 1} di ${pg.length} · ${nomi[k]}</b> <small>— puoi salvare in qualsiasi momento e completare dopo</small>`; $('#cn_ind').hidden = k === 0; $('#cn_av').hidden = k === pg.length - 1; };
+      $('#cn_ind').onclick = () => { k = Math.max(0, k - 1); mostra(); }; $('#cn_av').onclick = () => { k = Math.min(pg.length - 1, k + 1); mostra(); }; mostra(); }
     $('#cn_ok').onclick = async () => {
       const dati = mc ? { dispatch: val('cn_dispatch'), scena: val('cn_scena'), racconto: val('cn_racconto'), quick_look: val('cn_ql'), abcde: Object.fromEntries(['A', 'B', 'C', 'D', 'E'].map((k) => [k, val('cn_ab' + k)])),
           sample: Object.fromEntries(['S', 'A', 'M', 'P', 'L', 'E'].map((k) => [k, val('cn_sa' + k)])), opqrst: val('cn_opq'), evoluzione: val('cn_evo'), destinazione: val('cn_dest'), trucchi: val('cn_tru'), comportamenti: val('cn_com'), presidi: val('cn_pre'), note: val('cn_note') }
         : { sottotitolo: val('cn_sub'), squadra: val('cn_sq'), briefing: val('cn_bri'), descrizione: val('cn_des'), scena_recitata: val('cn_rec'), logistica: val('cn_log') };
       const body = { versione: v, codice: val('cn_c'), titolo: val('cn_t'), gara_codice: val('cn_g'), tempo_min: val('cn_m'), dati };
-      try { await api(esist ? `/canovacci/${esist.id}` : '/canovacci', { method: esist ? 'PUT' : 'POST', body }); chiudi(); await render(); flash('Canovaccio salvato'); }
+      try { const r = await api(esist ? `/canovacci/${esist.id}` : '/canovacci', { method: esist ? 'PUT' : 'POST', body });
+        if (ctx && !esist) await api(`/scene/${ctx.scena.id}`, { method: 'PATCH', body: { canovaccio_id: r.id } });   // collegato subito alla scena
+        chiudi(); await render(); flash(ctx && !esist ? 'Canovaccio creato e collegato alla scena' : 'Canovaccio salvato'); }
       catch (e) { $('#cn_e').textContent = e.message; $('#cn_e').hidden = false; }
     };
   };
-  if (c) modulo(c.versione, c); else scelta();
+  if (c) modulo(c.versione, c); else if (ctx) modulo('megacode', null); else scelta();
 }
 
 async function anteprimaCanovaccio(c) {
@@ -426,27 +438,50 @@ async function tNuovoCorso() {
     fai(async () => { const e = await api('/eventi', { body: { codice: ('CORSO-' + (g || nome)).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: 'corso', nome, titolo_stampa: nome, comune: $('#nc_com').value || undefined, data: $('#c_data').value || null, data_fine: $('#c_fine').value || null, codice_gaia: g, comitato: $('#c_com').value.trim() || undefined } });
       creaCorso = false; await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_corsi', ev.id); }, 'Corso creato'); };
 }
+const cAperti = new Set();
 async function tCorsi() {
   if (creaCorso) return tNuovoCorso();
   const corsi = eventi.filter((e) => e.tipo === 'corso' && !e.archiviato);
   const sess = await api('/esami/sessioni').catch(() => []);
   const figli = (c) => eventi.filter((e) => e.corso_id === c.id && !e.archiviato);
   const extra = Object.fromEntries(await Promise.all(corsi.map(async (c) => [c.id, await Promise.all([api(`/eventi/${c.id}/inviti`).catch(() => []), api(`/eventi/${c.id}/invitabili`).catch(() => [])])])));
+  const sezione = (titolo, azione, righe, vuoto) => `<div class="sez-c"><div class="sez-t"><b>${titolo}</b><span>${azione}</span></div>${righe.length ? righe.join('') : `<p class="nota" style="margin:4px 0 0">${vuoto}</p>`}</div>`;
+  const riga = (testo, sotto, az) => `<div class="sez-r"><div>${testo}${sotto ? `<br><small>${sotto}</small>` : ''}</div><div class="sez-a">${az}</div></div>`;
+  const corpo = (c) => {
+    const [inv, possibili] = extra[c.id], mcs = figli(c).filter((e) => e.tipo === 'megacode'), es = sess.filter((x) => x.evento_id === c.id);
+    const gruppi = {}; for (const x of possibili) (gruppi[x.comitato || 'Comitato non indicato'] ||= []).push(x);
+    const nomiG = Object.keys(gruppi).sort((a, b) => (gruppi[b][0].stesso_comitato ? 1 : 0) - (gruppi[a][0].stesso_comitato ? 1 : 0) || a.localeCompare(b));
+    const stato = { attivo: '<span class="tag ok">valutatore</span>', richiesto: '<span class="tag">in attesa di risposta</span>', rifiutato: '<span class="tag no">ha rifiutato</span>' };
+    return sezione('Mega Code', `<button class="b p nmc" data-id="${c.id}">Crea Mega Code</button>`,
+        mcs.map((e) => riga(esc(e.nome), esc(periodo(e)), `<button class="s p apri" data-id="${e.id}">Apri</button>`)), 'Nessun Mega Code in questo corso.')
+      + sezione('Sessioni d\'esame', `<button class="b p" onclick="location.href='/esami.html'">Crea esame</button>`,
+        es.map((x) => riga(esc(x.nome), `${x.prove} prove`, `<button class="s p" onclick="location.href='/esami.html#s/${x.id}'">Apri</button>`)), 'Nessuna sessione d\'esame.')
+      + sezione('Trainer e formatori', `<small>${inv.filter((i) => i.stato === 'attivo').length} valutatori</small>`,
+        inv.map((i) => riga(`<b>${esc(i.nome)}</b> ${stato[i.stato] || ''}`, [i.comitato, i.qualifiche].filter(Boolean).map(esc).join(' · '), `<button class="x p dinv" data-e="${c.id}" data-u="${i.utente_id}">Togli</button>`)), 'Nessuno ancora.')
+      + `<details class="aggiungi"><summary>Aggiungi trainer o formatori…</summary>
+          <p class="nota">Spunta chi vuoi: i colleghi del comitato del corso diventano subito valutatori di tutti i Mega Code; per chi è di un altro comitato parte una richiesta, e lo diventa quando accetta.</p>
+          <input class="cerca-t" placeholder="Cerca per nome o comitato" data-e="${c.id}">
+          <div class="lista-t">${nomiG.map((g) => `<div class="gr-t"><b>${esc(g)}</b>${gruppi[g][0].stesso_comitato ? ' <span class="tag ok">attivazione immediata</span>' : ' <span class="tag">richiesta</span>'}
+            ${gruppi[g].map((x) => `<label class="ck-t" data-q="${esc((x.cognome + ' ' + x.nome + ' ' + (x.comitato || '')).toLowerCase())}"><input type="checkbox" value="${x.id}"> ${esc(x.cognome + ' ' + x.nome)}${x.qualifiche ? ` <small>· ${esc(x.qualifiche)}</small>` : ''}</label>`).join('')}</div>`).join('') || '<p class="nota">Nessuna persona disponibile: servono persone in anagrafica con accesso al sito e una qualifica da trainer o formatore.</p>'}</div>
+          <p style="text-align:right"><button class="b add-t" data-e="${c.id}">Aggiungi i selezionati</button></p></details>`;
+  };
   $('#app').innerHTML = `<div class="card"><div class="riga" style="align-items:center;justify-content:space-between"><h3 style="margin:0">Corsi attivi</h3><div class="stretto"><button class="b" id="c_nuovo">Crea nuovo corso</button></div></div></div>
-    ${corsi.map((c) => `<div class="card"><h3>${c.codice_gaia ? esc(c.codice_gaia) + ' · ' : ''}${esc(c.nome)}</h3><p><small>${esc(c.comitato || 'comitato non indicato')} · ${esc(c.luogo || 'luogo da indicare')} · ${esc(periodo(c))}</small></p>
-      <p><b>Mega Code</b> ${figli(c).filter((e) => e.tipo === 'megacode').map((e) => `<button class="s p apri" data-id="${e.id}">${esc(e.nome)}</button>`).join(' ') || '<small>nessuno</small>'} <button class="b p nmc" data-id="${c.id}">Crea Mega Code</button></p>
-      <p><b>Sessioni d'esame</b> ${sess.filter((x) => x.evento_id === c.id).map((x) => `<button class="s p" onclick="location.href='/esami.html#s/${x.id}'">${esc(x.nome)} (${x.prove})</button>`).join(' ') || '<small>nessuna</small>'} <button class="b p" onclick="location.href='/esami.html'">Crea esame</button></p>
-      <p><b>Formatori invitati</b> ${extra[c.id][0].map((i) => `<span class="tag">${esc(i.nome)}${i.comitato ? ' · ' + esc(i.comitato) : ''} <a href="#" class="dinv" data-e="${c.id}" data-u="${i.utente_id}" title="Togli">×</a></span>`).join(' ') || '<small>nessuno</small>'}
-        <select class="inv" data-e="${c.id}"><option value="">Invita un trainer / formatore…</option>${extra[c.id][1].map((x) => `<option value="${x.id}">${esc(x.cognome + ' ' + x.nome)}${x.comitato ? ' · ' + esc(x.comitato) : ''}</option>`).join('')}</select></p>
-      <p><button class="s p apri" data-id="${c.id}">Dati del corso</button> <button class="s p dsc" data-id="${c.id}">Discenti</button></p></div>`).join('') || '<div class="card"><em>Nessun corso: creane uno con «Crea nuovo corso».</em></div>'}${cardArchiviati(['corso', 'megacode', 'esame'], 'Archiviati')}`;
+    ${corsi.map((c) => `<div class="scena corso" data-id="${c.id}"><div class="sc-testa"><button class="sc-t" data-id="${c.id}" aria-expanded="${cAperti.has(c.id)}">${cAperti.has(c.id) ? '▾' : '▸'}</button>
+        <h3>${c.codice_gaia ? esc(c.codice_gaia) + ' · ' : ''}${esc(c.nome)}</h3>
+        <small class="sc-sint">${esc(c.comitato || 'comitato non indicato')} · ${esc(periodo(c))}${cAperti.has(c.id) ? '' : ` · ${figli(c).filter((e) => e.tipo === 'megacode').length} Mega Code · ${extra[c.id][0].filter((i) => i.stato === 'attivo').length} valutatori`}</small></div>
+      <div class="sc-corpo" ${cAperti.has(c.id) ? '' : 'hidden'}>${cAperti.has(c.id) ? corpo(c) : ''}
+        <div class="sez-a" style="padding:10px 14px;border-top:1px solid #e3e5ea"><button class="s p apri" data-id="${c.id}">Dati del corso</button> <button class="s p dsc" data-id="${c.id}">Discenti</button></div></div></div>`).join('') || '<div class="card"><em>Nessun corso: creane uno con «Crea nuovo corso».</em></div>'}${cardArchiviati(['corso', 'megacode', 'esame'], 'Archiviati')}`;
   legaRiapri();
   $('#c_nuovo').onclick = () => { creaCorso = true; render(); };
+  document.querySelectorAll('.corso .sc-t').forEach((b) => { b.onclick = () => { cAperti.has(b.dataset.id) ? cAperti.delete(b.dataset.id) : cAperti.add(b.dataset.id); tCorsi(); }; });
   document.querySelectorAll('.nmc').forEach((b) => { b.onclick = () => { const c = eventi.find((e) => e.id === b.dataset.id), n = figli(c).filter((e) => e.tipo === 'megacode').length + 1;
     fai(async () => { const e = await api('/eventi', { body: { codice: `${c.codice}-MC${n}`, tipo: 'megacode', nome: `Mega Code ${n} · ${c.nome}`, titolo_stampa: `Mega Code ${n}`, luogo: c.luogo, data: c.data, corso_id: c.id } });
       await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_corsi', ev.id); }, 'Mega Code creato'); }; });
-  document.querySelectorAll('.inv').forEach((x) => { x.onchange = () => { if (x.value) fai(() => api(`/eventi/${x.dataset.e}/inviti`, { body: { partecipante_id: x.value } }), 'Invitato: gestirà solo questo corso'); }; });
-  document.querySelectorAll('.dinv').forEach((a) => { a.onclick = (e) => { e.preventDefault(); fai(() => api(`/eventi/${a.dataset.e}/inviti/${a.dataset.u}`, { method: 'DELETE' }), 'Invito tolto'); }; });
-  document.querySelectorAll('.apri').forEach((b) => { b.onclick = () => { ev = eventi.find((e) => e.id === b.dataset.id); localStorage.setItem('ev_corsi', ev.id); vai('evento'); }; });
+  document.querySelectorAll('.cerca-t').forEach((x) => { x.oninput = () => { const q = x.value.trim().toLowerCase(), box = x.closest('.aggiungi'); box.querySelectorAll('.ck-t').forEach((l) => { l.hidden = !!q && !l.dataset.q.includes(q); }); box.querySelectorAll('.gr-t').forEach((g) => { g.hidden = ![...g.querySelectorAll('.ck-t')].some((l) => !l.hidden); }); }; });
+  document.querySelectorAll('.add-t').forEach((b) => { b.onclick = () => { const ids = [...b.closest('.aggiungi').querySelectorAll('input[type=checkbox]:checked')].map((c) => c.value); if (!ids.length) return flash('Spunta almeno una persona', false);
+    fai(async () => { const r = await api(`/eventi/${b.dataset.e}/inviti`, { body: { partecipanti: ids } }); flash(`${r.attivi ? r.attivi + ' valutatori attivati' : ''}${r.attivi && r.richiesti ? ' · ' : ''}${r.richiesti ? r.richiesti + ' richieste inviate' : ''}`); }); }; });
+  document.querySelectorAll('.dinv').forEach((a) => { a.onclick = (e) => { e.preventDefault(); fai(() => api(`/eventi/${a.dataset.e}/inviti/${a.dataset.u}`, { method: 'DELETE' }), 'Tolto dal corso'); }; });
+  document.querySelectorAll('.corso .apri').forEach((b) => { b.onclick = () => { ev = eventi.find((e) => e.id === b.dataset.id); localStorage.setItem('ev_corsi', ev.id); vai('evento'); }; });
   document.querySelectorAll('.dsc').forEach((b) => { b.onclick = () => { ev = eventi.find((e) => e.id === b.dataset.id); localStorage.setItem('ev_corsi', ev.id); vai('discenti'); }; });
 }
 
@@ -722,6 +757,7 @@ const scAperte = new Set();
 async function tScene() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima un evento.</div>'; return; }
   const [scene, pat, ass, mas, macro, canov] = await Promise.all([api(`/eventi/${ev.id}/scene`), api('/libreria/patologie'), api(`/eventi/${ev.id}/assegnazioni`), api(`/eventi/${ev.id}/master`), api('/libreria/macro'), api('/canovacci').catch(() => [])]);
+  const inAppr = Object.fromEntries((await api('/promozioni').catch(() => [])).filter((x) => x.stato === 'in_attesa').map((x) => [x.scena_id, x.id]));
   const verEv = ev.tipo === 'olimpiadi' ? 'olimpiadi' : ev.tipo === 'megacode' ? 'megacode' : 'gara';
   const scaleLib = await api('/libreria/scale');
   const tutte = localStorage.getItem('schedeTutte') === '1', tipoOk = TIPOLOGIE_EVENTO[ev.tipo] || ['gara'];
@@ -737,9 +773,9 @@ async function tScene() {
     <div class="riga"><div style="flex:3"><label>Indirizzo della scena (per la mappa)</label><input class="s_ind" data-id="${s.id}" value="${esc(s.indirizzo || '')}" placeholder="Via Roma 1, Piacenza"></div>
       <div><label>Latitudine</label><input class="s_lat" data-id="${s.id}" value="${s.lat ?? ''}" placeholder="45.0526"></div><div><label>Longitudine</label><input class="s_lng" data-id="${s.id}" value="${s.lng ?? ''}" placeholder="9.6930"></div>
       <div class="stretto"><button class="s p s_pos" data-id="${s.id}">Salva posizione</button></div></div>
-    ${canov.length ? `<div class="riga"><div style="flex:3"><label>Canovaccio (descrizione, pazienti e materiale della scena)</label><select class="s_cv" data-id="${s.id}">${optCan(s)}</select></div>
-      <div class="stretto"><button class="s p cv_apri" data-id="${s.id}" ${s.canovaccio_id ? '' : 'disabled'}>Apri canovaccio</button></div></div>` : ''}
-    <p><button class="s p elp" data-id="${s.id}" title="Scrive nel Master i pazienti della scena in ordine di gravità">Aggiorna l'elenco pazienti del Master</button> <button class="s p dup" data-id="${s.id}">Duplica in un altro evento…</button> <button class="s p prom" data-id="${s.id}" title="Proponi la scena o le sue schede alla libreria regionale o nazionale">Proponi alla libreria…</button> <button class="x p delsc" data-id="${s.id}">Elimina scena</button></p>
+    ${canov.length || ev.tipo === 'megacode' ? `<div class="riga"><div style="flex:3"><label>Canovaccio (descrizione, pazienti e materiale della scena)</label><select class="s_cv" data-id="${s.id}">${optCan(s)}</select></div>
+      <div class="stretto sez-a"><button class="s p cv_apri" data-id="${s.id}" ${s.canovaccio_id ? '' : 'disabled'}>Apri canovaccio</button>${ev.tipo === 'megacode' ? (s.canovaccio_id ? `<button class="s p cv_mod" data-id="${s.id}">Modifica</button>` : `<button class="b p cv_new" data-id="${s.id}">Crea canovaccio</button>`) : ''}</div></div>` : ''}
+    <p><button class="s p elp" data-id="${s.id}" title="Scrive nel Master i pazienti della scena in ordine di gravità">Aggiorna l'elenco pazienti del Master</button> <button class="s p dup" data-id="${s.id}">Duplica in un altro evento…</button> ${inAppr[s.id] ? `<span class="tag">in approvazione dalla regione</span> <button class="s p pr_rit" data-id="${inAppr[s.id]}" title="Ritira la proposta: la scena resta solo tua">Ritira la proposta</button>` : `<button class="s p prom" data-id="${s.id}" title="Proponi la scena o le sue schede alla libreria regionale o nazionale">Proponi alla libreria…</button>`} <button class="x p delsc" data-id="${s.id}">Elimina scena</button></p>
     ${(s.schede || []).map((k) => { const d = schede[k.id]; const p = d.parametri || {}; return `<div class="scheda">
       <div class="riga"><div style="flex:2"><strong>${esc(d.titolo)}</strong> <span class="tag">slot ${d.slot}</span><span class="tag">sim. ${esc(d.simulatore)}</span>
         ${d.is_bls ? '<span class="tag">BLS</span>' : ''}${d.is_master ? '<span class="tag">Master</span>' : ''}<span class="tag">${d.voci.length} voci</span>
@@ -768,7 +804,10 @@ async function tScene() {
   document.querySelectorAll('.t_sc').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { titolo: i.value } }), 'Titolo aggiornato'); });
   if ($('#cv_auto')) $('#cv_auto').onclick = () => fai(async () => { const r = await api(`/eventi/${ev.id}/collega-canovacci`, { body: {} }); flash(r.collegate.length ? 'Collegate le scene: ' + r.collegate.join(', ') : 'Nessuna scena con la stessa lettera di un canovaccio', r.collegate.length > 0); });
   document.querySelectorAll('.s_cv').forEach((i) => { i.onchange = () => fai(() => api(`/scene/${i.dataset.id}`, { method: 'PATCH', body: { canovaccio_id: i.value } }), 'Canovaccio collegato'); });
+  document.querySelectorAll('.cv_new').forEach((b) => { b.onclick = () => dialogCanovaccio(null, { scena: scene.find((x) => x.id === b.dataset.id), evento: ev }); });
+  document.querySelectorAll('.cv_mod').forEach((b) => { b.onclick = async () => { const sc = scene.find((x) => x.id === b.dataset.id); try { dialogCanovaccio(await api(`/canovacci/${sc.canovaccio_id}`)); } catch (e) { flash(e.message, false); } }; });
   document.querySelectorAll('.cv_apri').forEach((b) => { b.onclick = () => { const c = canov.find((x) => x.id === document.querySelector(`.s_cv[data-id="${b.dataset.id}"]`).value); if (c) anteprimaCanovaccio(c); }; });
+  document.querySelectorAll('.pr_rit').forEach((b) => { b.onclick = () => fai(() => api(`/promozioni/${b.dataset.id}/ritira`, { body: {} }), 'Proposta ritirata: la scena resta solo tua'); });
   document.querySelectorAll('.prom').forEach((b) => { b.onclick = () => {
     const appr = admin() || (me.aree || []).includes('approvazione');
     dlg(`<h3>Proponi alla regione</h3><p class="nota">${appr ? 'Sei approvatore: la promozione è immediata.' : 'La proposta va all\'approvatore della tua regione: finché non la accetta, la scena resta solo tua.'} Le scene di gare e allenamenti si condividono solo dopo la data dell'evento.</p>
@@ -1045,7 +1084,7 @@ async function tLibreria() {
   document.querySelectorAll('.dp_i').forEach((b) => { b.onclick = () => { const d = dopp[+b.dataset.i]; fai(() => api('/libreria/doppioni/ignora', { body: { a: d.a.id, b: d.b.id } }), 'Non verranno più proposte'); }; });
   const [prom, cond, cat, regioniTutte] = await Promise.all([api('/promozioni').catch(() => []), api('/scene-condivise').catch(() => []), api('/catalogo').catch(() => ({ voci: [] })), api('/regioni').catch(() => [])]);
   const appr = cat.approvatore || admin();
-  const stPr = { in_attesa: '<span class="tag">in attesa</span>', approvata: '<span class="tag ok">approvata</span>', rifiutata: '<span class="tag no">rifiutata</span>' };
+  const stPr = { in_attesa: '<span class="tag">in attesa</span>', approvata: '<span class="tag ok">approvata</span>', rifiutata: '<span class="tag no">rifiutata</span>', ritirata: '<span class="tag">ritirata</span>' };
   const sceltaRegioni = (sel, escludi) => `<div class="regioni" style="columns:2;font-size:14px">${regioniTutte.filter((r) => r !== escludi).map((r) => `<label style="display:block;color:inherit;font-size:14px"><input type="checkbox" class="rg" value="${esc(r)}" ${sel.includes(r) ? 'checked' : ''}> ${esc(r)}</label>`).join('')}</div>`;
   const prop = (x) => x.tipo === 'scena' ? `Scena ${esc(x.scena)} · ${esc(x.scena_titolo)}<br><small>${esc(x.evento || '')}</small>` : `Scheda «${esc(x.scheda)}»`;
   if (prom.length) $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Proposte alla regione${prom.filter((x) => x.stato === 'in_attesa').length ? ` (${prom.filter((x) => x.stato === 'in_attesa').length} in attesa)` : ''}</h3>

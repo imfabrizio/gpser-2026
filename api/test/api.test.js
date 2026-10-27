@@ -1227,6 +1227,8 @@ test('AMB-1 ambito dei corsi: trainer locale solo per il proprio comitato, forma
   assert.equal((await chiama('PATCH', `/api/eventi/${c1.id}`, { token: f1.tk, body: { nome: 'Corso PC bis' } })).statusCode, 200);   // formatore: tutta Italia
   assert.ok(!json(await chiama('GET', '/api/eventi', { token: t2.tk })).some((e) => e.id === c1.id));
   assert.equal((await chiama('POST', `/api/eventi/${c1.id}/inviti`, { token: t1.tk, body: { partecipante_id: t2.pe.id } })).statusCode, 200);   // invito
+  assert.equal((await chiama('PATCH', `/api/eventi/${c1.id}`, { token: t2.tk, body: { nome: 'Corso PC ter' } })).statusCode, 403, 'finché non accetta la richiesta non gestisce il corso');
+  assert.equal((await chiama('POST', `/api/me/inviti/${c1.id}/accetta`, { token: t2.tk, body: {} })).statusCode, 200);
   assert.equal((await chiama('PATCH', `/api/eventi/${c1.id}`, { token: t2.tk, body: { nome: 'Corso PC ter' } })).statusCode, 200);
   assert.ok(json(await chiama('GET', '/api/eventi', { token: t2.tk })).some((e) => e.id === c1.id));
   const eg = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'AMB-GARA', nome: 'Gara org', tipo: 'gara' } }));
@@ -1950,6 +1952,50 @@ test('STO-1 storico: il discente vede gli esiti solo dopo la pubblicazione del d
   assert.equal(json(await chiama('GET', '/api/me/storico', { token: tok['giu@t'] })).righe.length, 0, 'solo il proprio storico');
   await chiama('POST', `/api/eventi/${e.id}/esiti-pubblicati`, { token: O, body: { pubblica: false } });
   assert.equal(json(await chiama('GET', '/api/me/storico', { token: T })).righe.length, 0, 'ritirato');
+});
+
+test('INV-1 trainer e formatori del corso: del comitato subito attivi, esterni su richiesta; valutatori dei Mega Code; ritiro proposta', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  const { rows: [mc] } = await pool.query(`select id from patologia where codice='mc-scenario-2-scoop'`);
+  const corso = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'INV-C', nome: 'Corso inviti', tipo: 'corso' } }));
+  await pool.query(`update evento set comitato='Comitato Alfa' where id=$1`, [corso.id]);
+  const inv0 = json(await chiama('GET', `/api/eventi/${corso.id}/inviti`, { token: O }));
+  assert.ok(inv0.some((i) => i.stato === 'attivo'), 'chi apre il corso è subito istruttore');
+  const mk = async (email, nome, cognome, com) => {
+    const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome: `${nome} ${cognome}`, ruolo: 'partecipante', password: 'password-lunga' } }));
+    const pe = json(await chiama('GET', `/api/persone?q=${encodeURIComponent(cognome)}`, { token: O })).find((x) => x.utente_id === u.id);
+    await chiama('PUT', `/api/persone/${pe.id}/qualifiche`, { token: O, body: { qualifiche: ['trainer_ms'] } });
+    await pool.query('update partecipante set comitato=$2 where id=$1', [pe.id, com]);
+    return { u, pe, T: json(await chiama('POST', '/api/login', { body: { email, password: 'password-lunga' } })).token };
+  };
+  const dentro = await mk('inv1a@t.it', 'Ada', 'Internaa', 'Comitato Alfa'), fuori = await mk('inv1b@t.it', 'Bruno', 'Esternob', 'Comitato Beta');
+  const lista = json(await chiama('GET', `/api/eventi/${corso.id}/invitabili`, { token: O }));
+  assert.equal(lista.find((x) => x.id === dentro.pe.id).stesso_comitato, true); assert.equal(lista.find((x) => x.id === fuori.pe.id).stesso_comitato, false);
+  const r = json(await chiama('POST', `/api/eventi/${corso.id}/inviti`, { token: O, body: { partecipanti: [dentro.pe.id, fuori.pe.id] } }));
+  assert.equal(r.attivi, 1); assert.equal(r.richiesti, 1);
+  const inv = json(await chiama('GET', `/api/eventi/${corso.id}/inviti`, { token: O }));
+  assert.equal(inv.find((i) => i.utente_id === dentro.u.id).stato, 'attivo'); assert.equal(inv.find((i) => i.utente_id === fuori.u.id).stato, 'richiesto');
+  assert.ok(json(await chiama('GET', '/api/me/notifiche', { token: fuori.T })).elenco.some((n) => n.tipo === 'invito_corso'), 'notifica al formatore esterno');
+  const mieRichieste = json(await chiama('GET', '/api/me/inviti', { token: fuori.T }));
+  assert.equal(mieRichieste.length, 1);
+  assert.equal(json(await chiama('GET', '/api/me/inviti', { token: dentro.T })).length, 0);
+  // finché non accetta non può valutare; dopo sì, anche nei Mega Code
+  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'INV-M', nome: 'MC inviti', tipo: 'megacode', corso_id: corso.id } }));
+  const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'I1', titolo: 'Scena', ordine: 1 } }));
+  const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: mc.id, slot: 1, simulatore: '01' } }));
+  assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [dentro.u.id] } })).statusCode, 200, 'trainer del corso: valutatore');
+  assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [fuori.u.id] } })).statusCode, 400, 'richiesta non ancora accettata');
+  assert.equal((await chiama('POST', `/api/me/inviti/${corso.id}/accetta`, { token: fuori.T, body: {} })).statusCode, 200);
+  assert.equal((await chiama('POST', `/api/me/inviti/${corso.id}/accetta`, { token: fuori.T, body: {} })).statusCode, 404, 'una sola risposta');
+  assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [dentro.u.id, fuori.u.id] } })).statusCode, 200);
+  assert.ok(json(await chiama('GET', `/api/giudici?valutatori=megacode&corso=${corso.id}`, { token: O })).some((g) => g.id === fuori.u.id));
+  // ritiro di una proposta alla regione: solo chi l'ha fatta
+  const { rows: [ou] } = await pool.query(`select id from utente where email='org@t'`);
+  const { rows: [pr] } = await pool.query(`insert into promozione (scena_id, tipo, livello, proposta_da) values ($1,'scena','regionale',$2) returning id`, [sc.id, ou.id]);
+  assert.equal((await chiama('POST', `/api/promozioni/${pr.id}/ritira`, { token: tok['giu@t'], body: {} })).statusCode, 403);
+  assert.equal((await chiama('POST', `/api/promozioni/${pr.id}/ritira`, { token: O, body: {} })).statusCode, 200);
+  assert.equal((await pool.query('select stato from promozione where id=$1', [pr.id])).rows[0].stato, 'ritirata');
+  assert.equal((await chiama('POST', `/api/promozioni/${pr.id}/ritira`, { token: O, body: {} })).statusCode, 404);
 });
 
 test('QUA-1 la qualifica di formazione porta il ruolo omonimo; discente TSSA solo etichetta', async () => {

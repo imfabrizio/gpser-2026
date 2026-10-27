@@ -54,7 +54,7 @@
 
   const COSTRUTTORI = {
     async eventi(box, c) {
-      const l = c.eventi.filter((e) => !e.archiviato && (!c.mondo || TIPI[c.mondo].includes(e.tipo)) && (e.attivo || !e.data || (e.data_fine || e.data) >= oggi())).sort((a, b) => String(a.data || '9999').localeCompare(String(b.data || '9999'))).slice(0, 5);
+      const l = c.eventi.filter((e) => !e.archiviato && !(e.tipo === 'megacode' && e.corso_id) && (!c.mondo || TIPI[c.mondo].includes(e.tipo)) && (e.attivo || !e.data || (e.data_fine || e.data) >= oggi())).sort((a, b) => String(a.data || '9999').localeCompare(String(b.data || '9999'))).slice(0, 5);
       const chiave = c.mondo === 'formazione' ? 'evF' : 'ev';
       box.innerHTML = `<h4>Prossimi eventi</h4>${l.length ? l.map((e) => `<div class="r">${riga(e).replace(/^<div class="r">|<\/div>$/g, '')}${org(c.me) && e.tipo !== 'esame' && e.tipo !== 'allenamento' && (c.mondo === 'formazione') === TIPI.formazione.includes(e.tipo) ? `<a class="vl" href="#valutazione" data-ev="${e.id}" data-k="${chiave}">Inizia le valutazioni</a>` : ''}</div>`).join('') : '<small>Nessun evento in programma.</small>'}`;
       box.querySelectorAll('[data-ev]').forEach((a) => { a.onclick = () => { try { localStorage.setItem(a.dataset.k, a.dataset.ev); } catch { /* niente */ } }; });

@@ -19,7 +19,7 @@ export async function puoGestireEvento(db, u, evento, prof) {
   if (!TIPI_CORSO.includes(evento.tipo)) return false;
   prof = prof || await profiloFormativo(db, u.id);
   if (prof.nazionale) return true;
-  if ((await db.query('select 1 from evento_invito where evento_id=$1 and utente_id=$2', [evento.id, u.id])).rowCount) return true;
+  if ((await db.query('select 1 from evento_invito where evento_id=$1 and utente_id=$2 and stato=\'attivo\'', [evento.id, u.id])).rowCount) return true;
   if (evento.corso_id) {                                    // Mega Code ed esami seguono il corso
     const { rows: [c] } = await db.query('select id, tipo, comitato, corso_id from evento where id=$1', [evento.corso_id]);
     if (c && c.id !== evento.id && await puoGestireEvento(db, u, c, prof)) return true;

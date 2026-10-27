@@ -1,3 +1,4 @@
+import { notifica } from './notifiche.js';
 import { canonico } from './comitati.js';
 import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO } from './ambito.js';
 import crypto from 'node:crypto';
@@ -100,7 +101,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const q = req.query?.valutatori, lista = !q ? ['giudice', 'giudice_master'] : q === 'megacode' ? VALUTATORI_MEGACODE : [...VALUTATORI_CORSI, 'giudice', 'giudice_master'], elenco = lista.map((x) => `'${x}'`).join(',');   // nei corsi valutano gli istruttori/formatori
     return (await pool.query(`select * from (select id, nome, email, ruolo,
         array_cat(array_prepend(ruolo, coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id=u.id), '{}')), (select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in (${elenco}))) as ruoli
-        from utente u where attivo) q where ruoli && array[${elenco}] order by nome`)).rows;
+        from utente u where attivo) q where ruoli && array[${elenco}] or id in (select utente_id from evento_invito where evento_id = $1 and stato = 'attivo') order by nome`, [/^[0-9a-f-]{36}$/i.test(req.query?.corso || '') ? req.query.corso : null])).rows;   // i trainer e formatori del corso valutano i suoi Mega Code
   });
 
   // ── assegnazioni giudici → schede ──
@@ -113,9 +114,9 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.put('/api/schede/:id/assegnazioni', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const ids = req.body?.utenti || [];
     if (!Array.isArray(ids)) throw httpErr(400, 'utenti: elenco di id');
-    const tipoEv = (await db.query(`select e.tipo from scena_scheda s join scena sc on sc.id=s.scena_id join evento e on e.id=sc.evento_id where s.id=$1`, [req.params.id])).rows[0]?.tipo, megacode = tipoEv === 'megacode';
+    const { rows: [evs] } = await db.query(`select e.tipo, coalesce(e.corso_id, e.id) as corso from scena_scheda s join scena sc on sc.id=s.scena_id join evento e on e.id=sc.evento_id where s.id=$1`, [req.params.id]); const tipoEv = evs?.tipo, megacode = tipoEv === 'megacode';
     const ammessi = megacode ? VALUTATORI_MEGACODE : ['corso', 'esame'].includes(tipoEv) ? ['giudice', 'giudice_master', ...VALUTATORI_CORSI] : ['giudice', 'giudice_master'];
-    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (ruolo = any($2::text[]) or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo = any($2::text[])) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo = any($2::text[]) and not $3)) > 0)`, [ids, ammessi, megacode]);
+    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (exists (select 1 from evento_invito ei where ei.utente_id=u.id and ei.stato='attivo' and ei.evento_id=$4) or ruolo = any($2::text[]) or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo = any($2::text[])) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo = any($2::text[]) and not $3)) > 0)`, [ids, ammessi, megacode, evs?.corso ?? null]);
     if (ok.length !== new Set(ids).size) throw httpErr(400, megacode ? 'nei Mega Code valutano solo trainer e formatori TSSA (oltre all\'organizzazione)' : 'solo utenti attivi con ruolo giudice, giudice master o di formazione');
     await db.query('delete from assegnazione where scheda_id=$1', [req.params.id]);
     for (const u of new Set(ids)) await db.query('insert into assegnazione values ($1,$2)', [req.params.id, u]);
@@ -350,22 +351,55 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   });
   // inviti: un trainer di un altro comitato viene invitato al singolo evento e lo gestisce solo per quello
   const gestisce = async (req) => { const { rows: [e] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [req.params.id]); if (!e) throw httpErr(404, 'evento inesistente'); if (!(await puoGestireEvento(pool, req.utente, e))) throw httpErr(403, 'evento fuori dal tuo ambito'); return e; };
+  const normCom = (c) => String(c || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   app.get('/api/eventi/:id/inviti', { preHandler: soloOrg }, async (req) => { await gestisce(req);
-    return (await pool.query(`select i.utente_id, u.nome, u.email, (select p.comitato from partecipante p where p.utente_id=u.id) as comitato from evento_invito i join utente u on u.id=i.utente_id where i.evento_id=$1 order by u.nome`, [req.params.id])).rows; });
-  app.get('/api/eventi/:id/invitabili', { preHandler: soloOrg }, async (req) => { await gestisce(req);
-    return (await pool.query(`select p.id, p.cognome, p.nome, p.comitato from partecipante p
+    return (await pool.query(`select i.utente_id, i.stato, u.nome, u.email, (select p.comitato from partecipante p where p.utente_id=u.id) as comitato,
+        (select string_agg(q.nome, ', ' order by q.nome) from partecipante p join persona_qualifica pq on pq.partecipante_id=p.id join qualifica q on q.codice=pq.qualifica where p.utente_id=u.id and q.ambito is not null) as qualifiche
+      from evento_invito i join utente u on u.id=i.utente_id where i.evento_id=$1 order by (i.stato='attivo') desc, u.nome`, [req.params.id])).rows; });
+  // chi si può aggiungere: persone con accesso e qualifica da trainer/formatore; i colleghi del comitato del corso si attivano subito, gli altri ricevono una richiesta
+  app.get('/api/eventi/:id/invitabili', { preHandler: soloOrg }, async (req) => { const e = await gestisce(req);
+    const { rows: [ev] } = await pool.query('select comitato from evento where id=$1', [e.id]);
+    const rows = (await pool.query(`select p.id, p.cognome, p.nome, p.comitato,
+          (select string_agg(q.nome, ', ' order by q.nome) from persona_qualifica pq join qualifica q on q.codice=pq.qualifica where pq.partecipante_id=p.id and q.ambito is not null) as qualifiche
+        from partecipante p
         where p.utente_id is not null and exists (select 1 from persona_qualifica pq join qualifica q on q.codice=pq.qualifica where pq.partecipante_id=p.id and q.ambito is not null)
-          and p.utente_id not in (select utente_id from evento_invito where evento_id=$1) order by p.cognome, p.nome`, [req.params.id])).rows; });
-  app.post('/api/eventi/:id/inviti', { preHandler: soloOrg }, async (req) => { await gestisce(req);
-    const { rows: [p] } = await pool.query('select id, utente_id from partecipante where id=$1', [req.body?.partecipante_id]);
-    if (!p) throw httpErr(404, 'persona inesistente');
-    if (!p.utente_id) throw httpErr(400, 'la persona non ha un accesso al sito: crealo prima dall\'anagrafica');
-    const { rowCount } = await pool.query('select 1 from persona_qualifica pq join qualifica q on q.codice=pq.qualifica where pq.partecipante_id=$1 and q.ambito is not null', [p.id]);
-    if (!rowCount) throw httpErr(400, 'si invitano persone con una qualifica di trainer, monitore, formatore o capo monitore');
-    await pool.query('insert into evento_invito (evento_id, utente_id, invitato_da) values ($1,$2,$3) on conflict do nothing', [req.params.id, p.utente_id, req.utente.id]);
-    return { ok: true }; });
+          and p.utente_id not in (select utente_id from evento_invito where evento_id=$1) order by p.comitato nulls last, p.cognome, p.nome`, [req.params.id])).rows;
+    return rows.map((r) => ({ ...r, stesso_comitato: !!ev?.comitato && normCom(r.comitato) === normCom(ev.comitato) })); });
+  app.post('/api/eventi/:id/inviti', { preHandler: soloOrg }, async (req) => { const e = await gestisce(req);
+    const ids = [].concat(req.body?.partecipanti ?? req.body?.partecipante_id ?? []);
+    if (!ids.length || ids.length > 100) throw httpErr(400, 'scegli da 1 a 100 persone');
+    const { rows: [ev] } = await pool.query('select nome, comitato from evento where id=$1', [e.id]);
+    let attivi = 0, richiesti = 0;
+    for (const pid of new Set(ids)) {
+      const { rows: [p] } = await pool.query('select id, utente_id, comitato from partecipante where id=$1', [pid]);
+      if (!p) throw httpErr(404, 'persona inesistente');
+      if (!p.utente_id) throw httpErr(400, 'la persona non ha un accesso al sito: crealo prima dall\'anagrafica');
+      const { rowCount } = await pool.query('select 1 from persona_qualifica pq join qualifica q on q.codice=pq.qualifica where pq.partecipante_id=$1 and q.ambito is not null', [p.id]);
+      if (!rowCount) throw httpErr(400, 'si aggiungono persone con una qualifica di trainer, monitore, formatore o capo monitore');
+      const stesso = !!ev.comitato && normCom(p.comitato) === normCom(ev.comitato);
+      const stato = stesso || req.utente.ruolo === 'admin' || p.utente_id === req.utente.id ? 'attivo' : 'richiesto';
+      const { rowCount: nuovo } = await pool.query('insert into evento_invito (evento_id, utente_id, invitato_da, stato) values ($1,$2,$3,$4) on conflict do nothing', [e.id, p.utente_id, req.utente.id, stato]);
+      if (!nuovo) continue;
+      if (stato === 'attivo') attivi++; else {
+        richiesti++;
+        await notifica(pool, p.utente_id, { tipo: 'invito_corso', titolo: `Richiesta di collaborare al corso «${ev.nome}»`, testo: `${req.utente.nome || 'Un organizzatore'} ti chiede di partecipare come trainer / formatore e valutatore. Rispondi dalla pagina delle richieste.`, link: '/#inviti' });
+      }
+    }
+    return { ok: true, attivi, richiesti }; });
   app.delete('/api/eventi/:id/inviti/:utente', { preHandler: soloOrg }, async (req) => { await gestisce(req);
     await pool.query('delete from evento_invito where evento_id=$1 and utente_id=$2', [req.params.id, req.params.utente]); return { ok: true }; });
+  // le richieste che ricevo come trainer / formatore e la mia risposta
+  app.get('/api/me/inviti', async (req) => (await pool.query(`select i.evento_id, e.nome as corso, e.comitato, to_char(e.data,'YYYY-MM-DD') as data, to_char(e.data_fine,'YYYY-MM-DD') as data_fine, e.luogo, u.nome as da
+      from evento_invito i join evento e on e.id=i.evento_id left join utente u on u.id=i.invitato_da where i.utente_id=$1 and i.stato='richiesto' and not e.archiviato order by i.created_at desc`, [req.utente.id])).rows);
+  app.post('/api/me/inviti/:evento/:risposta', async (req) => {
+    const ok = req.params.risposta === 'accetta';
+    if (!ok && req.params.risposta !== 'rifiuta') throw httpErr(404, 'risposta sconosciuta');
+    const { rows: [i] } = await pool.query(`update evento_invito set stato=$3 where evento_id=$1 and utente_id=$2 and stato='richiesto' returning invitato_da`, [req.params.evento, req.utente.id, ok ? 'attivo' : 'rifiutato']);
+    if (!i) throw httpErr(404, 'nessuna richiesta in attesa per questo corso');
+    const { rows: [e] } = await pool.query('select nome from evento where id=$1', [req.params.evento]);
+    await notifica(pool, i.invitato_da, { tipo: 'invito_corso', titolo: `${req.utente.nome || 'Il formatore'} ha ${ok ? 'accettato' : 'rifiutato'} di collaborare al corso «${e.nome}»`, link: '/admin.html#corsi' });
+    return { ok: true, stato: ok ? 'attivo' : 'rifiutato' };
+  });
   app.patch('/api/scene/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
     const { rows: [s] } = await pool.query(

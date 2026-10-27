@@ -316,9 +316,11 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (ente.livello === 'comitato' && !req.utente.admin && ['gara', 'olimpiadi', 'corso_giudici'].includes(tipo)) throw httpErr(403, 'le gare, le Olimpiadi e i corsi giudici li organizza la regione: un comitato crea allenamenti');
     const com = b.comune ? comunePerIstat(b.comune) : null;
     if (b.comune && !com) throw httpErr(400, 'comune inesistente');
-    return (await pool.query(
+    const nuovo = (await pool.query(
       `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, data_fine, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato, livello, regione, comune_istat, luogo_provincia, luogo_regione, lat, lng) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,nullif(trim($10),''),$11,$12,$13,$14,$15,$16,$17,$18,$19) returning *`,
       [b.codice, b.nome, tipo, b.titolo_stampa, com ? etichettaLuogo(com) : b.luogo, b.data, b.data_fine || null, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, ente.comitato ?? comitato, ente.livello, ente.regione, com?.istat ?? null, com?.provincia ?? null, com?.regione ?? null, com?.lat ?? null, com?.lng ?? null])).rows[0];
+    if (tipo === 'corso') await pool.query(`insert into evento_invito (evento_id, utente_id, invitato_da, stato) values ($1,$2,$2,'attivo') on conflict do nothing`, [nuovo.id, req.utente.id]);   // chi apre il corso è subito tra i suoi istruttori
+    return nuovo;
   });
   // un solo evento attivo alla volta (nel vecchio sistema se ne potevano attivare due)
   app.post('/api/eventi/:id/attiva', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
@@ -386,11 +388,17 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/promozioni', { preHandler: soloOrg }, async (req) => {
     const appr = èApprovatore(req.utente), reg = await regioneMia(req);
     return (await pool.query(
-      `select p.id, p.tipo, p.livello, p.stato, p.automatica, p.nota, p.motivo, p.esito, p.controllo, p.regione, p.comitato, p.created_at, p.deciso_il, s.codice as scena, s.titolo as scena_titolo, e.nome as evento, pt.nome as scheda,
+      `select p.id, p.scena_id, p.tipo, p.livello, p.stato, p.automatica, p.nota, p.motivo, p.esito, p.controllo, p.regione, p.comitato, p.created_at, p.deciso_il, s.codice as scena, s.titolo as scena_titolo, e.nome as evento, pt.nome as scheda,
               u.nome as proponente, d.nome as deciso_da, (select count(*)::int from scena_scheda k where k.scena_id=s.id and not k.is_master) as schede
          from promozione p left join scena s on s.id=p.scena_id left join evento e on e.id=s.evento_id left join patologia pt on pt.id=p.patologia_id left join utente u on u.id=p.proposta_da left join utente d on d.id=p.deciso_da
         where ($1::boolean and ($2::boolean or p.regione = $3::text) or p.proposta_da=$4::uuid) and (p.stato='in_attesa' or p.created_at > now() - interval '90 days') order by (p.stato='in_attesa') desc, p.created_at desc limit 100`,
       [appr, !!req.utente.admin, reg, req.utente.id])).rows;
+  });
+  // chi ha proposto può ritirare la proposta: la scena o la scheda resta solo sua
+  app.post('/api/promozioni/:id/ritira', { preHandler: soloOrg }, async (req) => {
+    const { rows: [p] } = await pool.query(`update promozione set stato='ritirata', deciso_il=now() where id=$1 and stato='in_attesa' and ($2::boolean or proposta_da=$3) returning id`, [req.params.id, req.utente.ruolo === 'admin', req.utente.id]);
+    if (!p) throw httpErr(404, 'nessuna tua proposta in attesa con questo codice');
+    return { ok: true };
   });
   app.post('/api/promozioni/:id/approva', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => approva(db, req.params.id, req.utente, req.body || {})));
   app.post('/api/promozioni/:id/rifiuta', { preHandler: soloOrg }, async (req) => inTransazione(pool, (db) => rifiuta(db, req.params.id, req.utente, req.body?.motivo)));

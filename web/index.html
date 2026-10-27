@@ -333,18 +333,21 @@ async function vistaSicurezza() {
 async function garaCorrente() {
   const tutti = await api('/eventi');
   const form = org() && localStorage.getItem('mondo') === 'formazione', chiave = form ? 'evF' : 'ev';   // nel mondo Formazione si valutano Mega Code, corsi ed esami
-  const eventi = org() ? tutti.filter((e) => (form ? ['megacode', 'corso', 'esame'] : ['gara', 'olimpiadi', 'allenamento', 'corso_giudici']).includes(e.tipo) && !(form && e.archiviato)) : tutti;
+  const base = org() ? tutti.filter((e) => (form ? ['megacode', 'corso', 'esame'] : ['gara', 'olimpiadi', 'allenamento', 'corso_giudici']).includes(e.tipo) && !(form && e.archiviato)) : tutti;
+  const eventi = form ? base.filter((e) => e.tipo !== 'megacode') : base;     // i Mega Code stanno dentro il corso, non negli elenchi
+  const figli = form ? base.filter((e) => e.tipo === 'megacode') : [];
   let ev = null;
-  ev = eventi.find((e) => e.id === localStorage.getItem(chiave));   // l'ultima scelta vale per tutti, non solo per l'organizzazione
-  ev = ev || eventi.find((e) => e.id === me.evento_id) || eventi.find((e) => e.attivo) || eventi[0] || null;
+  ev = base.find((e) => e.id === localStorage.getItem(chiave));   // l'ultima scelta vale per tutti, non solo per l'organizzazione
+  ev = ev || base.find((e) => e.id === me.evento_id) || eventi.find((e) => e.attivo) || eventi[0] || null;
   if (ev) localStorage.setItem(chiave, ev.id);
   window.__ev = ev;
-  return { ev, eventi };
+  return { ev, eventi, figli };
 }
 const ICONE = {"libreria": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h9l4 4v14H6z\"/><path d=\"M14 3v5h5M9 13h7M9 17h7\"/></svg>", "esami": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 9l10-5 10 5-10 5z\"/><path d=\"M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5\"/><path d=\"M22 9v6\"/></svg>", "documenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5\"/><path d=\"M9 8h7M9 12h7\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>"};
 const oggi = () => new Date().toISOString().slice(0, 10);
 const statoGara = (e) => (e.attivo ? 'in corso' : (e.data && e.data > oggi() ? 'prossima' : 'passata'));
 function menuGare(eventi, corrente) {
+  if (corrente && corrente.tipo === 'megacode') corrente = eventi.find((e) => e.id === corrente.corso_id) || corrente;   // un Mega Code si sceglie dentro il suo corso
   const gruppi = [['In corso', eventi.filter((e) => statoGara(e) === 'in corso')], ['Prossime', eventi.filter((e) => statoGara(e) === 'prossima')], ['Passate', eventi.filter((e) => statoGara(e) === 'passata')]];
   return `<select id="selgara">${gruppi.filter(([, l]) => l.length).map(([n, l]) => `<optgroup label="${n}">${l.map((e) => `<option value="${e.id}" ${corrente && e.id === corrente.id ? 'selected' : ''}>${esc(e.nome)} · ${esc(e.luogo || '')} ${esc(e.data || '')}</option>`).join('')}</optgroup>`).join('')}</select>`;
 }
@@ -411,19 +414,23 @@ async function vistaHome() {
 // scelta di scena, scheda e squadra della gara corrente
 async function vistaSelezione() {
   $('#esci').hidden = false; $('#hhome').hidden = false;
-  const { ev, eventi } = await garaCorrente();
+  let { ev, eventi, figli } = await garaCorrente();
   if (!ev) { location.hash = ''; return; }
+  const corso = ev.tipo === 'megacode' ? eventi.find((e) => e.id === ev.corso_id) : ev, mcDelCorso = corso ? figli.filter((m) => m.corso_id === corso.id) : [];
+  if (ev.tipo === 'corso' && mcDelCorso.length) ev = mcDelCorso[0];            // scelto il corso si valuta il suo Mega Code (il primo, se ce ne sono più di uno)
   $('#titolo').textContent = 'Valutazione';
   const [scene, squadre] = await Promise.all([api(`/eventi/${ev.id}/scene`), api(`/eventi/${ev.id}/squadre`)]);
   const scAvail = scene.filter(s => s.schede && s.schede.length);
-  const nonArch = eventi.filter((e) => !e.archiviato || e.id === ev.id);
-  $('#app').innerHTML = `<div class="card"><strong>${esc(ev.nome)}</strong><br><small>${esc(ev.luogo || '')} ${esc(ev.data || '')}</small>
-    ${nonArch.length > 1 ? `<label>Evento</label>${menuGare(nonArch, ev)}` : ''}
+  const nonArch = eventi.filter((e) => !e.archiviato || e.id === ev.id), titoloCorso = corso && corso.id !== ev.id ? corso : null;
+  $('#app').innerHTML = `<div class="card"><strong>${esc(titoloCorso ? titoloCorso.nome : ev.nome)}</strong><br><small>${esc((titoloCorso || ev).luogo || '')} ${esc((titoloCorso || ev).data || '')}</small>
+    ${nonArch.length > 1 ? `<label>${titoloCorso || ev.tipo === 'corso' ? 'Corso' : 'Evento'}</label>${menuGare(nonArch, ev)}` : ''}
+    ${mcDelCorso.length > 1 ? `<label>Mega Code</label><select id="selmc">${mcDelCorso.map((m) => `<option value="${m.id}" ${m.id === ev.id ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}</select>` : ''}
     <label>Scena</label><select id="sc">${scAvail.map((s, i) => `<option value="${i}">${esc(s.codice)} – ${esc(s.titolo)}</option>`).join('')}</select>
     <label>Scheda</label><select id="sk"></select>
     <label>Squadra</label><select id="sq">${squadre.filter(s => s.attiva).map(s => `<option value="${s.id}">${s.numero} – ${esc(s.nome)}</option>`).join('')}</select>
     <button class="btn" id="avvia">Inizia valutazione</button> <a class="btn sec" href="#">Home</a></div>`;
   if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem(org() && localStorage.getItem('mondo') === 'formazione' ? 'evF' : 'ev', $('#selgara').value); vistaSelezione(); };
+  if ($('#selmc')) $('#selmc').onchange = () => { localStorage.setItem('evF', $('#selmc').value); vistaSelezione(); };
   const chiaveSel = `selezione_${me.id}_${ev.id}`;   // l'ultima scelta resta anche tornando indietro e dopo un riavvio
   let ultima = {}; try { ultima = JSON.parse(localStorage.getItem(chiaveSel) || '{}'); } catch { /* ignora */ }
   const salvaSel = () => { try { localStorage.setItem(chiaveSel, JSON.stringify({ scena: scAvail[$('#sc').value]?.id, scheda: $('#sk').value, squadra: $('#sq').value })); } catch { /* ignora */ } };
@@ -695,6 +702,18 @@ async function vistaStorico() {
     try { const r = await fetch(`/api/me/storico/${s}/esito.pdf?squadra=${q}`, { headers: { Authorization: 'Bearer ' + token } }); if (!r.ok) throw new Error('PDF non disponibile'); w.location = URL.createObjectURL(await r.blob()); } catch (e) { w.close(); alert(e.message); } });
 }
 
+// richieste di collaborare a un corso come trainer / formatore (e valutatore): si accettano o si rifiutano
+async function vistaInviti() {
+  $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'Richieste per te';
+  const l = await api('/me/inviti');
+  const dt = (d) => (d ? d.split('-').reverse().join('/') : '');
+  $('#app').innerHTML = l.length ? l.map((i) => `<div class="card"><h3 style="margin:0 0 4px">${esc(i.corso)}</h3><small>${esc(i.comitato || '')}${i.luogo ? ' · ' + esc(i.luogo) : ''}${i.data ? ' · ' + dt(i.data) + (i.data_fine && i.data_fine !== i.data ? ' – ' + dt(i.data_fine) : '') : ''}</small>
+      <p>${esc(i.da || 'Un organizzatore')} ti chiede di collaborare come trainer / formatore. Se accetti diventi valutatore dei Mega Code del corso.</p>
+      <p style="text-align:right;margin:0"><button class="btn sec" data-r="rifiuta" data-e="${i.evento_id}">Rifiuta</button> <button class="btn" data-r="accetta" data-e="${i.evento_id}">Accetta</button></p></div>`).join('')
+    : '<div class="card">Nessuna richiesta in attesa.</div>';
+  document.querySelectorAll('[data-r]').forEach((b) => b.onclick = async () => { try { await api(`/me/inviti/${b.dataset.e}/${b.dataset.r}`, { body: {} }); vistaInviti(); } catch (e) { alert(e.message); } });
+}
+
 async function vistaDocumenti() {
   $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'Documentazione';
   const d = await api('/documenti');
@@ -760,6 +779,7 @@ async function route() {
     if (v === 'monitor') return await vistaMonitor();
     if (v === 'documenti') return await vistaDocumenti();
     if (v === 'storico') return await vistaStorico();
+    if (v === 'inviti') return await vistaInviti();
     return await vistaHome();
   } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
