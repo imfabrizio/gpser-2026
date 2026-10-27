@@ -12,6 +12,7 @@
   #lat .w,#rail .w{background:#f6f7f9;border-radius:12px;padding:12px;margin-bottom:12px;font-size:14px} #lat .w h4,#rail .w h4{margin:0 0 6px;font-size:13px;color:#555;font-weight:600} #lat .w b.n,#rail .w b.n{display:block;font-size:18px;line-height:1.2;margin-bottom:4px}
   #lat .w small,#rail .w small{color:#555;display:block} #lat .w a,#rail .w a{display:block;padding:7px 0;color:var(--rosso,#C8102E);font-weight:600;text-decoration:none} #rail .logo-r{display:block;margin:4px auto 14px;width:84px;opacity:.9} #lat .av,#rail .av{padding:6px 0;border-top:1px solid #e3e5ea} #lat .av:first-of-type,#rail .av:first-of-type{border-top:0}`;
   document.head.append(st);
+  st.textContent += `#lat .mn{display:flex;flex-direction:column;gap:2px;margin-bottom:12px}#lat .mn a{display:block;padding:10px 12px;border-radius:10px;color:#222;font-weight:600;text-decoration:none;font-size:15px}#lat .mn a:hover{background:#f0f1f4}#lat .mn a.on{background:var(--rosso,#C8102E);color:#fff}`;
   const lat = document.createElement('nav'); lat.id = 'lat'; lat.setAttribute('aria-label', 'Menu');
   const rail = document.createElement('aside'); rail.id = 'rail'; rail.setAttribute('aria-label', 'Riepilogo');
   document.body.append(lat, rail);
@@ -27,7 +28,13 @@
       const part = me.ruolo === 'partecipante';
       // a sinistra la sezione in cui sei e gli strumenti (gara attiva, notifiche), a destra gli avvisi
       const sez = window.Barra ? Barra.sezione() : null;
-      lat.innerHTML = (sez ? Barra.banda(sez) : '') + '<div class="w" id="r_ev"><h4>Gara attiva</h4><small>Carico…</small></div><div class="w" id="r_nt" hidden><h4>Notifiche</h4></div><div class="w" id="r_cal"></div>';
+      const aree = me.aree || [], org = ['admin', 'organizzazione'].includes(me.ruolo), ha = (a) => me.admin || aree.includes(a), hh = '#' + location.hash.slice(1).split('/')[0];
+      const voci = sez === 'formazione' ? [
+        org && ['/admin.html#hub:corsi', 'Gestione'], (org || ha('valutazione')) && ['#valutazione', 'Valutazioni'], ha('esami') && ['/esami.html', 'Esami'],
+        ha('formazione_esame') && ['/admin.html#corsi.libreria', 'Schede d\'esame'], ['#documenti', 'Documentazione']]
+        : sez === 'gara' ? [(org || ha('valutazione')) && ['#valutazione', 'Valutazione'], org && ['/admin.html#hub:gara', 'Gestione'], ha('classifiche') && ['/#monitor', 'Monitor'], ['#documenti', 'Documentazione']] : [];
+      const menu = voci.filter(Boolean).length ? `<div class="mn">${voci.filter(Boolean).map(([h, t]) => `<a href="${h}" class="${h === hh ? 'on' : ''}">${esc(t)}</a>`).join('')}</div>` : '';
+      lat.innerHTML = (sez ? Barra.banda(sez) : '') + menu + '<div class="w" id="r_ev"><h4>Gara attiva</h4><small>Carico…</small></div><div class="w" id="r_nt" hidden><h4>Notifiche</h4></div><div class="w" id="r_cal"></div>';
       rail.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div id="r_w"></div>';
       if (window.Widget) { Widget.calendario($r('r_cal')); Widget.disegna($r('r_w'), { mondo: ['gara', 'formazione'].includes(sez) ? sez : undefined }); }
       if (!part) try {

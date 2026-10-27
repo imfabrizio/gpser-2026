@@ -305,7 +305,14 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     }
     if (tipo === 'megacode') { const { rows: [c] } = await pool.query(`select tipo, archiviato from evento where id=$1`, [b.corso_id || null]); if (!c || c.tipo !== 'corso' || c.archiviato) throw httpErr(400, 'il Mega Code va assegnato a un corso attivo'); }
     const didattico = ['allenamento', 'corso', 'esame', 'megacode', 'corso_giudici'].includes(tipo);
-    const ente = await decidiEnte(req, b, tipo, comitato);
+    let ente = await decidiEnte(req, b, tipo, comitato);
+    // corsi, Mega Code ed esami sono sempre del comitato di chi li apre (o del corso a cui appartengono)
+    if (['corso', 'megacode', 'esame'].includes(tipo) && !(req.utente.admin && b.livello)) {
+      let com = comitato;
+      if (b.corso_id) { const { rows: [c] } = await pool.query('select comitato from evento where id=$1', [b.corso_id]); if (c?.comitato) com = c.comitato; }
+      if (!com) com = (await profiloFormativo(pool, req.utente.id)).comitato;
+      if (com) ente = { ...ente, comitato: com };   // l'accesso resta regolato dall'ambito di chi forma; qui si indica solo il comitato proprietario
+    }
     if (ente.livello === 'comitato' && !req.utente.admin && ['gara', 'olimpiadi', 'corso_giudici'].includes(tipo)) throw httpErr(403, 'le gare, le Olimpiadi e i corsi giudici li organizza la regione: un comitato crea allenamenti');
     const com = b.comune ? comunePerIstat(b.comune) : null;
     if (b.comune && !com) throw httpErr(400, 'comune inesistente');

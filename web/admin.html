@@ -172,6 +172,7 @@ const DESC = { valutazione: 'Inizia a valutare: scegli scena, scheda e squadra',
 const GRUPPI = [['gara', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede, squadre e classifiche', 'evento', ['valutazione', 'evento', 'scene', 'risorse', 'squadre', 'segreteria', 'libreria', 'punteggi', 'classifiche', 'monitor', 'stampa', 'importa', 'news', 'documenti']],
   ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['valutazione', 'corsi', 'evento', 'discenti', 'scene', 'libreria', 'risorse', 'squadre', 'news']],
   ['comune', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli', 'persone', ['persone', 'comitati', 'richieste', 'ruoli', 'utenti']]];
+const DESC_CORSI = { evento: 'Periodo, luogo e dati del corso', risorse: 'Valutatori e simulatori delle scene dei Mega Code' };
 const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli'];
 const admin = () => me.ruolo === 'admin';
 const consentito = (k) => k === 'menu' || k === 'hub' || (SOLO_ADMIN.includes(k) ? admin() : admin() || [].concat(AREA_TAB[k]).some((a) => (me.aree || []).includes(a)));
@@ -182,7 +183,7 @@ const impostaMondo = (f) => { if (f === 'comune') { impostaFam('gara'); fam = 'c
 const haArea = (a) => admin() || (me.aree || []).includes(a);
 // ogni mondo mostra solo le sezioni consentite: la Formazione richiede l'area Esami, i dati dell'evento l'area del proprio mondo
 const figliVisibili = (g) => g[4].filter((k) => k === 'evento' ? haArea(g[0] === 'corsi' ? 'esami' : 'gara') : g[0] === 'corsi' ? haArea('esami') && consentito(k) : consentito(k));
-const nomeTab = (k) => k === 'evento' ? (fam === 'corsi' ? 'Dati dell\'evento' : 'Gare e allenamenti') : (TABS.find(([x]) => x === k)?.[1] || '');
+const nomeTab = (k) => k === 'evento' ? (fam === 'corsi' ? 'Dati del corso' : 'Gare e allenamenti') : (fam === 'corsi' && k === 'risorse') ? 'Valutatori' : (TABS.find(([x]) => x === k)?.[1] || '');
 let ELENCO_RUOLI = [];
 window.addEventListener('hashchange', () => { const h = location.hash.slice(1).replace(/^hub:(\w+)$/, (_, m) => { if (GRUPPI.some((g) => g[0] === m)) impostaMondo(m); return 'hub'; }).replace(/^(\w+)\.(\w+)$/, (_, m, t) => { if (GRUPPI.some((g) => g[0] === m)) impostaMondo(m); return t; }) || 'menu'; if (TABS.some(([k]) => k === h) && consentito(h) && (h !== tab || h === 'hub')) { vai(h, true); } });
 const vai = (t, daHash) => { if (t === 'monitor') { location.href = '/#monitor'; return; }
@@ -248,41 +249,41 @@ async function caricaRotazione() {
 async function tEvento() {
   const regioni = me.ruolo === 'admin' ? await api('/regioni').catch(() => []) : [];
   $('#app').innerHTML = selettoreEvento() + (ev ? `
-  <div class="card"><h3>${fam === 'corsi' ? 'Dati dell\'evento' : 'Dati della gara'} ${ev.attivo ? '<span class="tag ok">attivo</span>' : ''}</h3>
+  <div class="card"><h3>${fam === 'corsi' ? ({ corso: 'Dati del corso', megacode: 'Dati del Mega Code', esame: 'Dati dell\'esame' }[ev.tipo] || 'Dati del corso') : 'Dati della gara'} ${ev.attivo ? '<span class="tag ok">attivo</span>' : ''}</h3>
     <div class="riga"><div><label>Codice</label><input id="e_cod" value="${esc(ev.codice)}"></div><div><label>Nome</label><input id="e_nome" value="${esc(ev.nome)}"></div>
       <div><label>Titolo in stampa</label><input id="e_tit" value="${esc(ev.titolo_stampa || '')}"></div></div>
     <p class="nota" style="margin:0 0 4px"><b>Luogo:</b> ${esc(ev.luogo || 'non indicato')} ${ev.comune_istat ? '' : (ev.luogo ? '<span class="tag no">non scelto dall\'elenco</span>' : '')}</p>
     ${htmlComune('lc')}
-    <div class="riga"><div><label>Data</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
-      <div><label>Ultimo giorno (se dura più giorni)</label><input id="e_dfine" type="date" value="${esc(ev.data_fine || '')}"></div>
-      <div><label>Tipo</label><select id="e_tipo">${FAM_TIPI[fam === 'corsi' ? 'corsi' : 'gara'].map((t) => `<option value="${t}" ${ev.tipo === t ? 'selected' : ''}>${NOME_TIPO[t] || t}</option>`).join('')}</select></div></div>
+    <div class="riga"><div><label>${fam === 'corsi' && ev.tipo === 'corso' ? 'Inizio del corso' : 'Data'}</label><input id="e_data" type="date" value="${esc(ev.data || '')}"></div>
+      <div><label>${fam === 'corsi' && ev.tipo === 'corso' ? 'Fine del corso (anche dopo mesi)' : 'Ultimo giorno (se dura più giorni)'}</label><input id="e_dfine" type="date" value="${esc(ev.data_fine || '')}"></div>
+      ${fam === 'corsi' ? `<input type="hidden" id="e_tipo" value="${esc(ev.tipo)}">` : `<div><label>Tipo</label><select id="e_tipo">${FAM_TIPI.gara.map((t) => `<option value="${t}" ${ev.tipo === t ? 'selected' : ''}>${NOME_TIPO[t] || t}</option>`).join('')}</select></div>`}</div>
     ${fam === 'corsi' ? '' : `<div class="riga"><div><label>Coordinate del comune ${ev.lat != null ? '<span class="tag ok">ricavate</span>' : '<span class="tag no">mancanti</span>'}</label><input id="e_lat" value="${ev.lat != null ? esc(ev.lat + ', ' + ev.lng) : ''}" readonly placeholder="si ricavano dal comune scelto"></div>
       <div><label>Coordinate della segreteria (arrivi e registrazioni)</label><input id="e_seg" value="${ev.segreteria_lat != null ? esc(ev.segreteria_lat + ', ' + ev.segreteria_lng) : ''}" placeholder="44.4056, 10.5912 (da Google Maps: tasto destro sul punto)"></div></div>
       ${me.ruolo === 'admin' ? '<p><button class="s" id="e_geo_tutte">Associa i comuni alle gare già caricate</button></p>' : ''}`}
     ${fam === 'corsi' ? `<div class="riga"><div><label>N° corso su Gaia</label><input id="e_gaia" value="${esc(ev.codice_gaia || '')}"></div>
-      <div><label>Corso di riferimento</label><select id="e_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato && x.id !== ev.id).map((x) => `<option value="${x.id}" ${x.id === ev.corso_id ? 'selected' : ''}>${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div></div>` : ''}
-    <div class="riga"><div><label>Soglia di superamento (%) — vuota se non serve</label><input id="e_soglia" type="number" min="1" max="100" value="${esc(ev.soglia_pct ?? '')}"></div>
-      <div><label style="display:block">Punteggi ai giudici</label><label style="font-size:15px;color:inherit"><input type="checkbox" id="e_mp" ${ev.mostra_punteggi ? 'checked' : ''}> mostra punti e percentuale mentre compilano (esami, corsi, allenamenti)</label></div></div>
-    ${me.ruolo === 'admin' ? `<div class="riga"><div><label>Proprietario del materiale</label><select id="e_liv"><option value="">Nessuno (storico, visibile a tutto lo staff)</option>
+      ${ev.tipo === 'corso' ? '' : `<div><label>Corso di riferimento</label><select id="e_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato && x.id !== ev.id).map((x) => `<option value="${x.id}" ${x.id === ev.corso_id ? 'selected' : ''}>${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div>`}</div>` : ''}
+    ${fam === 'corsi' ? (ev.tipo === 'esame' ? `<div class="riga"><div><label>Soglia di superamento (%)</label><input id="e_soglia" type="number" min="1" max="100" value="${esc(ev.soglia_pct ?? '')}"></div></div>` : '') : `<div class="riga"><div><label>Soglia di superamento (%) — vuota se non serve</label><input id="e_soglia" type="number" min="1" max="100" value="${esc(ev.soglia_pct ?? '')}"></div>
+      <div><label style="display:block">Punteggi ai giudici</label><label style="font-size:15px;color:inherit"><input type="checkbox" id="e_mp" ${ev.mostra_punteggi ? 'checked' : ''}> mostra punti e percentuale mentre compilano (esami, corsi, allenamenti)</label></div></div>`}
+    ${fam === 'corsi' ? `<p class="nota">Proprietario: ${ev.comitato ? 'comitato ' + esc(ev.comitato) : 'nessun comitato indicato'}. Per i corsi è sempre il comitato di chi li apre.</p>` : me.ruolo === 'admin' ? `<div class="riga"><div><label>Proprietario del materiale</label><select id="e_liv"><option value="">Nessuno (storico, visibile a tutto lo staff)</option>
         ${[['comitato', 'Un comitato'], ['regione', 'Una regione'], ['nazionale', 'Nazionale']].map(([v, t]) => `<option value="${v}" ${ev.livello === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div><label>Comitato (se proprietario è un comitato)</label><input id="e_comp" value="${esc(ev.livello === 'comitato' ? ev.comitato || '' : '')}" placeholder="Prignano sulla Secchia"></div>
       <div><label>Regione (se proprietaria è una regione)</label><select id="e_reg"><option value="">—</option>${regioni.map((r) => `<option ${ev.regione === r && ev.livello === 'regione' ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></div></div>`
       : (ev.livello ? `<p class="nota">Materiale ${ev.livello === 'comitato' ? 'del comitato ' + esc(ev.comitato || '') : ev.livello === 'regione' ? 'della regione ' + esc(ev.regione || '') : 'nazionale'}: lo vedono solo i membri di quell'ente.</p>` : '')}
     <p><button class="b" id="e_salva">Salva</button> <button class="s" id="e_attiva" ${ev.attivo ? 'disabled' : ''}>Rendi attivo</button>
     <button class="x" id="e_arch">Archivia</button>${admin() ? ' <button class="x" id="e_del">Elimina definitivamente</button>' : ''}</p></div>
-  <div class="card"><h3>Mappa del percorso</h3><label>Incorporamento Google My Maps (facoltativo)</label>
+  ${fam === 'corsi' ? '' : `<div class="card"><h3>Mappa del percorso</h3><label>Incorporamento Google My Maps (facoltativo)</label>
     <input id="e_map" value="${esc(ev.mappa_url || '')}" placeholder="https://www.google.com/maps/d/embed?mid=…">
     <p class="nota">Crea la mappa su Google My Maps con i punti delle scene, poi Condividi → Incorpora mappa e incolla qui solo l'indirizzo (src). Gli indirizzi o le coordinate delle singole scene si inseriscono in Scene.</p>
-    <p><button class="b" id="e_map_ok">Salva mappa</button></p></div>
+    <p><button class="b" id="e_map_ok">Salva mappa</button></p></div>`}
   ${fam === 'corsi' ? '' : '<div class="card" id="rotaz"><h3>Svolgimento della gara</h3><p>Carico…</p></div>'}` : '') + `
-  <div class="card"><h3>${fam === 'corsi' ? 'Nuovo evento' : 'Nuova gara'}</h3><div class="riga">
+  ${fam === 'corsi' ? '' : `<div class="card"><h3>Nuova gara</h3><div class="riga">
     <div><label>Nome</label><input id="n_nome" placeholder="GPSER 2027"></div><div><label>Codice (se vuoto, ricavato dal nome)</label><input id="n_cod" placeholder="GPSER-2027"></div>
     <div><label>Tipo</label><select id="n_tipo">${fam === 'corsi' ? '<option value="corso">corso</option><option value="megacode">mega code (formativo)</option><option value="esame">esame (soglia 75%)</option>' : '<option value="gara">gara</option><option value="olimpiadi">olimpiadi</option><option value="allenamento">allenamento</option><option value="corso_giudici">corso giudici</option>'}</select></div>
     <div><label>Data</label><input id="n_data" type="date"></div>
     ${fam === 'corsi' ? '<div><label>N° corso su Gaia</label><input id="n_gaia" placeholder="es. 12345"></div>' : ''}
     ${fam !== 'corsi' ? '' : `<div><label>Corso di riferimento (Mega Code, esami)</label><select id="n_corso"><option value="">—</option>${eventi.filter((x) => x.tipo === 'corso' && !x.archiviato).map((x) => `<option value="${x.id}">${esc((x.codice_gaia ? x.codice_gaia + ' · ' : '') + x.nome)}</option>`).join('')}</select></div>`}</div>
     <p class="nota" style="margin:8px 0 0"><b>Luogo</b> (comune dell'evento)</p>${htmlComune('nc')}
-    <p><button class="b" id="n_crea">Crea evento</button></p></div>`;
+    <p><button class="b" id="n_crea">Crea evento</button></p></div>`}`;
   if (ev && fam !== 'corsi') caricaRotazione();
   if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});
   legaSelettore();
@@ -303,9 +304,9 @@ async function tEvento() {
   if (ev) {
     attivaComune('lc', { istat: ev.comune_istat, regione: ev.luogo_regione, provincia: ev.luogo_provincia }).catch((e) => flash(e.message, false));
     $('#e_salva').onclick = () => fai(async () => { await api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
-      luogo: ev.luogo || '', data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia').value, mostra_punteggi: $('#e_mp').checked, codice_gaia: $('#e_gaia')?.value ?? ev.codice_gaia, corso_id: $('#e_corso') ? $('#e_corso').value || null : ev.corso_id } })
+      luogo: ev.luogo || '', data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia') ? $('#e_soglia').value : (ev.soglia_pct ?? ''), mostra_punteggi: $('#e_mp') ? $('#e_mp').checked : ev.mostra_punteggi, codice_gaia: $('#e_gaia')?.value ?? ev.codice_gaia, corso_id: $('#e_corso') ? $('#e_corso').value || null : ev.corso_id } })
       .then(() => api(`/eventi/${ev.id}/data-fine`, { method: 'PUT', body: { data_fine: $('#e_dfine').value || null } }))
-      .then(() => (me.ruolo === 'admin' ? api(`/eventi/${ev.id}/ente`, { method: 'PUT', body: { livello: $('#e_liv').value, comitato: $('#e_comp').value.trim(), regione: $('#e_reg').value } }) : null))
+      .then(() => (me.ruolo === 'admin' && $('#e_liv') ? api(`/eventi/${ev.id}/ente`, { method: 'PUT', body: { livello: $('#e_liv').value, comitato: $('#e_comp').value.trim(), regione: $('#e_reg').value } }) : null))
       .then(() => ($('#lc_com').value && $('#lc_com').value !== ev.comune_istat ? api(`/eventi/${ev.id}/posizione`, { method: 'PUT', body: { comune: $('#lc_com').value } }) : null)).then(caricaEventi);
     }, 'Salvato');
     if ($('#e_seg')) $('#e_seg').onchange = () => fai(async () => { await api(`/eventi/${ev.id}/posizione`, { method: 'PUT', body: { segreteria: $('#e_seg').value.trim() } }); await caricaEventi(); ev = eventi.find((x) => x.id === ev.id) || ev; }, 'Coordinate della segreteria salvate');
@@ -314,10 +315,10 @@ async function tEvento() {
     $('#e_attiva').onclick = () => fai(() => api(`/eventi/${ev.id}/attiva`, { method: 'POST', body: {} }).then(caricaEventi), 'Evento attivato');
     if ($('#e_del')) $('#e_del').onclick = () => { if (confirm(`Eliminare DEFINITIVAMENTE «${ev.nome}» con scene, schede, valutazioni, squadre e iscritti${ev.tipo === 'corso' ? ', insieme ai suoi Mega Code ed esami' : ''}? Non si può annullare.`) && confirm('Sicuro? Se vuoi solo toglierlo dagli elenchi usa Archivia.')) fai(async () => { await api(`/eventi/${ev.id}`, { method: 'DELETE' }); try { localStorage.removeItem('ev_' + fam); } catch { /* ignora */ } await caricaEventi(); impostaFam(fam); }, 'Evento eliminato'); };
     $('#e_arch').onclick = () => { if (confirm('Archiviare questo evento? Sparisce dagli elenchi ma i dati restano.')) fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { archiviato: true } }).then(caricaEventi), 'Archiviato'); };
-    $('#e_map_ok').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { mappa_url: $('#e_map').value.trim() } }).then(caricaEventi), 'Mappa salvata');
+    if ($('#e_map_ok')) $('#e_map_ok').onclick = () => fai(() => api(`/eventi/${ev.id}`, { method: 'PATCH', body: { mappa_url: $('#e_map').value.trim() } }).then(caricaEventi), 'Mappa salvata');
   }
-  attivaComune('nc').catch((e) => flash(e.message, false));
-  $('#n_crea').onclick = () => fai(async () => {
+  if ($('#n_crea')) attivaComune('nc').catch((e) => flash(e.message, false));
+  if ($('#n_crea')) $('#n_crea').onclick = () => fai(async () => {
     const e = await api('/eventi', { body: { codice: $('#n_cod').value.trim() || $('#n_nome').value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: $('#n_tipo').value, nome: $('#n_nome').value.trim(), titolo_stampa: $('#n_nome').value.trim(), comune: $('#nc_com').value || undefined, data: $('#n_data').value || null, codice_gaia: $('#n_gaia')?.value || null, corso_id: $('#n_corso')?.value || null } });
     await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_' + fam, ev.id);
   }, fam === 'corsi' ? 'Evento creato' : 'Gara creata');
@@ -336,7 +337,7 @@ function tMenu() {
 function tHub() {
   const g = mondoCorrente() || mondiVisibili()[0]; if (!g) { $('#app').innerHTML = '<div class="card">Nessuna area disponibile per il tuo ruolo.</div>'; return; }
   const v = figliVisibili(g);
-  $('#app').innerHTML = `<h2 style="margin:4px 0 12px">${esc(g[1])}</h2><div class="griglia hub">${v.map((k) => `<button class="hubb" data-t="${k}"><i class="ico">${ICONE[k] || iconaMondo(g)}</i><b>${esc(nomeTab(k))}</b><span>${esc(DESC[k] || '')}</span></button>`).join('')}</div>`;
+  $('#app').innerHTML = `<h2 style="margin:4px 0 12px">${esc(g[1])}</h2><div class="griglia hub">${v.map((k) => `<button class="hubb" data-t="${k}"><i class="ico">${ICONE[k] || iconaMondo(g)}</i><b>${esc(nomeTab(k))}</b><span>${esc((g[0] === 'corsi' && DESC_CORSI[k]) || DESC[k] || '')}</span></button>`).join('')}</div>`;
   document.querySelectorAll('.hubb').forEach((b) => { b.onclick = () => vai(b.dataset.t); });
   if (g[0] === 'comune' || g[0] === 'gara') if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});
 }
@@ -404,29 +405,44 @@ async function anteprimaCanovaccio(c) {
 }
 
 // ───────── CORSI: corso (n. Gaia) con i suoi Mega Code ed esami ─────────
+let creaCorso = false;
+const periodo = (c) => (c.data ? dataIt(c.data) + (c.data_fine && c.data_fine !== c.data ? ' – ' + dataIt(c.data_fine) : '') : 'date da indicare');
+async function tNuovoCorso() {
+  $('#app').innerHTML = `<div class="card"><h3>Nuovo corso</h3>
+    <div class="riga"><div><label>N° corso su Gaia</label><input id="c_gaia" placeholder="es. 12345"></div><div style="flex:2"><label>Nome del corso</label><input id="c_nome" placeholder="Corso TSSA Modena autunno"></div></div>
+    <div class="riga"><div><label>Inizio del corso</label><input id="c_data" type="date"></div><div><label>Fine del corso (anche dopo mesi)</label><input id="c_fine" type="date"></div>
+      <div style="flex:2"><label>Comitato organizzatore</label><input id="c_com" placeholder="se vuoto, il comitato della tua anagrafica"></div></div>
+    <p class="nota" style="margin:8px 0 0"><b>Luogo</b> (comune del corso)</p>${htmlComune('nc')}
+    <p><button class="b" id="c_ok">Crea corso</button> <button class="s" id="c_no">Annulla</button></p>
+    <p class="nota">Il corso è del comitato che lo apre. I Mega Code e gli esami si creano poi dentro il corso, e restano suoi.</p></div>`;
+  attivaComune('nc').catch((e) => flash(e.message, false));
+  $('#c_no').onclick = () => { creaCorso = false; render(); };
+  $('#c_ok').onclick = () => { const nome = $('#c_nome').value.trim(), g = $('#c_gaia').value.trim(); if (!nome) return flash('Scrivi il nome del corso', false);
+    if ($('#c_data').value && $('#c_fine').value && $('#c_fine').value < $('#c_data').value) return flash('La fine del corso è prima dell\'inizio', false);
+    fai(async () => { const e = await api('/eventi', { body: { codice: ('CORSO-' + (g || nome)).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: 'corso', nome, titolo_stampa: nome, comune: $('#nc_com').value || undefined, data: $('#c_data').value || null, data_fine: $('#c_fine').value || null, codice_gaia: g, comitato: $('#c_com').value.trim() || undefined } });
+      creaCorso = false; await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_corsi', ev.id); }, 'Corso creato'); };
+}
 async function tCorsi() {
+  if (creaCorso) return tNuovoCorso();
   const corsi = eventi.filter((e) => e.tipo === 'corso' && !e.archiviato);
   const sess = await api('/esami/sessioni').catch(() => []);
   const figli = (c) => eventi.filter((e) => e.corso_id === c.id && !e.archiviato);
   const extra = Object.fromEntries(await Promise.all(corsi.map(async (c) => [c.id, await Promise.all([api(`/eventi/${c.id}/inviti`).catch(() => []), api(`/eventi/${c.id}/invitabili`).catch(() => [])])])));
-  $('#app').innerHTML = `<div class="card"><h3>Nuovo corso</h3><div class="riga">
-      <div><label>N° corso su Gaia</label><input id="c_gaia" placeholder="es. 12345"></div><div style="flex:2"><label>Nome</label><input id="c_nome" placeholder="Corso TSSA Modena autunno"></div>
-      <div><label>Luogo</label><input id="c_luogo"></div><div><label>Data</label><input id="c_data" type="date"></div><div class="stretto"><button class="b" id="c_ok">Crea corso</button></div></div></div>
-    ${corsi.map((c) => `<div class="card"><h3>${c.codice_gaia ? esc(c.codice_gaia) + ' · ' : ''}${esc(c.nome)}</h3><p><small>${esc(c.comitato || '')} ${esc(c.luogo || '')} ${esc(c.data || '')}</small></p>
-      <p><b>Mega Code</b> ${figli(c).filter((e) => e.tipo === 'megacode').map((e) => `<button class="s p apri" data-id="${e.id}">${esc(e.nome)}</button>`).join(' ') || '<small>nessuno</small>'} <button class="b p nmc" data-id="${c.id}">Nuovo Mega Code</button></p>
-      <p><b>Sessioni d'esame</b> ${sess.filter((x) => x.evento_id === c.id).map((x) => `<button class="s p" onclick="location.href='/esami.html#s/${x.id}'">${esc(x.nome)} (${x.prove})</button>`).join(' ') || '<small>nessuna</small>'} <button class="b p" onclick="location.href='/esami.html'">Apri Esami</button></p>
-      <p><b>Formatori invitati</b> ${extra[c.id][0].map((i) => `<span class="tag">${esc(i.nome)}${i.comitato ? ' · ' + esc(i.comitato) : ''} <a href="#" class="dinv" data-e="${c.id}" data-u="${i.utente_id}" title="Togli">×</a></span>`).join('') || '<small>nessuno</small>'}
+  $('#app').innerHTML = `<div class="card"><div class="riga" style="align-items:center;justify-content:space-between"><h3 style="margin:0">Corsi attivi</h3><div class="stretto"><button class="b" id="c_nuovo">Crea nuovo corso</button></div></div></div>
+    ${corsi.map((c) => `<div class="card"><h3>${c.codice_gaia ? esc(c.codice_gaia) + ' · ' : ''}${esc(c.nome)}</h3><p><small>${esc(c.comitato || 'comitato non indicato')} · ${esc(c.luogo || 'luogo da indicare')} · ${esc(periodo(c))}</small></p>
+      <p><b>Mega Code</b> ${figli(c).filter((e) => e.tipo === 'megacode').map((e) => `<button class="s p apri" data-id="${e.id}">${esc(e.nome)}</button>`).join(' ') || '<small>nessuno</small>'} <button class="b p nmc" data-id="${c.id}">Crea Mega Code</button></p>
+      <p><b>Sessioni d'esame</b> ${sess.filter((x) => x.evento_id === c.id).map((x) => `<button class="s p" onclick="location.href='/esami.html#s/${x.id}'">${esc(x.nome)} (${x.prove})</button>`).join(' ') || '<small>nessuna</small>'} <button class="b p" onclick="location.href='/esami.html'">Crea esame</button></p>
+      <p><b>Formatori invitati</b> ${extra[c.id][0].map((i) => `<span class="tag">${esc(i.nome)}${i.comitato ? ' · ' + esc(i.comitato) : ''} <a href="#" class="dinv" data-e="${c.id}" data-u="${i.utente_id}" title="Togli">×</a></span>`).join(' ') || '<small>nessuno</small>'}
         <select class="inv" data-e="${c.id}"><option value="">Invita un trainer / formatore…</option>${extra[c.id][1].map((x) => `<option value="${x.id}">${esc(x.cognome + ' ' + x.nome)}${x.comitato ? ' · ' + esc(x.comitato) : ''}</option>`).join('')}</select></p>
-      <p><button class="s p apri" data-id="${c.id}">Dati e squadre del corso</button></p></div>`).join('') || '<div class="card"><em>Nessun corso: creane uno qui sopra con il numero assegnato da Gaia.</em></div>'}`;
-  $('#c_ok').onclick = () => { const nome = $('#c_nome').value.trim(), g = $('#c_gaia').value.trim(); if (!nome) return alert('Scrivi il nome del corso');
-    fai(async () => { const e = await api('/eventi', { body: { codice: ('CORSO-' + (g || nome)).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: 'corso', nome, titolo_stampa: nome, luogo: $('#c_luogo').value, data: $('#c_data').value || null, codice_gaia: g } });
-      await caricaEventi(); }, 'Corso creato'); };
+      <p><button class="s p apri" data-id="${c.id}">Dati del corso</button> <button class="s p dsc" data-id="${c.id}">Discenti</button></p></div>`).join('') || '<div class="card"><em>Nessun corso: creane uno con «Crea nuovo corso».</em></div>'}`;
+  $('#c_nuovo').onclick = () => { creaCorso = true; render(); };
   document.querySelectorAll('.nmc').forEach((b) => { b.onclick = () => { const c = eventi.find((e) => e.id === b.dataset.id), n = figli(c).filter((e) => e.tipo === 'megacode').length + 1;
     fai(async () => { const e = await api('/eventi', { body: { codice: `${c.codice}-MC${n}`, tipo: 'megacode', nome: `Mega Code ${n} · ${c.nome}`, titolo_stampa: `Mega Code ${n}`, luogo: c.luogo, data: c.data, corso_id: c.id } });
       await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_corsi', ev.id); }, 'Mega Code creato'); }; });
   document.querySelectorAll('.inv').forEach((x) => { x.onchange = () => { if (x.value) fai(() => api(`/eventi/${x.dataset.e}/inviti`, { body: { partecipante_id: x.value } }), 'Invitato: gestirà solo questo corso'); }; });
   document.querySelectorAll('.dinv').forEach((a) => { a.onclick = (e) => { e.preventDefault(); fai(() => api(`/eventi/${a.dataset.e}/inviti/${a.dataset.u}`, { method: 'DELETE' }), 'Invito tolto'); }; });
   document.querySelectorAll('.apri').forEach((b) => { b.onclick = () => { ev = eventi.find((e) => e.id === b.dataset.id); localStorage.setItem('ev_corsi', ev.id); vai('evento'); }; });
+  document.querySelectorAll('.dsc').forEach((b) => { b.onclick = () => { ev = eventi.find((e) => e.id === b.dataset.id); localStorage.setItem('ev_corsi', ev.id); vai('discenti'); }; });
 }
 
 // ───────── NOTIZIE ─────────
