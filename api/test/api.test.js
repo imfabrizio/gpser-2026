@@ -994,6 +994,9 @@ test('COMP-1: scheda composta — la skill incorporata si apre dopo la voce indi
   assert.equal((await chiama('PUT', `/api/libreria/patologie/${comp.id}/skill`, { token: O, body: { skill: [{ skill_id: comp.id, dopo_ordine: 1 }] } })).statusCode, 400);
   assert.equal((await chiama('PUT', `/api/libreria/patologie/${comp.id}/skill`, { token: O, body: { skill: [{ skill_id: sk.id, dopo_ordine: 2 }] } })).statusCode, 200);
   assert.equal(json(await chiama('GET', `/api/libreria/patologie/${comp.id}/skill`, { token: O })).length, 1);
+  assert.equal((await chiama('PUT', `/api/libreria/patologie/${sk.id}`, { token: O, body: { errori_gravi: ['uno', ' due ', ''] } })).statusCode, 200);
+  assert.deepEqual((await pool.query('select errori_gravi from patologia where id=$1', [sk.id])).rows[0].errori_gravi, ['uno', 'due']);
+  await pool.query("update patologia set errori_gravi='{a,b,c}' where id=$1", [sk.id]);
   const { rows: [ev] } = await pool.query(`select id from evento order by codice limit 1`);
   const sc = json(await chiama('POST', `/api/eventi/${ev.id}/scene`, { token: O, body: { codice: 'CP', titolo: 'Composta' } }));
   const s = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { slot: 0, patologiaId: comp.id, simulatore: 'M' } }));

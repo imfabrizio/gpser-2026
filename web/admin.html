@@ -973,9 +973,24 @@ function editorPatologia(p, voci, nuova = false) {
     <div><label>Seconda patologia (facoltativa)</label><input id="pt_c2" list="dl_cat" value="${esc(p?.categoria2 || '')}" placeholder="es. Frattura polso"></div>
     <div class="stretto"><label>BLSD</label><input type="checkbox" id="pt_b" ${p?.is_bls ? 'checked' : ''}></div><div class="stretto"><label>DIU</label><input type="checkbox" id="pt_d" ${p?.is_diu ? 'checked' : ''}></div><div class="stretto"><label>Master</label><input type="checkbox" id="pt_m" ${p?.is_master ? 'checked' : ''}></div></div>
     <div class="riga" style="align-items:center"><strong>Si usa in:</strong> ${TIPOLOGIE.map(([k, n]) => `<label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="pt_ti" value="${k}" style="width:auto" ${(p && p.tipologie ? p.tipologie : ['gara']).includes(k) ? 'checked' : ''}> ${n}</label>`).join('')}</div>
+    ${(p?.tipologie || []).includes('skill') || (p?.tipologie || []).includes('megacode') ? `<div class="riga"><div style="flex:1"><label>Errori gravi (uno per riga, si stampano nel riquadro della scheda)</label><textarea id="pt_eg" rows="3" style="width:100%">${esc((p?.errori_gravi || []).join('\n'))}</textarea></div></div>` : ''}
+    <div id="pt_sk"></div>
     <table class="voci" id="pt_t"><tr><th>Sezione</th><th>Voce</th><th>Scala</th><th>SEP</th><th></th></tr>${voci.map(riga).join('')}</table>
     <p><button class="s" id="pt_add">+ Voce</button> <button class="b" id="pt_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
   const t = $('#pt_t');
+  // skill incorporate (schede composte, es. la Valutazione di un Mega Code): ognuna si apre dopo la voce indicata, con punteggio proprio
+  let incorp = null;
+  if (p && p.id && !nuova && !sola) api(`/libreria/patologie/${p.id}/skill`).then((l) => {
+    incorp = l; const skills = (cache.pat || []).filter((x) => x.id !== p.id && Array.isArray(x.tipologie) && x.tipologie.includes('skill') && !x.tipologie.includes('gara') && !x.tipologie.includes('olimpiadi') || x.categoria === 'Esame TSSA');
+    const nVoci = () => t.rows.length - 1;
+    const disegna = () => { $('#pt_sk').innerHTML = `<p><strong>Skill incorporate</strong> <small>(si aprono dentro la scheda, con punteggio, fasce ed errori gravi propri; i loro punti non entrano nel totale)</small></p>
+      ${incorp.map((x, i) => `<p>${esc(x.nome)} — dopo la voce n° <input type="number" min="0" max="${nVoci()}" value="${x.dopo_ordine}" class="sk_n" data-i="${i}" style="width:70px"> <button class="x p sk_x" data-i="${i}">✕</button></p>`).join('') || '<p><em>nessuna</em></p>'}
+      <p><select id="sk_s"><option value="">+ aggiungi una skill…</option>${skills.filter((s) => !incorp.some((x) => x.skill_id === s.id)).map((s) => `<option value="${s.id}">${esc(s.nome)}</option>`).join('')}</select></p>`;
+      document.querySelectorAll('.sk_n').forEach((e) => { e.onchange = () => { incorp[+e.dataset.i].dopo_ordine = Math.max(0, Math.min(nVoci(), +e.value || 0)); }; });
+      document.querySelectorAll('.sk_x').forEach((e) => { e.onclick = () => { incorp.splice(+e.dataset.i, 1); disegna(); }; });
+      $('#sk_s').onchange = () => { const s = skills.find((q) => q.id === $('#sk_s').value); if (s) { incorp.push({ skill_id: s.id, nome: s.nome, dopo_ordine: nVoci() }); disegna(); } }; };
+    disegna();
+  }).catch(() => {});
   $('#pt_mc').onchange = () => { const m = (cache.macro || []).find((x) => x.codice === $('#pt_mc').value); if (m && !$('#pt_gr').value) $('#pt_gr').value = m.gravita; };
   if (sola) { $('#pt_ok').hidden = true; $('#pt_add').hidden = true; document.querySelectorAll('#dlg input, #dlg select').forEach((e) => { e.disabled = true; }); t.querySelectorAll('button').forEach((b) => { b.hidden = true; }); }
   $('#pt_add').onclick = () => { const last = t.querySelector('tr:last-child .r_sez'); t.insertAdjacentHTML('beforeend', riga({ sezione: last && last.closest('tr') !== t.rows[0] ? last.value : '' })); t.lastElementChild.querySelector('.r_tx').focus(); };
@@ -990,8 +1005,9 @@ function editorPatologia(p, voci, nuova = false) {
     const body = { nome: $('#pt_n').value.trim(), sigla: $('#pt_s').value.trim().toUpperCase(), is_bls: $('#pt_b').checked, is_diu: $('#pt_d').checked, is_master: $('#pt_m').checked, categoria: $('#pt_c').value.trim(), categoria2: $('#pt_c2').value.trim(), macro: $('#pt_mc').value, macro2: $('#pt_mc2').value, gravita: $('#pt_gr').value, tipologie: [...document.querySelectorAll('#dlg .pt_ti')].filter((c) => c.checked).map((c) => c.value), voci: vv };
     if (!body.nome || !body.sigla) return alert('Nome e sigla obbligatori');
     if (!body.tipologie.length) return alert('Scegli almeno una tipologia: Gara, Olimpiadi, Mega Code o Skill');
+    if ($('#pt_eg')) body.errori_gravi = $('#pt_eg').value.split('\n').map((x) => x.trim()).filter(Boolean);
     chiudi();
-    fai(() => p && p.id ? api(`/libreria/patologie/${p.id}`, { method: 'PUT', body }) : api('/libreria/patologie', { body: { ...body, codice: body.nome.toUpperCase().replace(/[^A-Z0-9]+/g, '_') + '_' + Date.now().toString(36).toUpperCase() } }), 'Patologia salvata');
+    fai(() => p && p.id ? api(`/libreria/patologie/${p.id}`, { method: 'PUT', body }).then(async (r) => { if (incorp) await api(`/libreria/patologie/${p.id}/skill`, { method: 'PUT', body: { skill: incorp.map((x) => ({ skill_id: x.skill_id, dopo_ordine: x.dopo_ordine })) } }); return r; }) : api('/libreria/patologie', { body: { ...body, codice: body.nome.toUpperCase().replace(/[^A-Z0-9]+/g, '_') + '_' + Date.now().toString(36).toUpperCase() } }), 'Patologia salvata');
   };
 }
 

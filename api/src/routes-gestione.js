@@ -367,6 +367,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
         'categoria' in b, b.categoria ?? '', 'categoria2' in b, b.categoria2 ?? '',
         'macro' in b, b.macro ?? '', 'macro2' in b, b.macro2 ?? '', 'gravita' in b, b.gravita ?? '', 'tipologie' in b ? tipologieValide(b.tipologie) : null]);
     if (!p) throw httpErr(404, 'patologia inesistente');
+    if (Array.isArray(b.errori_gravi)) await db.query('update patologia set errori_gravi=$2::text[] where id=$1', [p.id, b.errori_gravi.map((x) => String(x).trim().slice(0, 200)).filter(Boolean).slice(0, 12)]);
     if (Array.isArray(b.voci)) {          // sostituisce l'elenco; le scene già composte non cambiano (snapshot)
       await db.query('delete from patologia_voce where patologia_id=$1', [p.id]);
       let o = 0;

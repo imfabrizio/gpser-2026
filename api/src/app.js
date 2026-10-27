@@ -688,6 +688,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const { rows: [p] } = await db.query(
       `insert into patologia (codice, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2, comitato, creata_da, macro, macro2, gravita, tipologie) values ($1,$2,$3,coalesce($4,false),coalesce($5,false),coalesce($6,false),$7,$8,$9,$10,$11,$12,$13,$14::text[]) returning *`,
       [codice, b.nome, b.sigla, b.is_bls, b.is_master, b.is_diu, (b.categoria || '').trim() || b.nome, (b.categoria2 || '').trim() || null, comitato, req.utente.id, b.macro || null, b.macro2 || null, b.gravita || null, tipologieValide(b.tipologie, ['gara'])]);
+    if (Array.isArray(b.errori_gravi)) await db.query('update patologia set errori_gravi=$2::text[] where id=$1', [p.id, b.errori_gravi.map((x) => String(x).trim().slice(0, 200)).filter(Boolean).slice(0, 12)]);
     let o = 0;
     for (const v of b.voci || []) {
       const { rows: [voce] } = await db.query(
