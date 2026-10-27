@@ -1007,6 +1007,10 @@ test('COMP-1: scheda composta — la skill incorporata si apre dopo la voce indi
   const { rows: [sm] } = await pool.query(`select coalesce(sum(greatest(mb,be,su,"in",ne)),0)::int as t from scena_scheda_voce where scheda_id=$1 and blocco_id is null`, [s.id]);
   assert.ok(Number(mx.max_totale) >= sm.t);
   const pdf = await chiama('GET', `/api/schede/${s.id}/anteprima.pdf`, { token: O }); assert.equal(pdf.statusCode, 200);
+  const { generaPdfSchede } = await import('../src/services/stampa.js');
+  const { rows: [{ n: nsq }] } = await pool.query('select count(*)::int n from squadra where evento_id=$1 and attiva', [ev.id]);
+  const st = await generaPdfSchede(pool, { eventoId: ev.id, scenaCodice: 'CP', vuote: true });
+  assert.equal(st.pagine, nsq * 2);      // per ogni squadra: la scheda e il foglio della skill incorporata
 });
 
 test('ESA-1 area Esami: sessione, principale + secondari, valore diverso per un candidato, errore grave, chiusura, PDF', async () => {

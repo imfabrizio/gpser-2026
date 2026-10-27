@@ -481,7 +481,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const voci = (await pool.query('select * from scena_scheda_voce where scheda_id=$1 order by ordine', [s.id])).rows;
     const { rows: [ve] } = await pool.query('select e.tipo, e.soglia_pct, e.mostra_punteggi from scena sc join evento e on e.id = sc.evento_id where sc.id=$1', [s.scena_id]);
     s.evento = ve;
-    if (!s.fasce && SKILL_AUTO.includes(ve?.tipo) && voci.length) s.fasce = fasceAuto(voci.length);
+    const nProprie = voci.filter((v) => !v.blocco_id).length;       // le skill incorporate hanno fasce proprie
+    if (!s.fasce && SKILL_AUTO.includes(ve?.tipo) && nProprie) s.fasce = fasceAuto(nProprie);
     const LIVELLI = ['mb', 'be', 'su', 'in', 'ne'];
     s.voci = voci.map((v) => {
       const consentiti = LIVELLI.filter((l) => v[l] !== null).map((l) => l.toUpperCase());
@@ -557,7 +558,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const { rows: [k] } = await pool.query(`select s.titolo, s.simulatore, s.is_master, s.gravita, s.parametri, sc.codice, sc.titolo as scena_titolo, e.nome as ev_nome, e.titolo_stampa, e.luogo
       from scena_scheda s join scena sc on sc.id=s.scena_id join evento e on e.id=sc.evento_id where s.id=$1`, [req.params.id]);
     if (!k) throw httpErr(404, 'scheda inesistente');
-    const { rows: voci } = await pool.query(`select ordine as id, sezione, testo, is_sep, mb, be, su, "in", ne from scena_scheda_voce where scheda_id=$1 order by ordine`, [req.params.id]);
+    const { rows: voci } = await pool.query(`select ordine as id, sezione, testo, is_sep, mb, be, su, "in", ne from scena_scheda_voce where scheda_id=$1 and blocco_id is null order by ordine`, [req.params.id]);
     const doc = creaDocumento(); const chunks = []; doc.on('data', (c) => chunks.push(c)); const fine = new Promise((r) => doc.on('end', r));
     const { rows: [pk] } = await pool.query('select p.tipologie, p.categoria, p.fasce, p.errori_gravi, p.sigla from scena_scheda s join patologia p on p.id=s.patologia_id where s.id=$1', [req.params.id]);
     if (pk && èSkill(pk)) { disegnaSkill(doc, { titolo: k.titolo, modello: `SKILL ${pk.sigla}`, voci, fasce: pk.fasce, erroriGravi: pk.errori_gravi }); doc.end(); await fine;
