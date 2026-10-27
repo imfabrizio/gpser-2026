@@ -645,7 +645,7 @@ async function vistaValuta(schedaId, squadraId) {
   };
   if ($('#elimina')) $('#elimina').onclick = async () => {
     if (!confirm(`Eliminare la valutazione${nomeSq ? ' di ' + nomeSq : ''}? Tutte le risposte di questa scheda vengono cancellate e non si possono recuperare.`)) return;
-    try { clearTimeout(timer); await api(`/compilazioni/${cur.compilazione.id}`, { method: 'DELETE' }); coda.scarta(chiave); location.hash = '#valutazione'; }
+    try { clearTimeout(timer); await api(`/compilazioni/${cur.compilazione.id}`, { method: 'DELETE', body: {} }); coda.scarta(chiave); location.hash = '#valutazione'; }
     catch (e) { alert(e.message); }
   };
   if ($('#riapri')) $('#riapri').onclick = async () => {
