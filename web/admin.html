@@ -162,17 +162,17 @@ window.chiudi = chiudi;
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
 const TABS = [['menu', 'Portale'], ['valutazione', 'Valutazione'], ['hub', 'Menu'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['discenti', 'Discenti'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
-  ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
-const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', segreteria: 'segreteria', valutazione: 'valutazione', evento: 'gara', discenti: ['esami', 'gara'], scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: 'stampa', importa: 'importa' };
+  ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['statistiche', 'Statistiche corso'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
+const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', segreteria: 'segreteria', valutazione: 'valutazione', evento: 'gara', discenti: ['esami', 'gara'], scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: ['stampa', 'esami'], statistiche: ['esami', 'classifiche'], importa: 'importa' };
 const DESC = { valutazione: 'Inizia a valutare: scegli scena, scheda e squadra', discenti: 'Chi frequenta il corso: con loro si compongono gli equipaggi dei Mega Code', corsi: 'Corsi, Mega Code ed esami', evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', squadre: 'Squadre, comitato e componenti',
   segreteria: 'Registra gli arrivi e stampa i badge', persone: 'Persone e requisiti', comitati: 'Elenco dei comitati, unità territoriali e nomi da correggere', importa: 'Carica le scene dai vecchi file Excel', libreria: 'Crea e modifica le schede, anche dei comitati', punteggi: 'Valore di MB, BE, SU, IN, NE per ogni scala',
   classifiche: 'Generale, SEP, BLSD, Master, DIU', monitor: 'Avanzamento delle schede', stampa: 'Schede vuote o compilate, per scena o squadra', news: 'Avvisi per i partecipanti e notizie pubbliche', documenti: 'Regolamento, comunicazioni e manuali',
   richieste: 'Chi ha chiesto l\'accesso: approva e assegna il ruolo', ruoli: 'Crea ruoli e scegli a quali aree possono accedere', utenti: 'Accessi, ruoli e gara assegnata' };
 // tre mondi separati: si sceglie all'ingresso e dentro si vede solo ciò che li riguarda (il motore è lo stesso)
 const GRUPPI = [['gara', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede, squadre e classifiche', 'evento', ['valutazione', 'evento', 'scene', 'risorse', 'squadre', 'segreteria', 'libreria', 'punteggi', 'classifiche', 'monitor', 'stampa', 'importa', 'news', 'documenti']],
-  ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['valutazione', 'corsi', 'evento', 'discenti', 'scene', 'libreria', 'risorse', 'squadre', 'news']],
+  ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['valutazione', 'corsi', 'evento', 'discenti', 'scene', 'libreria', 'risorse', 'squadre', 'stampa', 'statistiche', 'news']],
   ['comune', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli', 'persone', ['persone', 'comitati', 'richieste', 'ruoli', 'utenti']]];
-const DESC_CORSI = { evento: 'Periodo, luogo e dati del corso', risorse: 'Valutatori e simulatori delle scene dei Mega Code' };
+const DESC_CORSI = { stampa: 'Stampa di tutti i Mega Code del corso, vuoti o compilati con le X', statistiche: 'Dove i discenti sbagliano di più: voci e skill', evento: 'Periodo, luogo e dati del corso', risorse: 'Valutatori e simulatori delle scene dei Mega Code' };
 const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli'];
 const admin = () => me.ruolo === 'admin';
 const consentito = (k) => k === 'menu' || k === 'hub' || (SOLO_ADMIN.includes(k) ? admin() : admin() || [].concat(AREA_TAB[k]).some((a) => (me.aree || []).includes(a)));
@@ -486,9 +486,36 @@ async function tClassifiche() {
   $('#cl_pdf').onclick = async () => { try { window.open(await pdfUrl(`/eventi/${ev.id}/classifica.pdf?tipo=${q}`), '_blank'); } catch (e) { flash(e.message, false); } };
 }
 
+// ───────── STATISTICHE DEL CORSO ─────────
+async function tStatistiche() {
+  if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Scegli prima un corso.</div>'; return; }
+  const idc = ev.tipo === 'corso' ? ev.id : (ev.corso_id || ev.id);
+  const d = await api(`/eventi/${idc}/statistiche`), corso = eventi.find((x) => x.id === idc);
+  const barra = (p, col) => `<span style="display:inline-block;width:${Math.max(2, Math.min(100, p))}px;max-width:100px;height:9px;background:${col};border-radius:3px;vertical-align:middle"></span>`;
+  $('#app').innerHTML = selettoreEvento() + `<div class="card"><h3>Statistiche · ${esc(corso ? corso.nome : d.evento)}</h3>
+    <p class="nota">Calcolate sulle valutazioni compilate di tutti i Mega Code del corso. «Non eseguito» è l'errore; «sufficiente» è eseguito ma non bene.</p></div>
+    <div class="card"><h3>Punteggio medio per scheda e skill</h3>${d.gruppi.length ? `<table><tr><th>Scheda / skill</th><th style="text-align:right">Valutazioni</th><th style="text-align:right">Punti</th><th style="text-align:right">Media</th></tr>
+      ${d.gruppi.map((g) => `<tr><td>${g.skill && !/^skill/i.test(g.nome) ? 'Skill · ' : ''}${esc(g.nome)}</td><td style="text-align:right">${g.valutazioni}</td><td style="text-align:right">${g.punti} / ${g.massimo}</td><td style="text-align:right"><b>${g.perc}%</b> ${barra(g.perc, g.perc < 60 ? '#C62828' : g.perc < 80 ? '#E0A100' : '#2E7D32')}</td></tr>`).join('')}</table>` : '<p class="nota">Ancora nessuna valutazione compilata.</p>'}</div>
+    <div class="card"><h3>Dove si sbaglia di più</h3>${d.voci.length ? `<table><tr><th>Voce</th><th>Scheda / skill</th><th style="text-align:right">Non eseguito</th><th style="text-align:right">Sufficiente</th><th style="text-align:right">Valutate</th></tr>
+      ${d.voci.map((v) => `<tr><td>${esc(v.testo)}</td><td><small>${v.skill ? (/^skill/i.test(v.skill) ? '' : 'Skill · ') + esc(v.skill) : esc(v.scheda)}</small></td><td style="text-align:right"><b>${v.ne}</b> <small>(${v.perc_ne}%)</small></td><td style="text-align:right">${v.su} <small>(${v.perc_su}%)</small></td><td style="text-align:right">${v.tot}</td></tr>`).join('')}</table>` : '<p class="nota">Nessuna voce con errori nelle valutazioni compilate finora.</p>'}</div>`;
+  legaSelettore();
+}
+
 // ───────── STAMPA ─────────
 async function tStampa() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima una gara.</div>'; return; }
+  if (fam === 'corsi' && ev.tipo === 'corso') {                         // dal corso si stampano insieme tutti i suoi Mega Code
+    $('#app').innerHTML = selettoreEvento() + `<div class="card"><h3>Stampa dei Mega Code del corso</h3>
+      <div class="riga"><div><label>Schede</label><select id="p_v"><option value="0">Compilate (con le X)</option><option value="1">Vuote (da compilare a mano)</option></select></div></div>
+      <p><button class="b" id="p_go">Apri PDF di tutti i Mega Code</button></p>
+      <p class="nota">Un unico PDF: per ogni Mega Code, equipaggio per equipaggio e scena per scena, con le skill incorporate dopo ogni scheda. Per un solo Mega Code scegli prima quello nel menu in alto.</p></div>`;
+    legaSelettore();
+    $('#p_go').onclick = async () => { const w = window.open('', '_blank');
+      try { const r = await fetch(`/api/eventi/${ev.id}/stampa.pdf?corso=1&vuote=${$('#p_v').value}`, { headers: { Authorization: 'Bearer ' + token } });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).errore || r.statusText); w.location = URL.createObjectURL(await r.blob());
+      } catch (e) { w.close(); flash(e.message, false); } };
+    return;
+  }
   const [scene, squadre] = await Promise.all([api(`/eventi/${ev.id}/scene`), api(`/eventi/${ev.id}/squadre`)]);
   const att = squadre.filter((x) => x.attiva);
   $('#app').innerHTML = selettoreEvento() + `<div class="card"><h3>Cosa vuoi stampare</h3>
@@ -1491,7 +1518,7 @@ async function aggiornaRail0() {
 async function render() {
   if (!consentito(tab)) tab = 'menu';
   try {
-    if (tab === 'menu') tMenu(); else if (tab === 'hub') tHub(); else if (tab === 'corsi') await tCorsi(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'discenti') await tDiscenti(); else if (tab === 'scene') await tScene();
+    if (tab === 'menu') tMenu(); else if (tab === 'hub') tHub(); else if (tab === 'corsi') await tCorsi(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'statistiche') await tStatistiche(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'discenti') await tDiscenti(); else if (tab === 'scene') await tScene();
     else if (tab === 'persone') await tPersone(); else if (tab === 'comitati') await tComitati(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   const mo = mondoCorrente(), molti = mondiVisibili().length > 1;

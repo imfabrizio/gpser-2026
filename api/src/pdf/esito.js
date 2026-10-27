@@ -25,7 +25,7 @@ export function generaEsitoPdf({ evento, scheda, candidato, giudice, voci, punti
   const esito = erroreGrave ? 'NON SUPERATO' : ev.superato === null ? null : (ev.superato ? 'SUPERATO' : 'NON SUPERATO');
   const testa = () => {
     doc.rect(0, 0, doc.page.width, 70).fill(ROSSO); doc.image(LOGO, L, 10, { height: 50 });
-    doc.fillColor('#fff').font('Sans-B').fontSize(16).text(`${TIPO[evento.tipo] || 'Evento'} · ${scheda}`, L + 64, 14, { width: W - 64, lineBreak: false });
+    doc.fillColor('#fff').font('Sans-B').fontSize(14).text(`${TIPO[evento.tipo] || 'Evento'} · ${String(scheda).replace(/^(Mega Code|Esame|Corso)\s*[–-]\s*/i, '')}`, L + 64, 14, { width: W - 64, height: 18, ellipsis: true, lineBreak: false });
     doc.font('Sans').fontSize(10.5).text(`${evento.nome}${evento.luogo ? ' · ' + evento.luogo : ''}${evento.data ? ' · ' + dataIt(evento.data) : ''}`, L + 64, 38, { width: W - 64, lineBreak: false });
     doc.fillColor('#000'); return 86;
   };
@@ -67,6 +67,17 @@ export function generaEsitoPdf({ evento, scheda, candidato, giudice, voci, punti
     doc.fillColor('#000').font('Sans-B').fontSize(10).text(`Subtotale: ${b.punti} / ${b.massimo}${b.giudizio ? '  ·  ' + b.giudizio : ''}`, L + 4, y + 2, { width: W - 8, lineBreak: false }); y += 16;
     if (b.erroriGravi?.length) { doc.font('Sans').fontSize(8.5).fillColor('#8a1c1c').text('Errori gravi: ' + b.erroriGravi.join(' · '), L + 4, y, { width: W - 8 }); y += doc.heightOfString('Errori gravi: ' + b.erroriGravi.join(' · '), { width: W - 8 }) + 4; }
     doc.fillColor('#000');
+  }
+  if (blocchi.length) {                                                 // riepilogo: scheda principale e ogni skill incorporata, con punti, percentuale e giudizio
+    const righe = [{ nome: 'Scheda principale', p: punti, m: massimo, g: ev.giudizio }, ...blocchi.map((b) => ({ nome: b.nome, p: b.punti, m: b.massimo, g: b.giudizio }))];
+    if (y + 30 + righe.length * 16 > doc.page.height - 100) { doc.addPage(); y = testa(); }
+    y += 10; doc.rect(L, y, W, 16).fill('#eee'); doc.fillColor('#000').font('Sans-B').fontSize(9.5).text('Riepilogo dei punteggi', L + 4, y + 3, { width: W - 8, lineBreak: false }); y += 19;
+    for (const r of righe) {
+      doc.font('Sans').fontSize(9.5).fillColor('#000').text(r.nome, L + 4, y, { width: W - 250, lineBreak: false, ellipsis: true });
+      doc.font('Sans-B').text(`${r.p} / ${r.m}`, L + W - 240, y, { width: 70, align: 'right', lineBreak: false }).text(r.m ? `${(r.p / r.m * 100).toFixed(0)}%` : '', L + W - 165, y, { width: 40, align: 'right', lineBreak: false });
+      doc.font('Sans').text(r.g || '', L + W - 120, y, { width: 118, align: 'right', lineBreak: false });
+      y += 15; doc.moveTo(L, y - 2).lineTo(L + W, y - 2).strokeColor('#ddd').lineWidth(0.4).stroke();
+    }
   }
   if (y > doc.page.height - 160) { doc.addPage(); y = testa(); }
   y += 10;

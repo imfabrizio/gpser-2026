@@ -1898,6 +1898,30 @@ test('WID-1: preferenze personali (widget e contatti)', async () => {
   assert.equal(json(await chiama('GET', '/api/me', { token: O })).preferenze.contatti.length, 1);   // aggiornare i widget non cancella i contatti
 });
 
+test('STAT-1 statistiche del corso, stampa unica dei Mega Code, esito con riepilogo delle skill', async () => {
+  const O = tok['org@t'];
+  const { rows: [mc] } = await pool.query(`select id from patologia where codice='mc-scenario-2-scoop'`);
+  const corso = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'ST-C', nome: 'Corso stat', tipo: 'corso', data: '2026-11-01', data_fine: '2027-03-30' } }));
+  assert.equal(json(await chiama('GET', '/api/eventi', { token: O })).find((x) => x.id === corso.id).data_fine, '2027-03-30');
+  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'ST-M', nome: 'MC stat', tipo: 'megacode', corso_id: corso.id } }));
+  const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'T1', titolo: 'Scena', ordine: 1 } }));
+  const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: mc.id, slot: 1, simulatore: '01' } }));
+  const sq = json(await chiama('POST', `/api/eventi/${e.id}/squadre`, { token: O, body: { nome: 'Eq A' } }));
+  const sch = json(await chiama('GET', `/api/schede/${k.id}`, { token: O }));
+  assert.ok((sch.blocchi || []).length >= 2, 'due skill incorporate');
+  const skillVoci = sch.voci.filter((v) => v.blocco_id), proprie = sch.voci.filter((v) => !v.blocco_id);
+  const risposte = [{ voce_id: proprie[0].id, livello: 'NE' }, { voce_id: proprie[1].id, livello: 'MB' }, ...skillVoci.slice(0, 3).map((v, i) => ({ voce_id: v.id, livello: i === 0 ? 'NE' : 'MB' }))];
+  assert.equal((await chiama('POST', '/api/sync', { token: O, body: { id: '22222222-3333-4444-8555-666666666666', scheda_id: k.id, squadra_id: sq.id, risposte } })).statusCode, 200);
+  const st = json(await chiama('GET', `/api/eventi/${corso.id}/statistiche`, { token: O }));
+  assert.ok(st.voci.length >= 1 && st.voci.every((v) => v.ne + v.su > 0) && st.voci[0].ne === 1 && st.voci[0].perc_ne === 100, JSON.stringify(st.voci));
+  assert.ok(st.gruppi.some((g) => g.skill) && st.gruppi.some((g) => !g.skill), 'media per scheda e per skill');
+  assert.equal((await chiama('GET', `/api/eventi/${corso.id}/statistiche`, { token: tok['giu@t'] })).statusCode, 403);
+  const p1 = await chiama('GET', `/api/eventi/${corso.id}/stampa.pdf?corso=1&vuote=0`, { token: O }); assert.equal(p1.statusCode, 200, p1.body);
+  const vuoto = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'ST-V', nome: 'Corso senza MC', tipo: 'corso' } }));
+  assert.equal((await chiama('GET', `/api/eventi/${vuoto.id}/stampa.pdf?corso=1`, { token: O })).statusCode, 404);
+  const r = await chiama('GET', `/api/schede/${k.id}/esito.pdf?squadra=${sq.id}`, { token: O }); assert.equal(r.statusCode, 200, r.body);
+});
+
 test('QUA-1 la qualifica di formazione porta il ruolo omonimo; discente TSSA solo etichetta', async () => {
   const O = tok['org@t'], A = tok['adm@t'];
   const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'qua1@t.it', nome: 'Quinto Qualifica', ruolo: 'giudice', password: 'password-lunga' } }));

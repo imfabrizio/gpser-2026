@@ -18,7 +18,8 @@ export function righeGiudizio(fasce, massimo) {
   });
 }
 
-export function disegnaSkill(doc, { titolo, modello = 'SKILL', comitato = '', voci, fasce = null, erroriGravi = [], candidato = '', istruttore = '' }) {
+const PUNTI = { MB: 2, SU: 1, NE: 0 };
+export function disegnaSkill(doc, { titolo, modello = 'SKILL', comitato = '', voci, fasce = null, erroriGravi = [], candidato = '', istruttore = '', risposte = new Map() }) {
   if (!doc.__skillFont) { doc.registerFont('Sans', FONT_R); doc.registerFont('Sans-Bold', FONT_B); doc.__skillFont = true; }
   const n = voci.length, massimo = 2 * n;
   const gf = fasce?.length ? fasce : fasceAuto(n);
@@ -57,17 +58,23 @@ export function disegnaSkill(doc, { titolo, modello = 'SKILL', comitato = '', vo
     doc.font('Sans').fontSize(fs);
     const t = String(v.testo), h = doc.heightOfString(t, { width: W - 3 * cw - NW - 12 });
     doc.text(t, L + NW + 6, y + Math.max(1.5, (rh - h) / 2), { width: W - 3 * cw - NW - 12, height: rh - 2 });
-    [0, 1, 2].forEach((k) => { doc.rect(xc + k * cw, y, cw, rh).stroke(); doc.font('Sans').fontSize(10).fillColor('#000').text(String(k), xc + k * cw, y + (rh - 10) / 2 + 1, { width: cw, align: 'center', lineBreak: false }); });
+    const sel = v.id != null ? risposte.get(v.id) : null;
+    [['NE', 0], ['SU', 1], ['MB', 2]].forEach(([liv, k]) => { doc.rect(xc + k * cw, y, cw, rh).stroke();
+      if (sel === liv) doc.circle(xc + k * cw + cw / 2, y + rh / 2, 5).fillAndStroke('#000', '#000');
+      else doc.font('Sans').fontSize(10).fillColor('#777').text(String(k), xc + k * cw, y + (rh - 10) / 2 + 1, { width: cw, align: 'center', lineBreak: false });
+      doc.fillColor('#000'); });
     y += rh;
   });
   // subtotali: una cella sotto ogni colonna (0, 1, 2); sotto, la cella del totale
   const lw = W - 3 * cw;
   doc.rect(L, y, lw, 20).stroke(); [0, 1, 2].forEach((k) => doc.rect(xc + k * cw, y, cw, 20).stroke());
+  const compilata = voci.some((v) => risposte.get(v.id)), conta = (liv) => voci.filter((v) => risposte.get(v.id) === liv).length;
+  if (compilata) [['NE', 0], ['SU', 1], ['MB', 2]].forEach(([liv, k]) => doc.fillColor('#000').font('Sans').fontSize(9).text(String(conta(liv) * k), xc + k * cw, y + 6, { width: cw, align: 'center', lineBreak: false }));
   doc.fillColor('#000').font('Sans-Bold').fontSize(9).text('Subtotali', L, y + 6, { width: lw - 8, align: 'right', lineBreak: false });
   y += 20;
   doc.rect(L, y, lw, 24).stroke(); doc.rect(xc, y, 3 * cw, 24).stroke();
   doc.font('Sans-Bold').fontSize(9).text('Totale', L, y + 8, { width: lw - 8, align: 'right', lineBreak: false });
-  doc.font('Sans').fontSize(8).text(`su ${massimo}`, xc, y + 9, { width: 3 * cw - 8, align: 'right', lineBreak: false });
+  doc.font('Sans').fontSize(8).text(compilata ? `${voci.reduce((a, v) => a + (PUNTI[risposte.get(v.id)] ?? 0), 0)} su ${massimo}` : `su ${massimo}`, xc, y + 9, { width: 3 * cw - 8, align: 'right', lineBreak: false });
   y += 40;
   // giudizi
   const g = righeGiudizio(gf, massimo), gw = 200;

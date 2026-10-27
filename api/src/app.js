@@ -850,11 +850,43 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/eventi/:id/avanzamento', { preHandler: soloOrg }, async (req) => calcolaAvanzamento(pool, req.params.id));
   app.get('/api/eventi/:id/monitor', { preHandler: soloOrg }, async (req) =>
     (await pool.query('select * from v_monitor where evento_id=$1 order by scena, squadra, slot', [req.params.id])).rows);
+  // statistiche di un corso: dove i discenti sbagliano di più nei Mega Code (voci e skill), sulle valutazioni compilate
+  app.get('/api/eventi/:id/statistiche', { preHandler: soloOrg }, async (req) => {
+    const id = req.params.id;
+    const { rows: [e] } = await pool.query('select id, nome, tipo from evento where id=$1', [id]); if (!e) throw httpErr(404, 'evento inesistente');
+    const { rows: voci } = await pool.query(
+      `select s.titolo as scheda, v.blocco_nome as skill, v.testo, min(v.ordine) as ordine,
+              count(r.livello) filter (where r.livello='NE')::int as ne, count(r.livello) filter (where r.livello='SU')::int as su, count(r.livello) filter (where r.livello in ('MB','BE'))::int as ok,
+              count(r.livello)::int as tot
+         from scena_scheda_voce v join scena_scheda s on s.id = v.scheda_id join scena sc on sc.id = s.scena_id join evento ev on ev.id = sc.evento_id
+         left join compilazione c on c.scheda_id = s.id left join risposta r on r.compilazione_id = c.id and r.voce_id = v.id and r.livello is not null
+        where ev.tipo = 'megacode' and not ev.archiviato and (ev.id = $1 or ev.corso_id = $1)
+        group by s.titolo, v.blocco_nome, v.testo having count(r.livello) > 0`, [id]);
+    const { rows: gruppi } = await pool.query(
+      `select coalesce(v.blocco_nome, s.titolo) as nome, (v.blocco_id is not null) as skill,
+              sum(case r.livello when 'MB' then v.mb when 'BE' then v.be when 'SU' then v.su when 'IN' then v."in" when 'NE' then v.ne end)::int as punti,
+              sum(greatest(v.mb, v.be, v.su, v."in", v.ne))::int as massimo, count(distinct c.id)::int as valutazioni
+         from scena_scheda_voce v join scena_scheda s on s.id = v.scheda_id join scena sc on sc.id = s.scena_id join evento ev on ev.id = sc.evento_id
+         join compilazione c on c.scheda_id = s.id join risposta r on r.compilazione_id = c.id and r.voce_id = v.id and r.livello is not null
+        where ev.tipo = 'megacode' and not ev.archiviato and (ev.id = $1 or ev.corso_id = $1)
+        group by coalesce(v.blocco_nome, s.titolo), (v.blocco_id is not null)`, [id]);
+    const perc = (n, t) => (t ? Math.round(1000 * n / t) / 10 : 0);
+    return {
+      evento: e.nome,
+      voci: voci.filter((v) => v.ne + v.su > 0).map((v) => ({ ...v, perc_ne: perc(v.ne, v.tot), perc_su: perc(v.su, v.tot) })).sort((a, b) => b.perc_ne - a.perc_ne || b.ne - a.ne || a.ordine - b.ordine).slice(0, 60),
+      gruppi: gruppi.map((g) => ({ ...g, perc: perc(g.punti, g.massimo) })).sort((a, b) => a.perc - b.perc),
+    };
+  });
   app.get('/api/eventi/:id/stampa.pdf', { preHandler: soloOrg }, async (req, reply) => {
     const q = req.query;
     if (q.squadra && !/^\d+(,\d+)*$/.test(q.squadra)) throw httpErr(400, 'squadra: numeri separati da virgola');
+    let eventoIds;
+    if (q.corso === '1') {                                              // tutti i Mega Code del corso, in un unico PDF
+      eventoIds = (await pool.query(`select id from evento where corso_id=$1 and tipo='megacode' and not archiviato order by data nulls last, nome`, [req.params.id])).rows.map((r) => r.id);
+      if (!eventoIds.length) throw httpErr(404, 'il corso non ha Mega Code');
+    }
     const { pdf } = await generaPdfSchede(pool, {
-      eventoId: req.params.id, scenaCodice: q.scena || undefined,
+      eventoId: req.params.id, eventoIds, scenaCodice: q.scena || undefined,
       squadraNumeri: q.squadra ? q.squadra.split(',').map(Number) : undefined, vuote: q.vuote !== '0' });
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="schede.pdf"').send(pdf);
   });
