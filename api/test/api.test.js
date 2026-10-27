@@ -1876,6 +1876,7 @@ test('VAL-1 nei corsi valutano gli istruttori: elenco valutatori, assegnazione e
   const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'val1@t.it', nome: 'Vera Istruttrice', ruolo: 'istruttore', password: 'password-lunga' } }));
   assert.ok(!json(await chiama('GET', '/api/giudici', { token: O })).some((x) => x.id === u.id), 'tra i giudici delle gare non compare');
   assert.ok(json(await chiama('GET', '/api/giudici?valutatori=1', { token: O })).some((x) => x.id === u.id), 'tra i valutatori dei corsi sì');
+  assert.ok(json(await chiama('GET', '/api/giudici?valutatori=1', { token: O })).some((x) => x.email === 'org@t'), 'anche l\'organizzazione può valutare');
   const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'VAL-MC', nome: 'Mega Code prova', tipo: 'megacode' } }));
   const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'MC1', titolo: 'Scena', ordine: 1 } }));
   const pat = json(await chiama('GET', '/api/libreria/patologie', { token: O })).find((p) => !p.bozza && !p.is_master);
