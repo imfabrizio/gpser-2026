@@ -20,7 +20,7 @@
   const stile = document.createElement('style');
   stile.textContent = `.widgets{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin:0 0 10px}
   .wd{background:#fff;border:1px solid #d9dce3;border-radius:10px;padding:14px;min-width:0}.wd h4{margin:0 0 8px;font-size:15px}.wd .r{padding:7px 0;border-top:1px solid #eceef2}.wd .r:first-of-type{border-top:0}.wd .r small{display:block;color:#555}
-  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:13px;margin:6px 0}.cal i{font-style:normal;color:#666;font-size:11px}.cal span{padding:5px 0;border-radius:6px}.cal .ev{background:var(--rosso,#C8102E);color:#fff;font-weight:700}.cal .og{outline:2px solid #1F5F8B}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:13px;margin:6px 0}.cal i{font-style:normal;color:#666;font-size:11px}.cal span{padding:5px 0;border-radius:6px}.cal .gg{border:0;font:inherit;cursor:pointer;padding:5px 0;width:auto;min-width:0;border-radius:6px}.cal .sl{box-shadow:0 0 0 2px #222}.gd{border-top:1px solid #d9dce3;margin-top:6px;padding-top:6px}.cal .ev{background:var(--rosso,#C8102E);color:#fff;font-weight:700}.cal .og{outline:2px solid #1F5F8B}
   #rail .widgets{display:block;margin:0}#rail .wd{margin-bottom:12px;padding:12px;font-size:14px;background:#f6f7f9;border:0;border-radius:12px}#rail .wd h4{font-size:13px;color:#555}
   .widgets .wl{grid-column:1/-1;font-size:13px;display:block;margin:2px 0 8px}
   @media (min-width:1100px){body.laterale .solo-stretto{display:none}}
@@ -58,17 +58,18 @@
       const a = box.querySelector('a.vl'); if (a) a.onclick = () => { try { localStorage.setItem(c.mondo === 'formazione' ? 'evF' : 'ev', e.id); } catch { /* niente */ } };
     },
     async calendario(box, c, grande) {
-      let m = new Date(); m = new Date(m.getFullYear(), m.getMonth(), 1);
+      let m = new Date(); m = new Date(m.getFullYear(), m.getMonth(), 1); let sel = null;
       const disegna = () => {
         const y = m.getFullYear(), mm = m.getMonth(), n = new Date(y, mm + 1, 0).getDate(), primo = (m.getDay() + 6) % 7, iso = (d) => `${y}-${String(mm + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const evM = c.eventi.filter((e) => { const [a, b] = giorni(e); return a && a <= iso(n) && b >= iso(1); });
-        const sul = (d) => evM.some((e) => { const [a, b] = giorni(e); return a <= iso(d) && b >= iso(d); });
+        const delGiorno = (d) => c.eventi.filter((e) => { const [a, b] = giorni(e); return a && a <= iso(d) && b >= iso(d); });
         let cel = ['L', 'M', 'M', 'G', 'V', 'S', 'D'].map((x) => `<i>${x}</i>`).join('') + '<span></span>'.repeat(primo);
-        for (let d = 1; d <= n; d++) cel += `<span class="${sul(d) ? 'ev' : ''} ${iso(d) === oggi() ? 'og' : ''}">${d}</span>`;
+        for (let d = 1; d <= n; d++) { const ha = delGiorno(d).length > 0; cel += ha ? `<button type="button" class="gg ev ${iso(d) === oggi() ? 'og' : ''} ${sel === iso(d) ? 'sl' : ''}" data-g="${iso(d)}" aria-label="${d}: ${delGiorno(d).length} attività">${d}</button>` : `<span class="${iso(d) === oggi() ? 'og' : ''}">${d}</span>`; }
+        const dett = sel && sel.startsWith(iso(1).slice(0, 8)) ? delGiorno(Number(sel.slice(8))) : [];
         box.innerHTML = `<div class="cn"><button type="button" data-d="-1" aria-label="Mese precedente">‹</button><h4 style="margin:0">${m.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}</h4><button type="button" data-d="1" aria-label="Mese successivo">›</button></div><div class="cal">${cel}</div>
-          ${evM.length ? evM.map((e) => riga(e)).join('') : '<small>Nessun evento in questo mese.</small>'}${grande ? '' : '<button type="button" class="sec esp">Ingrandisci</button>'}`;
+          ${dett.length ? `<div class="gd"><small><b>${dataIt(sel)}</b></small>${dett.map((e) => riga(e)).join('')}</div>` : ''}${grande ? '' : '<button type="button" class="sec esp">Ingrandisci</button>'}`;
+        box.querySelectorAll('[data-d]').forEach((b) => { b.onclick = () => { m = new Date(m.getFullYear(), m.getMonth() + Number(b.dataset.d), 1); sel = null; disegna(); }; });
+        box.querySelectorAll('[data-g]').forEach((b) => { b.onclick = () => { sel = sel === b.dataset.g ? null : b.dataset.g; disegna(); }; });
         const x = box.querySelector('.esp'); if (x) x.onclick = () => apriGrande(c);
-        box.querySelectorAll('[data-d]').forEach((b) => { b.onclick = () => { m = new Date(m.getFullYear(), m.getMonth() + Number(b.dataset.d), 1); disegna(); }; });
       };
       disegna();
     },
