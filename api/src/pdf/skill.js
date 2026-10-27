@@ -60,14 +60,19 @@ export function disegnaSkill(doc, { titolo, modello = 'SKILL', comitato = '', vo
     [0, 1, 2].forEach((k) => { doc.rect(xc + k * cw, y, cw, rh).stroke(); doc.font('Sans').fontSize(10).fillColor('#000').text(String(k), xc + k * cw, y + (rh - 10) / 2 + 1, { width: cw, align: 'center', lineBreak: false }); });
     y += rh;
   });
-  doc.rect(L, y, W - 3 * cw, 18).stroke(); doc.rect(xc, y, 3 * cw, 18).stroke();
-  doc.font('Sans-Bold').fontSize(9).text('Subtotali', L, y + 5, { width: W - 3 * cw - 6, align: 'right', lineBreak: false });
-  doc.font('Sans').fontSize(8).text(`su ${massimo}`, xc, y + 5, { width: 3 * cw - 6, align: 'right', lineBreak: false });
-  y += 28;
+  // subtotali: una cella sotto ogni colonna (0, 1, 2); sotto, la cella del totale
+  const lw = W - 3 * cw;
+  doc.rect(L, y, lw, 20).stroke(); [0, 1, 2].forEach((k) => doc.rect(xc + k * cw, y, cw, 20).stroke());
+  doc.fillColor('#000').font('Sans-Bold').fontSize(9).text('Subtotali', L, y + 6, { width: lw - 8, align: 'right', lineBreak: false });
+  y += 20;
+  doc.rect(L, y, lw, 24).stroke(); doc.rect(xc, y, 3 * cw, 24).stroke();
+  doc.font('Sans-Bold').fontSize(9).text('Totale', L, y + 8, { width: lw - 8, align: 'right', lineBreak: false });
+  doc.font('Sans').fontSize(8).text(`su ${massimo}`, xc, y + 9, { width: 3 * cw - 8, align: 'right', lineBreak: false });
+  y += 40;
   // giudizi
-  const g = righeGiudizio(gf, massimo), gw = 170;
-  doc.rect(L, y, gw, 14).fillAndStroke(GRIGIO, '#000'); doc.fillColor('#000').font('Sans-Bold').fontSize(8).text('Valutazione', L + 6, y + 4, { lineBreak: false }); doc.text('Punti', L + 96, y + 4, { width: gw - 100, align: 'right', lineBreak: false });
-  g.forEach((r, i) => { const yy = y + 14 + i * 14; doc.rect(L, yy, gw, 14).stroke(); doc.font('Sans').fontSize(8.5).text(r.nome, L + 6, yy + 3.5, { lineBreak: false }); doc.text(r.punti, L + 96, yy + 3.5, { width: gw - 100, align: 'right', lineBreak: false }); });
+  const g = righeGiudizio(gf, massimo), gw = 200;
+  doc.rect(L, y, gw, 14).fillAndStroke(GRIGIO, '#000'); doc.fillColor('#000').font('Sans-Bold').fontSize(8).text('Valutazione', L + 6, y + 4, { lineBreak: false }); doc.text('Punti', L + 90, y + 4, { width: 60, align: 'right', lineBreak: false }); doc.text('Esito', L + 156, y + 4, { width: 40, align: 'center', lineBreak: false });
+  g.forEach((r, i) => { const yy = y + 14 + i * 14; doc.rect(L, yy, gw, 14).stroke(); doc.font('Sans').fontSize(8.5).text(r.nome, L + 6, yy + 3.5, { lineBreak: false }); doc.text(r.punti, L + 90, yy + 3.5, { width: 60, align: 'right', lineBreak: false }); doc.rect(L + 156, yy, gw - 156, 14).stroke(); });
   // errori gravi
   const xe = L + gw + 14, we = W - gw - 14;
   doc.rect(xe, y, we, 14).fillAndStroke(GRIGIO, '#000'); doc.fillColor(ROSSO).font('Sans-Bold').fontSize(8).text('Sono errori gravi', xe + 6, y + 4, { lineBreak: false });
