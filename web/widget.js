@@ -141,17 +141,19 @@
     },
     // scheda «I miei widget» per l'area utente
     editor(box, dopo) {
-      const me = leggi('me'); let ordine = scelti(me), contatti = (me.preferenze?.contatti || []).map((c) => ({ ...c }));
+      const me = leggi('me'); let ordine = scelti(me), mail = me.preferenze?.email_notifiche !== false, contatti = (me.preferenze?.contatti || []).map((c) => ({ ...c }));
       const disp = disponibili(me), nome = (k) => CAT.find((c) => c[0] === k);
       const disegna = () => {
         const tutti = [...ordine, ...disp.map((c) => c[0]).filter((k) => !ordine.includes(k))];
         box.innerHTML = `<div class="card wed"><h2>I miei widget</h2><p><small>Scegli cosa vedere nella tua Home e in che ordine.</small></p>
           ${tutti.map((k) => { const c = nome(k), on = ordine.includes(k), i = ordine.indexOf(k); return `<div class="rg"><input type="checkbox" id="we_${k}" data-k="${k}" ${on ? 'checked' : ''}><label for="we_${k}"><b>${esc(c[1])}</b><small>${esc(c[2])}</small></label>
             ${on ? `<button type="button" class="sec" data-su="${k}" ${i === 0 ? 'disabled' : ''} aria-label="Sposta su">▲</button><button type="button" class="sec" data-giu="${k}" ${i === ordine.length - 1 ? 'disabled' : ''} aria-label="Sposta giù">▼</button>` : ''}</div>`; }).join('')}
+          <h3 style="margin-top:14px">Email</h3><div class="rg"><input type="checkbox" id="we_mail" ${mail ? 'checked' : ''}><label for="we_mail"><b>Ricevi le notifiche anche per email</b><br><small>Richieste, approvazioni ed esiti ti arrivano anche nella casella di posta.</small></label></div>
           <h3 style="margin-top:14px">Contatti preferiti</h3><p><small>Compaiono nel widget «Contatti preferiti». Servono il nome e almeno un numero o un'email.</small></p>
           ${contatti.map((c, i) => `<div class="ct"><input data-c="${i}" data-f="nome" value="${esc(c.nome)}" placeholder="Nome" aria-label="Nome"><input data-c="${i}" data-f="tel" value="${esc(c.tel)}" placeholder="Telefono" aria-label="Telefono" inputmode="tel"><input data-c="${i}" data-f="email" value="${esc(c.email)}" placeholder="Email" aria-label="Email" inputmode="email"><button type="button" class="sec" data-x="${i}">Togli</button></div>`).join('')}
           <button type="button" class="btn sec" id="we_add" ${contatti.length >= 20 ? 'disabled' : ''}>Aggiungi un contatto</button>
           <p><button type="button" class="btn" id="we_ok">Salva</button> <span id="we_msg" role="status"></span></p></div>`;
+        box.querySelector('#we_mail').onchange = (e) => { mail = e.target.checked; };
         box.querySelectorAll('[data-k]').forEach((x) => { x.onchange = () => { ordine = x.checked ? [...ordine, x.dataset.k] : ordine.filter((k) => k !== x.dataset.k); disegna(); }; });
         box.querySelectorAll('[data-su],[data-giu]').forEach((b) => { b.onclick = () => { const k = b.dataset.su || b.dataset.giu, i = ordine.indexOf(k), j = b.dataset.su ? i - 1 : i + 1; [ordine[i], ordine[j]] = [ordine[j], ordine[i]]; disegna(); }; });
         box.querySelectorAll('[data-c]').forEach((x) => { x.oninput = () => { contatti[x.dataset.c][x.dataset.f] = x.value; }; });
@@ -160,7 +162,7 @@
         box.querySelector('#we_ok').onclick = async () => {
           const msg = box.querySelector('#we_msg');
           try {
-            const pref = await api('/me/preferenze', { method: 'PUT', body: { widget: ordine, contatti } });
+            const pref = await api('/me/preferenze', { method: 'PUT', body: { widget: ordine, contatti, email_notifiche: mail } });
             const m = leggi('me') || me; m.preferenze = pref; localStorage.setItem('me', JSON.stringify(m)); if (dopo) dopo(pref);
             contatti = (pref.contatti || []).map((c) => ({ ...c })); disegna(); box.querySelector('#we_msg').textContent = 'Salvato. Li trovi nella Home.';
           } catch (e) { msg.textContent = 'Non salvato: ' + e.message; }

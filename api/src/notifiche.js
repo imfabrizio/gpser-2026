@@ -1,8 +1,16 @@
 // Notifiche nell'app, per utente (campanella in alto).
 import { regioneDelComitato } from './enti.js';
+import { inviaMail, URL_BASE } from './posta.js';
 export async function notifica(db, utenti, { tipo, titolo, testo = null, link = null }) {
   const ids = [...new Set([].concat(utenti).filter(Boolean))];
   for (const id of ids) await db.query('insert into notifica (utente_id, tipo, titolo, testo, link) values ($1,$2,$3,$4,$5)', [id, tipo, titolo, testo, link]);
+  if (process.env.RESEND_API_KEY && ids.length) {                       // la stessa notifica arriva anche per email, salvo chi l'ha disattivata
+    try {
+      const { rows } = await db.query(`select email from utente where id = any($1::uuid[]) and attivo and email like '%@%.%' and coalesce(preferenze->>'email_notifiche','true') <> 'false'`, [ids]);
+      const url = link ? (/^https?:/.test(link) ? link : URL_BASE() + link) : URL_BASE();
+      for (const r of rows) inviaMail(r.email, titolo, `${titolo}${testo ? '\n\n' + testo : ''}${url ? '\n\nApri: ' + url : ''}\n\n— CRI Eventi. Puoi disattivare queste email dal widget «Scegli i widget».`).catch(() => {});
+    } catch { /* la mail è un di più */ }
+  }
 }
 export const adminIds = async (db) => (await db.query('select id from utente where attivo and admin')).rows.map((r) => r.id);
 // chi può approvare per una regione: gli admin e chi ha l'area «approvazione» in un comitato di quella regione

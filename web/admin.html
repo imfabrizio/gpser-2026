@@ -164,18 +164,18 @@ window.chiudi = chiudi;
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
 const TABS = [['menu', 'Portale'], ['valutazione', 'Valutazione'], ['hub', 'Menu'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['discenti', 'Discenti'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
-  ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['statistiche', 'Statistiche corso'], ['storico', 'Esiti e storico'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
+  ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['statistiche', 'Statistiche corso'], ['storico', 'Esiti e storico'], ['backup', 'Backup'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
 const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', segreteria: 'segreteria', valutazione: 'valutazione', evento: 'gara', discenti: ['esami', 'gara'], scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: ['stampa', 'esami'], statistiche: ['esami', 'classifiche'], storico: ['esami', 'classifiche'], importa: 'importa' };
 const DESC = { valutazione: 'Inizia a valutare: scegli scena, scheda e squadra', discenti: 'Chi frequenta il corso: con loro si compongono gli equipaggi dei Mega Code', corsi: 'Corsi, Mega Code ed esami', evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', squadre: 'Squadre, comitato e componenti',
   segreteria: 'Registra gli arrivi e stampa i badge', persone: 'Persone e requisiti', comitati: 'Elenco dei comitati, unità territoriali e nomi da correggere', importa: 'Carica le scene dai vecchi file Excel', libreria: 'Crea e modifica le schede, anche dei comitati', punteggi: 'Valore di MB, BE, SU, IN, NE per ogni scala',
   classifiche: 'Generale, SEP, BLSD, Master, DIU', monitor: 'Avanzamento delle schede', stampa: 'Schede vuote o compilate, per scena o squadra', news: 'Avvisi per i partecipanti e notizie pubbliche', documenti: 'Regolamento, comunicazioni e manuali',
-  richieste: 'Chi ha chiesto l\'accesso: approva e assegna il ruolo', ruoli: 'Crea ruoli e scegli a quali aree possono accedere', utenti: 'Accessi, ruoli e gara assegnata' };
+  richieste: 'Chi ha chiesto l\'accesso: approva e assegna il ruolo', ruoli: 'Crea ruoli e scegli a quali aree possono accedere', backup: 'Copia di sicurezza di database e sito, ogni 6 ore e quando vuoi', utenti: 'Accessi, ruoli e gara assegnata' };
 // tre mondi separati: si sceglie all'ingresso e dentro si vede solo ciò che li riguarda (il motore è lo stesso)
 const GRUPPI = [['gara', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede, squadre e classifiche', 'evento', ['valutazione', 'evento', 'scene', 'risorse', 'squadre', 'segreteria', 'libreria', 'punteggi', 'classifiche', 'monitor', 'stampa', 'importa', 'news', 'documenti']],
   ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['valutazione', 'corsi', 'evento', 'discenti', 'scene', 'libreria', 'risorse', 'squadre', 'stampa', 'statistiche', 'storico', 'news']],
-  ['comune', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli', 'persone', ['persone', 'comitati', 'richieste', 'ruoli', 'utenti']]];
+  ['comune', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli', 'persone', ['persone', 'comitati', 'richieste', 'ruoli', 'utenti', 'backup']]];
 const DESC_CORSI = { stampa: 'Stampa di tutti i Mega Code del corso, vuoti o compilati con le X', statistiche: 'Dove i discenti sbagliano di più: voci e skill', storico: 'Esiti di ogni equipaggio; pubblicali ai discenti quando hai chiuso', evento: 'Periodo, luogo e dati del corso', risorse: 'Valutatori e simulatori delle scene dei Mega Code' };
-const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli'];
+const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli', 'backup'];
 const admin = () => me.ruolo === 'admin';
 const consentito = (k) => k === 'menu' || k === 'hub' || (SOLO_ADMIN.includes(k) ? admin() : admin() || [].concat(AREA_TAB[k]).some((a) => (me.aree || []).includes(a)));
 const mondoCorrente = () => GRUPPI.find((g) => g[0] === fam);
@@ -1497,6 +1497,28 @@ async function tRichieste() {
 }
 
 // ───────── UTENTI ─────────
+// ───────── BACKUP (solo admin) ─────────
+async function tBackup() {
+  const d = await api('/backup'), c = d.config;
+  const voce = (ok, si, no) => `<div class="sez-r"><div>${ok ? '✔' : '✖'} ${ok ? si : no}</div></div>`;
+  const dim = (n) => (n ? (n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB') : '');
+  const quando = (t) => new Date(t).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
+  const ultimo = d.elenco.find((x) => x.ok && x.nome?.startsWith('db/'));
+  $('#app').innerHTML = `<div class="card"><h3>Backup di database e sito</h3>
+      <p class="nota">Ogni 6 ore il programma salva tutto il database (cifrato) e, una volta al giorno, il sito in un repository GitHub privato. Si tengono gli ultimi ${c.giorni} giorni. ${ultimo ? `Ultimo backup riuscito: <b>${quando(ultimo.creato_il)}</b>.` : '<b>Nessun backup riuscito finora.</b>'}</p>
+      <div class="sez-a" style="justify-content:flex-start;flex-wrap:wrap"><button class="b" id="bk_ora">Esegui backup ora</button><button class="s" id="bk_db">Scarica il database</button><button class="s" id="bk_sito">Scarica il sito</button></div></div>
+    <div class="card"><h3>Stato della configurazione</h3>
+      ${voce(c.github, `Repository privato collegato (${esc(c.repo)})`, 'Repository GitHub non collegato: su Render servono BACKUP_GITHUB_TOKEN e BACKUP_GITHUB_REPO')}
+      ${voce(c.cifratura, 'Cifratura attiva: i backup si leggono solo con la tua frase', 'Frase di cifratura mancante: su Render serve BACKUP_PASSPHRASE')}
+      ${voce(c.pianificazione, 'Pianificazione ogni 6 ore attiva', 'Pianificazione non attiva: su Render serve BACKUP_CRON_TOKEN, e lo stesso segreto su GitHub (Actions)')}</div>
+    <div class="card"><h3>Ultimi backup</h3>${d.elenco.length ? `<table><tr><th>Quando</th><th>Tipo</th><th>File</th><th style="text-align:right">Dimensione</th><th>Esito</th></tr>
+      ${d.elenco.map((x) => `<tr><td>${quando(x.creato_il)}</td><td>${x.tipo}</td><td><small>${esc(x.nome || '')}</small></td><td style="text-align:right">${dim(x.dimensione)}</td><td>${x.ok ? '<span class="tag ok">riuscito</span>' : `<span class="tag no">non riuscito</span><br><small>${esc(x.errore || '')}</small>`}</td></tr>`).join('')}</table>` : '<p class="nota">Ancora nessun backup.</p>'}</div>`;
+  const scarica = async (tipo, b) => { b.disabled = true; try { const r = await fetch(`/api/backup/scarica?tipo=${tipo}`, { headers: { Authorization: 'Bearer ' + token } }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).errore || r.statusText);
+    const cd = r.headers.get('Content-Disposition') || '', nome = /filename="([^"]+)"/.exec(cd)?.[1] || 'backup', a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = nome; a.click(); } catch (e) { flash(e.message, false); } b.disabled = false; };
+  $('#bk_db').onclick = (e) => scarica('db', e.target); $('#bk_sito').onclick = (e) => scarica('sito', e.target);
+  $('#bk_ora').onclick = async (e) => { e.target.disabled = true; e.target.textContent = 'Backup in corso…'; try { const r = await api('/backup', { body: {} }); flash(r.ok ? 'Backup completato' : 'Backup non riuscito: ' + (r.errore || ''), r.ok); } catch (er) { flash(er.message, false); } tBackup(); };
+}
+
 async function tUtenti() {
   const [u, { ruoli }] = await Promise.all([api('/utenti'), api('/ruoli')]);
   $('#app').innerHTML = `<div class="card"><h3>Utenti</h3><table>${u.map((x) => `<tr><td>${esc(x.nome)}<br><small>${esc(x.email)}${x.ruolo_gara ? ' · ' + esc(x.ruolo_gara) : ''}</small></td>
@@ -1580,7 +1602,7 @@ async function render() {
   if (!consentito(tab)) tab = 'menu';
   try {
     if (tab === 'menu') tMenu(); else if (tab === 'hub') tHub(); else if (tab === 'corsi') await tCorsi(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'statistiche') await tStatistiche(); else if (tab === 'storico') await tStorico(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'discenti') await tDiscenti(); else if (tab === 'scene') await tScene();
-    else if (tab === 'persone') await tPersone(); else if (tab === 'comitati') await tComitati(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
+    else if (tab === 'persone') await tPersone(); else if (tab === 'comitati') await tComitati(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'backup') await tBackup(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   const mo = mondoCorrente(), molti = mondiVisibili().length > 1;
   { const t = $('#tit'); if (t) t.textContent = window.Barra ? Barra.titolo(tab === 'menu' || !mo ? '' : (fam === 'corsi' ? 'formazione' : fam)) : 'CRI Eventi'; }

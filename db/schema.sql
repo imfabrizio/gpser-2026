@@ -2936,7 +2936,7 @@ create table if not exists sessione_esame_invito (
   primary key (sessione_id, utente_id)
 );
 create index if not exists sessione_esame_invito_utente_idx on sessione_esame_invito (utente_id);
-insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql'), ('055-preferenze-utente.sql'), ('056-istruttore-du-apre-corsi.sql'), ('057-esiti-pubblicati.sql'), ('058-trainer-del-corso.sql') on conflict do nothing;
+insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql'), ('055-preferenze-utente.sql'), ('056-istruttore-du-apre-corsi.sql'), ('057-esiti-pubblicati.sql'), ('058-trainer-del-corso.sql'), ('059-backup-log.sql') on conflict do nothing;
 
 -- 046-skill-fasce-scoop
 -- Skill: fasce di giudizio automatiche (75/80/85/95%, calcolate sul numero di voci) e Barella Scoop in due schede (trasporto, semi-verticalizzazione).
@@ -3551,3 +3551,17 @@ alter table evento add column if not exists esiti_pubblicati_at timestamptz;
 alter table evento_invito add column if not exists stato text not null default 'attivo' check (stato in ('attivo','richiesto','rifiutato'));
 alter table promozione drop constraint if exists promozione_stato_check;
 alter table promozione add constraint promozione_stato_check check (stato in ('in_attesa','approvata','rifiutata','ritirata'));
+
+-- 059-backup-log
+create table if not exists backup_log (
+  id         uuid primary key default gen_random_uuid(),
+  creato_il  timestamptz not null default now(),
+  tipo       text not null check (tipo in ('automatico','manuale')),
+  ok         boolean not null,
+  nome       text,
+  dimensione bigint,
+  destinazione text,              -- github / solo scaricato
+  errore     text,
+  eseguito_da uuid references utente(id) on delete set null
+);
+create index if not exists backup_log_data_idx on backup_log (creato_il desc);

@@ -13,8 +13,8 @@ const ADMIN_URL = process.env.TEST_ADMIN_URL || 'postgres://postgres@localhost:5
 const TEST_URL = ADMIN_URL.replace(/\/[^/]*$/, '/garecri_test');
 let pool, app, ev, tok = {};
 
-const chiama = (method, url, { token, body } = {}) => app.inject({
-  method, url, payload: body, headers: token ? { authorization: `Bearer ${token}` } : {} });
+const chiama = (method, url, { token, body, headers } = {}) => app.inject({
+  method, url, payload: body, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(headers || {}) } });
 const json = (r) => JSON.parse(r.body);
 
 before(async () => {
@@ -1996,6 +1996,59 @@ test('INV-1 trainer e formatori del corso: del comitato subito attivi, esterni s
   assert.equal((await chiama('POST', `/api/promozioni/${pr.id}/ritira`, { token: O, body: {} })).statusCode, 200);
   assert.equal((await pool.query('select stato from promozione where id=$1', [pr.id])).rows[0].stato, 'ritirata');
   assert.equal((await chiama('POST', `/api/promozioni/${pr.id}/ritira`, { token: O, body: {} })).statusCode, 404);
+});
+
+test('BAK-1 backup cifrato su GitHub (simulato), registro, download solo admin, pianificazione con chiave; notifiche anche per email', async () => {
+  const { cifra, decifra, dumpDb, eseguiBackup, configurazione } = await import('../src/backup.js');
+  const { notifica } = await import('../src/notifiche.js');
+  const O = tok['org@t'], A = tok['adm@t'];
+  const salvate = { ...process.env };
+  try {
+    assert.equal(decifra(cifra(Buffer.from('ciao'), 'frase'), 'frase').toString(), 'ciao');
+    assert.throws(() => decifra(cifra(Buffer.from('ciao'), 'frase'), 'sbagliata'), /frase errata/);
+    // senza configurazione: il tentativo si registra come non riuscito e non invia nulla
+    delete process.env.BACKUP_GITHUB_TOKEN; delete process.env.BACKUP_GITHUB_REPO; delete process.env.BACKUP_PASSPHRASE;
+    const r0 = json(await chiama('POST', '/api/backup', { token: A, body: {} })); assert.equal(r0.ok, false); assert.match(r0.errore, /GitHub non configurato/);
+    assert.equal((await chiama('POST', '/api/backup', { token: O, body: {} })).statusCode, 403);
+    assert.equal((await chiama('GET', '/api/backup', { token: O })).statusCode, 403);
+    assert.equal((await chiama('GET', '/api/backup/scarica?tipo=db', { token: O })).statusCode, 403);
+    const dl = await chiama('GET', '/api/backup/scarica?tipo=db', { token: A }); assert.equal(dl.statusCode, 200);
+    assert.equal((await chiama('GET', '/api/backup/scarica?tipo=sito', { token: A })).statusCode, 200);
+    // con la configurazione: database cifrato + sito su GitHub, potatura dei vecchi
+    process.env.BACKUP_GITHUB_TOKEN = 'ghp_finto'; process.env.BACKUP_GITHUB_REPO = 'imfabrizio/gpser-backup'; process.env.BACKUP_PASSPHRASE = 'frase-di-prova-lunga';
+    assert.equal(configurazione().github, true);
+    const put = [], cancellati = [];
+    const finto = async (url, opt = {}) => {
+      if (opt.method === 'PUT') { put.push({ url, corpo: JSON.parse(opt.body) }); return { ok: true, status: 201, text: async () => '' }; }
+      if (opt.method === 'DELETE') { cancellati.push(url); return { ok: true, status: 200 }; }
+      return { ok: true, status: 200, json: async () => [{ name: '2020-01-01-00-00-auto.gpsb', path: 'db/2020-01-01-00-00-auto.gpsb', sha: 'abc' }, { name: 'LEGGIMI.md', path: 'db/LEGGIMI.md', sha: 'def' }] };
+    };
+    const r1 = await eseguiBackup(pool, { tipo: 'automatico', fetchImpl: finto }); assert.equal(r1.ok, true, r1.errore);
+    const dbPut = put.find((x) => x.url.includes('/contents/db/')); assert.ok(dbPut, 'database inviato'); assert.ok(put.some((x) => x.url.includes('/contents/sito/')), 'sito inviato');
+    const file = Buffer.from(dbPut.corpo.content, 'base64'); assert.equal(file.subarray(0, 5).toString(), 'GPSB1', 'cifrato');
+    assert.ok(!file.toString('latin1').includes('org@t'), 'nessun dato in chiaro');
+    const dump = JSON.parse((await import('node:zlib')).gunzipSync(decifra(file, process.env.BACKUP_PASSPHRASE)).toString());
+    assert.equal(dump.formato, 'gpser-backup-1'); assert.ok(dump.tabelle.utente.some((u) => u.email === 'org@t')); assert.ok(Object.keys(dump.tabelle).includes('evento'));
+    assert.ok(cancellati.length >= 1 && cancellati.every((u) => u.includes('2020-01-01')), 'solo i backup vecchi vengono tolti, non LEGGIMI.md');
+    // pianificazione: chiave obbligatoria
+    process.env.BACKUP_CRON_TOKEN = 'chiave-cron-di-prova';
+    assert.equal((await chiama('POST', '/api/backup/automatico', { body: {} })).statusCode, 401);
+    assert.equal((await chiama('POST', '/api/backup/automatico', { headers: { 'x-backup-token': 'sbagliata' }, body: {} })).statusCode, 401);
+    // email: la notifica arriva anche in posta, salvo chi l'ha disattivata
+    const invii = []; const fetchOriginale = globalThis.fetch;
+    process.env.RESEND_API_KEY = 're_finta'; globalThis.fetch = async (url, opt) => { invii.push(JSON.parse(opt.body)); return { ok: true }; };
+    try {
+      const { rows: [g] } = await pool.query(`select id from utente where email='giu@t'`);
+      await notifica(pool, g.id, { tipo: 't', titolo: 'Prova email', testo: 'testo', link: '/#inviti' }); await new Promise((r) => setTimeout(r, 50));
+      assert.equal(invii.length, 0, 'indirizzi senza dominio non ricevono posta'); await pool.query(`update utente set email='giu@test.it' where id=$1`, [g.id]);
+      await notifica(pool, g.id, { tipo: 't', titolo: 'Prova email', testo: 'testo', link: '/#inviti' }); await new Promise((r) => setTimeout(r, 50));
+      assert.equal(invii.length, 1); assert.deepEqual(invii[0].to, ['giu@test.it']); assert.equal(invii[0].subject, 'Prova email');
+      assert.equal((await chiama('PUT', '/api/me/preferenze', { token: tok['giu@t'], body: { email_notifiche: false } })).statusCode, 200);
+      await notifica(pool, g.id, { tipo: 't', titolo: 'Seconda', link: null }); await new Promise((r) => setTimeout(r, 50));
+      assert.equal(invii.length, 1, 'disattivata: niente posta');
+      await pool.query(`update utente set email='giu@t' where id=$1`, [g.id]);
+    } finally { globalThis.fetch = fetchOriginale; }
+  } finally { for (const k of ['BACKUP_GITHUB_TOKEN', 'BACKUP_GITHUB_REPO', 'BACKUP_PASSPHRASE', 'BACKUP_CRON_TOKEN', 'RESEND_API_KEY']) { if (salvate[k] === undefined) delete process.env[k]; else process.env[k] = salvate[k]; } }
 });
 
 test('QUA-1 la qualifica di formazione porta il ruolo omonimo; discente TSSA solo etichetta', async () => {

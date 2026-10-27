@@ -25,6 +25,7 @@ import ExcelJS from 'exceljs';
 import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
 import { registraNotifiche } from './notifiche.js';
+import { registraBackup } from './routes-backup.js';
 import { leggiCoordinate } from './geo.js';
 import { regioni as regioniComuni, province as provinceComuni, cerca as cercaComuni, comunePerIstat, comuneDaLuogo, etichettaLuogo } from './comuni.js';
 import { registraSegreteria } from './routes-segreteria.js';
@@ -80,7 +81,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const rotta = req.routeOptions?.url || '';
     let decodificato; try { decodificato = decodeURIComponent(req.url.split('?')[0]); } catch { throw httpErr(400, 'URL non valido'); }
     const api = rotta.startsWith('/api/') || decodificato.startsWith('/api/');
-    if (!api || ['/api/login', '/api/login/mfa', '/api/pubblico', '/api/registrati/inizia'].includes(rotta) || rotta.startsWith('/api/auth/')) return;
+    if (!api || ['/api/login', '/api/login/mfa', '/api/pubblico', '/api/registrati/inizia', '/api/backup/automatico'].includes(rotta) || rotta.startsWith('/api/auth/')) return;
     const t = leggiToken((req.headers.authorization || '').replace(/^Bearer /, ''));
     // I ticket di secondo fattore e i cookie SSO non sono sessioni API.
     if (!t || t.t || t.p || (!t.id && !t.rid)) throw httpErr(401, 'non autenticato');
@@ -166,6 +167,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       if (!Array.isArray(b.widget) || b.widget.length > 12 || b.widget.some((w) => !WIDGET_NOTI.includes(w))) throw httpErr(400, 'widget non valido');
       pref.widget = [...new Set(b.widget)];
     }
+    if (b.email_notifiche !== undefined) pref.email_notifiche = !!b.email_notifiche;
     if (b.contatti !== undefined) {
       if (!Array.isArray(b.contatti) || b.contatti.length > 20) throw httpErr(400, 'contatti: massimo 20');
       const t = (x, n) => String(x ?? '').trim().slice(0, n);
@@ -988,6 +990,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   registraAuth(app, pool, { fetchImpl, soloAdmin });
   registraRichieste(app, pool, { soloAdmin, fetchImpl });
   registraNotifiche(app, pool);
+  registraBackup(app, pool, { soloAdmin });
   registraSegreteria(app, pool, { soloOrg });
   registraRisorse(app, pool, { inTransazione, soloOrg });
   registraDocumenti(app, pool, { soloOrg });
