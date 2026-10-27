@@ -582,6 +582,7 @@ async function tPersone() {
   document.querySelectorAll('.pe').forEach((b) => { b.onclick = () => formPersona(lista.find((p) => p.id === b.dataset.id)); });
   document.querySelectorAll('.pd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la persona dall\'anagrafica? Se ha un accesso al sito, viene eliminato anche quello.')) fai(() => api(`/persone/${b.dataset.id}`, { method: 'DELETE' }), 'Persona eliminata'); }; });
 }
+const FAMIGLIE_Q = [['Formazione', ['capo_monitore', 'formatore_ms', 'formatore_tssa', 'istruttore_du', 'trainer_ms', 'trainer_tssa', 'monitore']], ['Gara e scene', ['giudice', 'giudice_master', 'simulatore', 'truccatore']], ['Mega Code e retraining TSSA', ['operatore_tssa', 'discente_tssa']], ['Altre', []]];
 let QUALIFICHE = {};   // codice → nome, caricato da /api/qualifiche
 function formRuoli(p, ruoli) {
   const prima = p.ruolo_codice || 'partecipante', extra = new Set(p.ruoli_extra || []);
@@ -601,7 +602,7 @@ function formPersona(p) {
     ${f('f_cf', admin() ? 'Codice fiscale (facoltativo)' : 'Codice fiscale (facoltativo, non leggibile dopo il salvataggio)', p?.codice_fiscale, 'text', `maxlength="16" ${p?.ha_cf && !admin() ? 'placeholder="già registrato"' : ''}`)}${f('f_em', 'Email (sarà anche il login)', p?.email, 'email')}
     ${f('f_cm', 'Comitato di appartenenza', p?.comitato)}${f('f_pr', 'Provincia (sigla)', p?.provincia, 'text', 'maxlength="2"')}
     <div><label>Unità territoriale</label><select id="f_un"><option>${esc(p?.unita || p?.comitato || '')}</option></select></div></div>
-    <label>Qualifiche (titoli permanenti, non danno accessi da sole)</label><div class="aree">${Object.entries(QUALIFICHE).map(([k, n]) => `<label class="ar"><input type="checkbox" class="f_q" value="${k}" ${(p?.qualifiche || []).includes(k) ? 'checked' : ''}> ${n}</label>`).join('')}</div>
+    <label>Qualifiche <small>(per formazione e scena danno anche il ruolo corrispondente sul sito, se la persona ha un accesso)</small></label>${FAMIGLIE_Q.map(([fn, codici]) => { const el = Object.entries(QUALIFICHE).filter(([k]) => codici.includes(k) || (fn === 'Altre' && !FAMIGLIE_Q.some((f) => f[1].includes(k)))); return el.length ? `<p class="nota" style="margin:6px 0 2px"><b>${fn}</b></p><div class="aree">${el.map(([k, n]) => `<label class="ar"><input type="checkbox" class="f_q" value="${k}" ${(p?.qualifiche || []).includes(k) ? 'checked' : ''}> ${n}</label>`).join('')}</div>` : ''; }).join('')}
     <label>Note</label><textarea id="f_no" rows="2">${esc(p?.note || '')}</textarea>
     <p><button class="b" id="f_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
   legaComitato($('#f_cm'), { provincia: $('#f_pr'), unita: $('#f_un') });

@@ -11,6 +11,19 @@ import { decifra } from './mfa.js';
 import { verificaCodiceFiscale } from './codice-fiscale.js';
 import { datiCf, hashCf } from './anagrafica.js';
 
+// ruoli che possono valutare nei corsi e nei Mega Code
+const VALUTATORI_CORSI = ['istruttore', 'monitore', 'capo_monitore', 'formatore_ms', 'formatore_tssa', 'trainer_ms', 'trainer_tssa', 'istruttore_du', 'admin', 'organizzazione'];
+// le qualifiche che hanno un ruolo con lo stesso codice (formazione, simulatore, truccatore) danno il ruolo all'accesso della persona, come ruolo aggiuntivo
+async function sincronizzaRuoliQualifiche(db, partecipanteId) {
+  const { rows: [p] } = await db.query('select p.utente_id, u.ruolo from partecipante p join utente u on u.id = p.utente_id where p.id=$1', [partecipanteId]);
+  if (!p) return;
+  const { rows: legate } = await db.query('select r.codice from ruolo r join qualifica q on q.codice = r.codice');
+  const { rows: ha } = await db.query('select qualifica from persona_qualifica where partecipante_id=$1', [partecipanteId]);
+  const hanno = new Set(ha.map((x) => x.qualifica)), codici = legate.map((x) => x.codice);
+  await db.query('delete from utente_ruolo_extra where utente_id=$1 and ruolo = any($2::text[]) and not (ruolo = any($3::text[]))', [p.utente_id, codici, [...hanno]]);
+  for (const c of hanno) if (codici.includes(c) && c !== p.ruolo) await db.query('insert into utente_ruolo_extra values ($1,$2) on conflict do nothing', [p.utente_id, c]);
+}
+
 
 export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   // ── ruoli e utenti (solo admin) ──
@@ -82,7 +95,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     return u;
   });
   app.get('/api/giudici', { preHandler: soloOrg }, async (req) => {
-    const val = req.query?.valutatori === '1' ? "'istruttore','admin','organizzazione'," : '';   // nei corsi valutano gli istruttori/formatori
+    const val = req.query?.valutatori === '1' ? VALUTATORI_CORSI.map((x) => `'${x}',`).join('') : '';   // nei corsi valutano gli istruttori/formatori
     return (await pool.query(`select * from (select id, nome, email, ruolo,
         array_cat(array_prepend(ruolo, coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id=u.id), '{}')), (select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in (${val}'giudice','giudice_master'))) as ruoli
         from utente u where attivo) q where ruoli && array[${val}'giudice','giudice_master'] order by nome`)).rows;
@@ -98,7 +111,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.put('/api/schede/:id/assegnazioni', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const ids = req.body?.utenti || [];
     if (!Array.isArray(ids)) throw httpErr(400, 'utenti: elenco di id');
-    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (ruolo in ('giudice','giudice_master','istruttore','admin','organizzazione') or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo in ('giudice','giudice_master','istruttore','admin','organizzazione')) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in ('giudice','giudice_master'))) > 0)`, [ids]);
+    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (ruolo = any($2::text[]) or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo = any($2::text[])) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in ('giudice','giudice_master'))) > 0)`, [ids, ['giudice', 'giudice_master', ...VALUTATORI_CORSI]]);
     if (ok.length !== new Set(ids).size) throw httpErr(400, 'solo utenti attivi con ruolo giudice o giudice master');
     await db.query('delete from assegnazione where scheda_id=$1', [req.params.id]);
     for (const u of new Set(ids)) await db.query('insert into assegnazione values ($1,$2)', [req.params.id, u]);
@@ -200,6 +213,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     if (!(await db.query('select 1 from partecipante where id=$1', [req.params.id])).rowCount) throw httpErr(404, 'persona inesistente');
     await db.query('delete from persona_qualifica where partecipante_id=$1', [req.params.id]);
     for (const x of new Set(q)) await db.query('insert into persona_qualifica values ($1,$2)', [req.params.id, x]);
+    await sincronizzaRuoliQualifiche(db, req.params.id);
     return { ok: true, qualifiche: [...new Set(q)] };
   }));
   // assegna il ruolo direttamente dall'anagrafica: se la persona non ha ancora un accesso lo crea (solo Google/Microsoft, collegato all'email), altrimenti cambia il ruolo
@@ -230,6 +244,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
         await db.query('delete from utente_ruolo_extra where utente_id=$1', [uid]);
         for (const r of el) await db.query('insert into utente_ruolo_extra values ($1,$2)', [uid, r]);
       }
+      await sincronizzaRuoliQualifiche(db, p.id);
       return { ok: true, utente_id: uid };
     });
   });

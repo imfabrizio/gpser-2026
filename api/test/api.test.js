@@ -1886,3 +1886,17 @@ test('VAL-1 nei corsi valutano gli istruttori: elenco valutatori, assegnazione e
   assert.equal((await chiama('GET', `/api/schede/${k.id}`, { token: tk })).statusCode, 200);
   assert.equal((await chiama('DELETE', `/api/schede/${k.id}`, { token: O })).statusCode, 200, 'la scheda si toglie dalla scena');
 });
+
+test('QUA-1 la qualifica di formazione porta il ruolo omonimo; discente TSSA solo etichetta', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email: 'qua1@t.it', nome: 'Quinto Qualifica', ruolo: 'giudice', password: 'password-lunga' } }));
+  const pe = json(await chiama('GET', '/api/persone?q=Qualifica', { token: O })).find((x) => x.utente_id === u.id);
+  const extra = async () => (await pool.query('select ruolo from utente_ruolo_extra where utente_id=$1 order by ruolo', [u.id])).rows.map((x) => x.ruolo);
+  assert.equal((await chiama('PUT', `/api/persone/${pe.id}/qualifiche`, { token: O, body: { qualifiche: ['trainer_ms', 'discente_tssa', 'simulatore'] } })).statusCode, 200);
+  assert.deepEqual(await extra(), ['simulatore', 'trainer_ms']);
+  assert.ok(json(await chiama('GET', '/api/giudici?valutatori=1', { token: O })).some((x) => x.id === u.id), 'trainer MS tra i valutatori');
+  await chiama('PUT', `/api/persone/${pe.id}/qualifiche`, { token: O, body: { qualifiche: ['discente_tssa'] } });
+  assert.deepEqual(await extra(), []);
+  const { rows } = await pool.query(`select codice from ruolo where codice in ('manovre_salvavita','trainer_ms','formatore_tssa','capo_monitore','istruttore_du','truccatore')`);
+  assert.deepEqual(rows.map((r) => r.codice).sort(), ['capo_monitore', 'formatore_tssa', 'istruttore_du', 'trainer_ms', 'truccatore']);
+});
