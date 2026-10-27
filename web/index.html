@@ -351,7 +351,7 @@ async function vistaHome() {
   $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'CRI Eventi';
   const aree = me.aree || [];
   const soloFormazione = org() && !me.admin && aree.every((a) => ['esami', 'formazione_esame', 'valutazione'].includes(a)) && !aree.includes('valutazione');   // es. istruttore con solo Esami
-  const widgetHome = '<div class="sezione-home"><h3>Per te</h3><div id="widgets"></div><p><small><a href="#account">Scegli i widget da mostrare</a></small></p></div>';
+  const widgetHome = '<div class="sezione-home solo-stretto"><h3>Per te</h3><div id="widgets"></div></div>';   // sui telefoni e schermi stretti non c'è la colonna di destra: i widget stanno qui
   const tileF = (href, ico, titolo, desc) => `<a class="tile" href="${href}"><i class="ico">${ICONE[ico]}</i><b>${titolo}</b><span>${desc}</span></a>`;
   const formazione = `<div class="sezione-home"><h3>Formazione</h3><div class="tiles">
       ${org() ? tileF('#valutazione', 'valutazione', 'Valutazioni', 'Inizia la valutazione di un Mega Code o di un corso') : ''}

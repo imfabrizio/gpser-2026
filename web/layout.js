@@ -27,8 +27,9 @@
       const part = me.ruolo === 'partecipante';
       // a sinistra la sezione in cui sei e gli strumenti (gara attiva, notifiche), a destra gli avvisi
       const sez = window.Barra ? Barra.sezione() : null;
-      lat.innerHTML = (sez ? Barra.banda(sez) : '') + '<div class="w" id="r_ev"><h4>Gara attiva</h4><small>Carico…</small></div><div class="w" id="r_nt" hidden><h4>Notifiche</h4></div>';
-      rail.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div class="w" id="r_av" hidden><h4>Avvisi</h4></div>';
+      lat.innerHTML = (sez ? Barra.banda(sez) : '') + '<div class="w" id="r_ev"><h4>Gara attiva</h4><small>Carico…</small></div><div class="w" id="r_nt" hidden><h4>Notifiche</h4></div><div class="w" id="r_cal"></div>';
+      rail.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div id="r_w"></div>';
+      if (window.Widget) { Widget.calendario($r('r_cal')); Widget.disegna($r('r_w'), { mondo: ['gara', 'formazione'].includes(sez) ? sez : undefined }); }
       if (!part) try {
         const evs = await api('/eventi'); if (mio !== giro) return; const e = evs.find((x) => x.attivo);
         $r('r_ev').innerHTML = e ? `<h4>Gara attiva</h4><b class="n">${esc(e.nome)}</b><small>${esc([dataIt(e.data), e.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small>` : '<h4>Gara attiva</h4><small>Nessuna gara attiva</small>';
@@ -36,10 +37,6 @@
       try {
         const n = await api('/me/notifiche'); if (mio !== giro) return; const nl = (n.elenco || []).filter((x) => !x.letta).slice(0, 3);
         if (nl.length) { $r('r_nt').hidden = false; $r('r_nt').insertAdjacentHTML('beforeend', nl.map((x) => `<div class="av"><b>${esc(x.titolo)}</b></div>`).join('')); }
-      } catch { /* niente */ }
-      try {
-        const av = await api('/avvisi'); if (mio !== giro || !av.length) return;
-        $r('r_av').hidden = false; $r('r_av').insertAdjacentHTML('beforeend', av.slice(0, 3).map((a) => `<div class="av"><b>${esc(a.titolo)}</b><small>${esc((a.testo || '').slice(0, 90))}</small></div>`).join(''));
       } catch { /* niente */ }
     },
   };

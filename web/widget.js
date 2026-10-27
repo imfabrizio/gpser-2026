@@ -9,7 +9,6 @@
     ['valutazioni', 'Le mie valutazioni', 'Le schede che ti sono assegnate, con il tasto per iniziare', (me) => org(me) || (me.aree || []).includes('valutazione')],
     ['eventi', 'Prossimi eventi', 'Gare, corsi ed esami in arrivo', () => true],
     ['gara_attiva', 'Gara o corso attivo', 'Quello in corso adesso, con data e luogo', () => true],
-    ['calendario', 'Calendario', 'Il mese con le date degli eventi', () => true],
     ['news', 'Novità e avvisi', 'Le comunicazioni pubblicate dall\'organizzazione', () => true],
     ['notifiche', 'Notifiche da leggere', 'Le ultime notifiche non lette', () => true],
     ['contatti', 'Contatti preferiti', 'Numeri ed email che ti servono, scelti da te', () => true],
@@ -21,8 +20,14 @@
   const stile = document.createElement('style');
   stile.textContent = `.widgets{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin:0 0 10px}
   .wd{background:#fff;border:1px solid #d9dce3;border-radius:10px;padding:14px;min-width:0}.wd h4{margin:0 0 8px;font-size:15px}.wd .r{padding:7px 0;border-top:1px solid #eceef2}.wd .r:first-of-type{border-top:0}.wd .r small{display:block;color:#555}
-  .wd .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:13px;margin:6px 0}.wd .cal i{font-style:normal;color:#666;font-size:11px}.wd .cal span{padding:5px 0;border-radius:6px}.wd .cal .ev{background:var(--rosso,#C8102E);color:#fff;font-weight:700}.wd .cal .og{outline:2px solid #1F5F8B}
-  .wd .cn{display:flex;justify-content:space-between;align-items:center}.wd .cn button{padding:4px 10px}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:13px;margin:6px 0}.cal i{font-style:normal;color:#666;font-size:11px}.cal span{padding:5px 0;border-radius:6px}.cal .ev{background:var(--rosso,#C8102E);color:#fff;font-weight:700}.cal .og{outline:2px solid #1F5F8B}
+  #rail .widgets{display:block;margin:0}#rail .wd{margin-bottom:12px;padding:12px;font-size:14px;background:#f6f7f9;border:0;border-radius:12px}#rail .wd h4{font-size:13px;color:#555}
+  .widgets .wl{grid-column:1/-1;font-size:13px;display:block;margin:2px 0 8px}
+  @media (min-width:1100px){body.laterale .solo-stretto{display:none}}
+  #tabs .calw .cal,#lat .calw .cal{font-size:12px}.cn button{width:auto!important;min-width:0;padding:4px 10px!important}.cn h4{margin:0}
+  a.vl{display:inline-block;margin-top:4px;padding:5px 10px;border-radius:8px;background:var(--rosso,#C8102E);color:#fff!important;font-weight:700;font-size:12px;text-decoration:none}a.vl.sec{background:#fff;color:#222!important;border:1px solid #8C94A3}.calw .cn h4{font-size:13px;text-transform:capitalize}.calw .esp{width:100%;margin-top:6px;font-size:13px;padding:6px}
+  #dlgcal{border:0;border-radius:14px;max-width:560px;width:94vw;padding:16px 18px;box-shadow:0 12px 40px #0004}#dlgcal .cal{font-size:16px;gap:4px}#dlgcal .cal span{padding:10px 0}#dlgcal .cn h4{font-size:18px;text-transform:capitalize}
+  .cn{display:flex;justify-content:space-between;align-items:center}.cn button{padding:4px 10px}
   .wed .rg{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eceef2}.wed .rg input[type=checkbox]{width:22px!important;height:22px;flex:none;margin:0;padding:0}.wed .rg label{margin:0;flex:1;min-width:0;display:block;text-align:left}.wed .rg small{display:block;color:#555}.wed .rg button{padding:3px 9px;width:auto;flex:none;min-width:0}
   .wed .ct{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;margin:6px 0}@media (max-width:600px){.wed .ct{grid-template-columns:1fr}}`;
   document.head.append(stile);
@@ -34,9 +39,9 @@
 
   const COSTRUTTORI = {
     async eventi(box, c) {
-      const l = c.eventi.filter((e) => !e.archiviato && (!c.mondo || TIPI[c.mondo].includes(e.tipo)) && (e.attivo || !e.data || (e.data_fine || e.data) >= oggi())).sort((a, b) => String(a.data || '9999').localeCompare(String(b.data || '9999'))).slice(0, 6);
+      const l = c.eventi.filter((e) => !e.archiviato && (!c.mondo || TIPI[c.mondo].includes(e.tipo)) && (e.attivo || !e.data || (e.data_fine || e.data) >= oggi())).sort((a, b) => String(a.data || '9999').localeCompare(String(b.data || '9999'))).slice(0, 5);
       const chiave = c.mondo === 'formazione' ? 'evF' : 'ev';
-      box.innerHTML = `<h4>Prossimi eventi</h4>${l.length ? l.map((e) => `<div class="r">${riga(e).replace(/^<div class="r">|<\/div>$/g, '')}${org(c.me) && e.tipo !== 'esame' && e.tipo !== 'allenamento' && (c.mondo === 'formazione') === TIPI.formazione.includes(e.tipo) ? `<a class="btn" href="#valutazione" data-ev="${e.id}" data-k="${chiave}">Inizia le valutazioni</a>` : ''}</div>`).join('') : '<small>Nessun evento in programma.</small>'}`;
+      box.innerHTML = `<h4>Prossimi eventi</h4>${l.length ? l.map((e) => `<div class="r">${riga(e).replace(/^<div class="r">|<\/div>$/g, '')}${org(c.me) && e.tipo !== 'esame' && e.tipo !== 'allenamento' && (c.mondo === 'formazione') === TIPI.formazione.includes(e.tipo) ? `<a class="vl" href="#valutazione" data-ev="${e.id}" data-k="${chiave}">Inizia le valutazioni</a>` : ''}</div>`).join('') : '<small>Nessun evento in programma.</small>'}`;
       box.querySelectorAll('[data-ev]').forEach((a) => { a.onclick = () => { try { localStorage.setItem(a.dataset.k, a.dataset.ev); } catch { /* niente */ } }; });
     },
     async gara_attiva(box, c) {
@@ -49,10 +54,10 @@
       const sc = (await api(`/eventi/${e.id}/scene`)).filter((s) => s.schede && s.schede.length);
       const n = sc.reduce((t, s) => t + s.schede.length, 0);
       box.innerHTML = `<h4>Le mie valutazioni</h4><small>${esc(e.nome)}</small>${n ? sc.slice(0, 4).map((s) => `<div class="r"><b>Scena ${esc(s.codice)}</b> ${esc(s.titolo || '')}<small>${s.schede.map((k) => esc(k.titolo)).join(' · ')}</small></div>`).join('') + (sc.length > 4 ? `<small>e altre ${sc.length - 4} scene</small>` : '') : '<div class="r"><small>Nessuna scheda assegnata.</small></div>'}
-        ${n ? `<a class="btn" href="#valutazione" id="wv_${e.id}">Inizia le valutazioni</a>` : ''}`;
-      const a = box.querySelector('a.btn'); if (a) a.onclick = () => { try { localStorage.setItem(c.mondo === 'formazione' ? 'evF' : 'ev', e.id); } catch { /* niente */ } };
+        ${n ? `<a class="vl" href="#valutazione" id="wv_${e.id}">Inizia le valutazioni</a>` : ''}`;
+      const a = box.querySelector('a.vl'); if (a) a.onclick = () => { try { localStorage.setItem(c.mondo === 'formazione' ? 'evF' : 'ev', e.id); } catch { /* niente */ } };
     },
-    async calendario(box, c) {
+    async calendario(box, c, grande) {
       let m = new Date(); m = new Date(m.getFullYear(), m.getMonth(), 1);
       const disegna = () => {
         const y = m.getFullYear(), mm = m.getMonth(), n = new Date(y, mm + 1, 0).getDate(), primo = (m.getDay() + 6) % 7, iso = (d) => `${y}-${String(mm + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -61,7 +66,8 @@
         let cel = ['L', 'M', 'M', 'G', 'V', 'S', 'D'].map((x) => `<i>${x}</i>`).join('') + '<span></span>'.repeat(primo);
         for (let d = 1; d <= n; d++) cel += `<span class="${sul(d) ? 'ev' : ''} ${iso(d) === oggi() ? 'og' : ''}">${d}</span>`;
         box.innerHTML = `<div class="cn"><button type="button" data-d="-1" aria-label="Mese precedente">‹</button><h4 style="margin:0">${m.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })}</h4><button type="button" data-d="1" aria-label="Mese successivo">›</button></div><div class="cal">${cel}</div>
-          ${evM.length ? evM.map((e) => riga(e)).join('') : '<small>Nessun evento in questo mese.</small>'}`;
+          ${evM.length ? evM.map((e) => riga(e)).join('') : '<small>Nessun evento in questo mese.</small>'}${grande ? '' : '<button type="button" class="sec esp">Ingrandisci</button>'}`;
+        const x = box.querySelector('.esp'); if (x) x.onclick = () => apriGrande(c);
         box.querySelectorAll('[data-d]').forEach((b) => { b.onclick = () => { m = new Date(m.getFullYear(), m.getMonth() + Number(b.dataset.d), 1); disegna(); }; });
       };
       disegna();
@@ -72,7 +78,7 @@
     },
     async notifiche(box) {
       const d = await api('/me/notifiche'), l = (d.elenco || []).filter((x) => !x.letta).slice(0, 4);
-      box.innerHTML = `<h4>Notifiche da leggere</h4>${l.length ? l.map((x) => `<div class="r"><b>${esc(x.titolo)}</b>${x.testo ? `<small>${esc(x.testo.slice(0, 120))}</small>` : ''}</div>`).join('') + '<a href="#" class="btn sec" id="w_apri">Apri le notifiche</a>' : '<small>Nessuna notifica da leggere.</small>'}`;
+      box.innerHTML = `<h4>Notifiche da leggere</h4>${l.length ? l.map((x) => `<div class="r"><b>${esc(x.titolo)}</b>${x.testo ? `<small>${esc(x.testo.slice(0, 120))}</small>` : ''}</div>`).join('') + '<a href="#" class="vl sec" id="w_apri">Apri le notifiche</a>' : '<small>Nessuna notifica da leggere.</small>'}`;
       const a = box.querySelector('#w_apri'); if (a) a.onclick = (e) => { e.preventDefault(); document.getElementById('campana')?.click(); };
     },
     async contatti(box, c) {
@@ -81,21 +87,34 @@
     },
     async approvare(box) {
       const n = (await api('/richieste/conteggio')).n;
-      box.innerHTML = `<h4>Richieste da approvare</h4><div class="r"><b>${n}</b> ${n === 1 ? 'richiesta di accesso' : 'richieste di accesso'}${n ? '<br><a class="btn" href="/admin.html#richieste">Apri le richieste</a>' : ''}</div>`;
+      box.innerHTML = `<h4>Richieste da approvare</h4><div class="r"><b>${n}</b> ${n === 1 ? 'richiesta di accesso' : 'richieste di accesso'}${n ? '<br><a class="vl" href="/admin.html#richieste">Apri le richieste</a>' : ''}</div>`;
     },
   };
 
+  const apriGrande = (c) => {
+    let d = document.getElementById('dlgcal'); if (!d) { d = document.createElement('dialog'); d.id = 'dlgcal'; document.body.append(d); d.addEventListener('click', (e) => { if (e.target === d) d.close(); }); }
+    d.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong>Calendario</strong><button type="button" id="dc_x">Chiudi</button></div><div id="dc_b"></div>';
+    d.showModal(); d.querySelector('#dc_x').onclick = () => d.close();
+    COSTRUTTORI.calendario(d.querySelector('#dc_b'), c, true);
+  };
   window.Widget = {
+    // calendario compatto per la colonna di sinistra, con il tasto per aprirlo in una finestra
+    async calendario(box) {
+      if (!box) return; const me = leggi('me'); let eventi = []; try { eventi = await api('/eventi'); } catch { /* offline */ }
+      box.classList.add('calw'); await COSTRUTTORI.calendario(box, { me, eventi });
+    },
     scelti, disponibili,
     // disegna i widget scelti dall'utente nel contenitore
     async disegna(box, { mondo } = {}) {
       const me = leggi('me'); if (!box || !me) return;
       const chi = scelti(me);
-      if (!chi.length) { box.innerHTML = ''; return; }
+      if (!chi.length) { box.innerHTML = '<a class="wl" href="/#account">Scegli i widget</a>'; return; }
       let eventi = []; try { eventi = await api('/eventi'); } catch { /* offline */ }
       const ctx = { me, mondo, eventi };
       box.className = 'widgets';
+      const fine = '<a class="wl" href="/#account">Scegli i widget</a>';
       box.innerHTML = chi.map((k) => `<section class="wd" data-w="${k}"><small>Carico…</small></section>`).join('');
+      box.insertAdjacentHTML('beforeend', fine);
       await Promise.all(chi.map(async (k) => { const el = box.querySelector(`[data-w="${k}"]`); try { await COSTRUTTORI[k](el, ctx); } catch { el.remove(); } }));
     },
     // scheda «I miei widget» per l'area utente
