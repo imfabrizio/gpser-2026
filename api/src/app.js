@@ -33,6 +33,9 @@ import { canonico } from './comitati.js';
 import { generaClassificaPdf } from './pdf/classifica.js';
 import { generaEsitoPdf } from './pdf/esito.js';
 import { fasceAuto } from './esito.js';
+import { disegnaSkill } from './pdf/skill.js';
+// una scheda è una "skill" (layout cartaceo 0-1-2) se la sua tipologia è solo skill/megacode o se è una scheda d'esame TSSA
+const èSkill = (p) => p?.categoria === 'Esame TSSA' || (Array.isArray(p?.tipologie) && p.tipologie.includes('skill') && !p.tipologie.includes('gara') && !p.tipologie.includes('olimpiadi'));
 import { registraAi } from './routes-ai.js';
 import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO } from './ambito.js';
 import { haSchede, comitatoDi, controllaScheda, tipologieValide } from './libreria-ambito.js';
@@ -549,6 +552,9 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (!k) throw httpErr(404, 'scheda inesistente');
     const { rows: voci } = await pool.query(`select ordine as id, sezione, testo, is_sep, mb, be, su, "in", ne from scena_scheda_voce where scheda_id=$1 order by ordine`, [req.params.id]);
     const doc = creaDocumento(); const chunks = []; doc.on('data', (c) => chunks.push(c)); const fine = new Promise((r) => doc.on('end', r));
+    const { rows: [pk] } = await pool.query('select p.tipologie, p.categoria, p.fasce, p.errori_gravi, p.sigla from scena_scheda s join patologia p on p.id=s.patologia_id where s.id=$1', [req.params.id]);
+    if (pk && èSkill(pk)) { disegnaSkill(doc, { titolo: k.titolo, modello: `SKILL ${pk.sigla}`, voci, fasce: pk.fasce, erroriGravi: pk.errori_gravi }); doc.end(); await fine;
+      return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="anteprima.pdf"').send(Buffer.concat(chunks)); }
     disegnaScheda(doc, { evento: { nome: k.ev_nome, titolo_stampa: k.titolo_stampa || k.ev_nome, luogo: k.luogo || '', data_txt: null }, squadra: { numero: 0, nome: 'Anteprima' },
       scena: { codice: k.codice, titolo: k.scena_titolo }, scheda: { simulatore: k.simulatore, titolo: k.titolo, is_master: k.is_master, gravita: k.gravita, parametri: k.parametri || {} }, voci, compilazione: null, risposte: new Map(), vuota: true });
     doc.end(); await fine;
@@ -618,11 +624,13 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   // anteprima di una scheda della libreria con lo stesso template delle schede stampate (PDF)
   app.get('/api/libreria/patologie/:id/anteprima.pdf', { preHandler: soloOrg }, async (req, reply) => {
     await controllaScheda(pool, req.utente, req.params.id, { modifica: false });
-    const { rows: [pt] } = await pool.query('select nome, sigla, is_master, gravita from patologia where id=$1', [req.params.id]);
+    const { rows: [pt] } = await pool.query('select nome, sigla, is_master, gravita, tipologie, categoria, fasce, errori_gravi from patologia where id=$1', [req.params.id]);
     const { rows: voci } = await pool.query(
       `select pv.ordine as id, pv.sezione, v.testo, pv.is_sep, sp.mb, sp.be, sp.su, sp."in", sp.ne from patologia_voce pv
          join voce v on v.id=pv.voce_id join scala_punteggio sp on sp.id=pv.scala_id where pv.patologia_id=$1 order by pv.ordine`, [req.params.id]);
     const doc = creaDocumento(); const chunks = []; doc.on('data', (c) => chunks.push(c)); const fine = new Promise((r) => doc.on('end', r));
+    if (èSkill(pt)) { disegnaSkill(doc, { titolo: pt.nome, modello: `SKILL ${pt.sigla}`, voci, fasce: pt.fasce, erroriGravi: pt.errori_gravi }); doc.end(); await fine;
+      return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="anteprima.pdf"').send(Buffer.concat(chunks)); }
     disegnaScheda(doc, { evento: { nome: 'Anteprima scheda', titolo_stampa: 'Anteprima scheda', luogo: '', data_txt: null }, squadra: { numero: 0, nome: 'Test' },
       scena: { codice: 'T', titolo: 'Nome Scena' }, scheda: { simulatore: 'M', titolo: pt.nome, is_master: pt.is_master, gravita: pt.gravita, parametri: { coscienza: 'Vigile', fr: 16, fc: 80, cute: 'Normale' } }, voci, compilazione: null, risposte: new Map(), vuota: true });
     doc.end(); await fine;

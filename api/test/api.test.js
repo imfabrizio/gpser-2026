@@ -973,6 +973,17 @@ test('ES-2 schede d\'esame TSSA: 4 schede in libreria, scala 0-1-2, fasce di giu
   assert.equal(pdf.statusCode, 200);
 });
 
+test('SKILL-1: le skill hanno stampa propria (0-1-2, giudizi, errori gravi) e le due schede Scoop sono in libreria', async () => {
+  const O = tok['org@t'];
+  const { rows: sc } = await pool.query(`select p.id, p.codice, p.errori_gravi, (select count(*)::int from patologia_voce where patologia_id=p.id) n from patologia p where codice like 'skill-scoop-%' order by codice`);
+  assert.deepEqual(sc.map((x) => [x.codice, x.n]), [['skill-scoop-semiverticale', 19], ['skill-scoop-trasporto', 19]]);
+  assert.ok(sc.every((x) => x.errori_gravi.length === 3));
+  for (const x of sc) {
+    const r = await chiama('GET', `/api/libreria/patologie/${x.id}/anteprima.pdf`, { token: O });
+    assert.equal(r.statusCode, 200); assert.match(String(r.headers['content-type']), /pdf/);
+  }
+});
+
 test('ESA-1 area Esami: sessione, principale + secondari, valore diverso per un candidato, errore grave, chiusura, PDF', async () => {
   const O = tok['org@t'], G = tok['giu@t'];
   assert.equal((await chiama('GET', '/api/esami/sessioni', { token: G })).statusCode, 403);          // il giudice non entra

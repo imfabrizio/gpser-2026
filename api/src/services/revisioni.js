@@ -157,8 +157,8 @@ export async function salvaRevisioneDaScena(db, utente, schedaId, { modo, confer
   if (modo === 'nuova') {
     const { rows: [{ r }] } = await db.query('select max(revisione)+1 as r from patologia where gruppo_id=$1', [p.gruppo_id]);
     const { rows: [n] } = await db.query(
-      `insert into patologia (codice, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2, fasce, descrizione, comitato, creata_da, bozza, macro, macro2, gravita, livello, regione, tipologie, gruppo_id, revisione, evento_origine_id)
-       select $2, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2, fasce, descrizione, comitato, $3, false, macro, macro2, gravita, livello, regione, tipologie, gruppo_id, $4, $5 from patologia where id=$1 returning id`,
+      `insert into patologia (codice, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2, fasce, descrizione, comitato, creata_da, bozza, macro, macro2, gravita, livello, regione, tipologie, gruppo_id, revisione, evento_origine_id, errori_gravi)
+       select $2, nome, sigla, is_bls, is_master, is_diu, categoria, categoria2, fasce, descrizione, comitato, $3, false, macro, macro2, gravita, livello, regione, tipologie, gruppo_id, $4, $5, errori_gravi from patologia where id=$1 returning id`,
       [p.id, `${p.codice}-R${r}-${Math.random().toString(36).slice(2, 6)}`, utente.id, r, s.evento_id]);
     await copiaVociInPatologia(db, schedaId, n.id);
     await db.query('update scena_scheda set patologia_id=$2 where id=$1', [schedaId, n.id]);

@@ -2935,7 +2935,7 @@ create table if not exists sessione_esame_invito (
   primary key (sessione_id, utente_id)
 );
 create index if not exists sessione_esame_invito_utente_idx on sessione_esame_invito (utente_id);
-insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql') on conflict do nothing;
+insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql') on conflict do nothing;
 
 -- 046-skill-fasce-scoop
 -- Skill: fasce di giudizio automatiche (75/80/85/95%, calcolate sul numero di voci) e Barella Scoop in due schede (trasporto, semi-verticalizzazione).
@@ -3029,3 +3029,10 @@ from patologia p, (values
   (19, 'Esegue la prova di sollevamento in modo sincrono con l''altro operatore')
 ) as t(n, testo)
 where p.codice='skill-scoop-semiverticale' and not exists (select 1 from patologia_voce x where x.patologia_id=p.id);
+
+-- 047-errori-gravi-skill
+-- Errori gravi di una scheda (skill): elenco stampato nel riquadro "Sono errori gravi"
+alter table patologia add column if not exists errori_gravi text[] not null default '{}';
+update patologia set errori_gravi = '{"Non mantenere l''immobilizzazione manuale della testa","Palpazione di addome e bacino","Mancata sequenza ABCD"}' where codice in ('esame-ptc','esame-valutazione') and errori_gravi = '{}';
+update patologia set errori_gravi = '{"Passare sopra al paziente","Non assicurare il paziente al presidio","Montaggio B-Lock dopo il posizionamento su barella"}' where codice = 'esame-scoop' and errori_gravi = '{}';
+update patologia set errori_gravi = '{"Passare sopra al paziente","Non assicurare il paziente al presidio","Lasciare il capo prima del montaggio della cintura H"}' where codice in ('skill-scoop-trasporto','skill-scoop-semiverticale') and errori_gravi = '{}';
