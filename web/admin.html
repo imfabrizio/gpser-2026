@@ -160,16 +160,16 @@ window.chiudi = chiudi;
 
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
-const TABS = [['menu', 'Portale'], ['hub', 'Menu'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['discenti', 'Discenti'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
+const TABS = [['menu', 'Portale'], ['valutazione', 'Valutazione'], ['hub', 'Menu'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['discenti', 'Discenti'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
   ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
-const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', segreteria: 'segreteria', evento: 'gara', discenti: ['esami', 'gara'], scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: 'stampa', importa: 'importa' };
-const DESC = { discenti: 'Chi frequenta il corso: con loro si compongono gli equipaggi dei Mega Code', corsi: 'Corsi, Mega Code ed esami', evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', squadre: 'Squadre, comitato e componenti',
+const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', segreteria: 'segreteria', valutazione: 'valutazione', evento: 'gara', discenti: ['esami', 'gara'], scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: 'stampa', importa: 'importa' };
+const DESC = { valutazione: 'Inizia a valutare: scegli scena, scheda e squadra', discenti: 'Chi frequenta il corso: con loro si compongono gli equipaggi dei Mega Code', corsi: 'Corsi, Mega Code ed esami', evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', squadre: 'Squadre, comitato e componenti',
   segreteria: 'Registra gli arrivi e stampa i badge', persone: 'Persone e requisiti', comitati: 'Elenco dei comitati, unità territoriali e nomi da correggere', importa: 'Carica le scene dai vecchi file Excel', libreria: 'Crea e modifica le schede, anche dei comitati', punteggi: 'Valore di MB, BE, SU, IN, NE per ogni scala',
   classifiche: 'Generale, SEP, BLSD, Master, DIU', monitor: 'Avanzamento delle schede', stampa: 'Schede vuote o compilate, per scena o squadra', news: 'Avvisi per i partecipanti e notizie pubbliche', documenti: 'Regolamento, comunicazioni e manuali',
   richieste: 'Chi ha chiesto l\'accesso: approva e assegna il ruolo', ruoli: 'Crea ruoli e scegli a quali aree possono accedere', utenti: 'Accessi, ruoli e gara assegnata' };
 // tre mondi separati: si sceglie all'ingresso e dentro si vede solo ciò che li riguarda (il motore è lo stesso)
-const GRUPPI = [['gara', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede, squadre e classifiche', 'evento', ['evento', 'scene', 'risorse', 'squadre', 'segreteria', 'libreria', 'punteggi', 'classifiche', 'monitor', 'stampa', 'importa', 'news', 'documenti']],
-  ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['corsi', 'evento', 'discenti', 'scene', 'libreria', 'risorse', 'squadre', 'news']],
+const GRUPPI = [['gara', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede, squadre e classifiche', 'evento', ['valutazione', 'evento', 'scene', 'risorse', 'squadre', 'segreteria', 'libreria', 'punteggi', 'classifiche', 'monitor', 'stampa', 'importa', 'news', 'documenti']],
+  ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['valutazione', 'corsi', 'evento', 'discenti', 'scene', 'libreria', 'risorse', 'squadre', 'news']],
   ['comune', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli', 'persone', ['persone', 'comitati', 'richieste', 'ruoli', 'utenti']]];
 const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli'];
 const admin = () => me.ruolo === 'admin';
@@ -183,10 +183,11 @@ const haArea = (a) => admin() || (me.aree || []).includes(a);
 const figliVisibili = (g) => g[4].filter((k) => k === 'evento' ? haArea(g[0] === 'corsi' ? 'esami' : 'gara') : g[0] === 'corsi' ? haArea('esami') && consentito(k) : consentito(k));
 const nomeTab = (k) => k === 'evento' ? (fam === 'corsi' ? 'Dati dell\'evento' : 'Gare e allenamenti') : (TABS.find(([x]) => x === k)?.[1] || '');
 let ELENCO_RUOLI = [];
-window.addEventListener('hashchange', () => { const h = location.hash.slice(1).replace(/^hub:(\w+)$/, (_, m) => { if (GRUPPI.some((g) => g[0] === m)) impostaMondo(m); return 'hub'; }) || 'menu'; if (TABS.some(([k]) => k === h) && consentito(h) && (h !== tab || h === 'hub')) { vai(h, true); } });
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1).replace(/^hub:(\w+)$/, (_, m) => { if (GRUPPI.some((g) => g[0] === m)) impostaMondo(m); return 'hub'; }).replace(/^(\w+)\.(\w+)$/, (_, m, t) => { if (GRUPPI.some((g) => g[0] === m)) impostaMondo(m); return t; }) || 'menu'; if (TABS.some(([k]) => k === h) && consentito(h) && (h !== tab || h === 'hub')) { vai(h, true); } });
 const vai = (t, daHash) => { if (t === 'monitor') { location.href = '/#monitor'; return; }
+  if (t === 'valutazione') { try { localStorage.setItem('mondo', fam === 'corsi' ? 'formazione' : 'gara'); } catch { /* ignora */ } location.href = '/#valutazione'; return; }
   if (t !== 'menu' && t !== 'hub') { const m = GRUPPI.find((g) => g[0] === fam && g[4].includes(t)) || GRUPPI.find((g) => g[4].includes(t)); if (m && m[0] !== fam) impostaMondo(m[0]); }
-  tab = t; if (!daHash) history.replaceState(null, '', t === 'menu' ? location.pathname : '#' + t); disegnaTabs(); render(); };
+  tab = t; if (!daHash) history.replaceState(null, '', t === 'menu' ? location.pathname : t === 'hub' ? '#hub:' + fam : (fam === 'corsi' ? '#corsi.' : '#') + t); disegnaTabs(); render(); };
 function disegnaTabs() {
   if (!TABS.some(([k]) => k === tab)) tab = 'menu';
   const g = tab === 'menu' ? null : mondoCorrente(), hubForm = tab === 'hub' && fam === 'corsi', vis = g && (tab !== 'hub' || hubForm) ? figliVisibili(g) : [];
