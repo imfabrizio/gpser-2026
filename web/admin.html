@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GPSER-2026 – Gestione</title>
 <style>
+body.corsi .csep{display:none}
   :root { --rosso:#E3001B; --bg:#f4f4f6; --card:#fff; --testo:#1c1c1e; --bordo:#d6d6da; --grigio:#e7e6e6; }
   * { box-sizing: border-box; }
   body { margin:0; font:15px system-ui, sans-serif; background:var(--bg); color:var(--testo); }
@@ -99,7 +100,7 @@ const FAM_TIPI = { gara: ['gara', 'olimpiadi', 'allenamento', 'corso_giudici'], 
 const VERS_NOME = { gara: 'Gara', olimpiadi: 'Olimpiadi', megacode: 'Mega Code' };
 const NOME_TIPO = { corso_giudici: 'corso giudici', megacode: 'mega code' };
 const eventiFam = () => eventi.filter((e) => FAM_TIPI[fam].includes(e.tipo));
-const impostaFam = (f) => { fam = f; const s = localStorage.getItem('ev_' + fam), l = eventiFam(); ev = l.find((e) => e.id === s) || l.find((e) => e.attivo) || l[0] || null; };
+const impostaFam = (f) => { fam = f; document.body.classList.toggle('corsi', f === 'corsi'); const s = localStorage.getItem('ev_' + fam), l = eventiFam(); ev = l.find((e) => e.id === s) || l.find((e) => e.attivo) || l[0] || null; };
 const LIV = ['mb', 'be', 'su', 'in', 'ne'];
 
 async function api(path, opt = {}) {
@@ -176,7 +177,7 @@ const consentito = (k) => k === 'menu' || k === 'hub' || (SOLO_ADMIN.includes(k)
 const mondoCorrente = () => GRUPPI.find((g) => g[0] === fam);
 const gruppoDi = (k) => { const c = GRUPPI.filter((g) => g[4].includes(k)); return c.find((g) => g[0] === fam) || c[0]; };
 const mondiVisibili = () => GRUPPI.filter((g) => figliVisibili(g).length);
-const impostaMondo = (f) => { if (f === 'comune') { impostaFam('gara'); fam = 'comune'; } else impostaFam(f); };
+const impostaMondo = (f) => { if (f === 'comune') { impostaFam('gara'); fam = 'comune'; document.body.classList.remove('corsi'); } else impostaFam(f); };
 const haArea = (a) => admin() || (me.aree || []).includes(a);
 // ogni mondo mostra solo le sezioni consentite: la Formazione richiede l'area Esami, i dati dell'evento l'area del proprio mondo
 const figliVisibili = (g) => g[4].filter((k) => k === 'evento' ? haArea(g[0] === 'corsi' ? 'esami' : 'gara') : g[0] === 'corsi' ? haArea('esami') && consentito(k) : consentito(k));
@@ -728,7 +729,7 @@ async function apriVociScheda(id, vista = 'voci', scala) {
   const scale = scala || await api('/libreria/scale').catch(() => []);
   const sezioni = []; for (const v of d.voci) { let g = sezioni.find((x) => x.nome === v.sezione); if (!g) sezioni.push(g = { nome: v.sezione, voci: [] }); g.voci.push(v); }
   const riga = (v) => `<tr data-o="${v.ordine}"><td><input class="vt" value="${esc(v.testo)}" style="width:100%"> <small>${esc(v.scala)}</small></td>${LIV.map((l) => `<td><input class="num" data-l="${l}" value="${v[l] ?? ''}"></td>`).join('')}
-    <td><input type="checkbox" class="sep" ${v.is_sep ? 'checked' : ''}></td><td style="white-space:nowrap"><button class="b p sv">Salva</button> <button class="x p el" title="Elimina la voce">✕</button></td></tr>`;
+    <td class="csep"><input type="checkbox" class="sep" ${v.is_sep ? 'checked' : ''}></td><td style="white-space:nowrap"><button class="b p sv">Salva</button> <button class="x p el" title="Elimina la voce">✕</button></td></tr>`;
   dlg(`<h3>${esc(d.titolo)} <span class="tag">sim. ${esc(d.simulatore)}</span> <small>(solo per questa scena)</small></h3>
     <div class="navbar"><button id="vs_voci" class="${vista === 'voci' ? 'val' : ''}">Modifica</button><button id="vs_an" class="${vista === 'an' ? 'val' : ''}">Anteprima</button></div>
     ${vista === 'an' ? `<iframe id="an_if" title="Anteprima scheda" style="width:100%;height:66vh;border:1px solid #ccc;background:#eee"></iframe>
@@ -736,7 +737,7 @@ async function apriVociScheda(id, vista = 'voci', scala) {
     <div class="riga"><div style="flex:3"><label>Titolo della scheda</label><input id="vs_tit" value="${esc(d.titolo)}"></div><div class="stretto"><button class="s" id="vs_tit_ok">Salva titolo</button></div></div>
     <p class="nota">Cambia il testo, i punteggi o l'ordine delle voci solo per questa scena. Lascia vuoto un livello per renderlo non selezionabile. Le voci già usate in valutazioni non si possono eliminare.</p>
     <table class="voci punteggi"><colgroup><col><col style="width:58px"><col style="width:58px"><col style="width:58px"><col style="width:58px"><col style="width:58px"><col style="width:48px"><col style="width:110px"></colgroup>
-    <tr><th>Voce</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th>SEP</th><th></th></tr>
+    <tr><th>Voce</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th class="csep">SEP</th><th></th></tr>
     ${sezioni.map((g, i) => `<tr class="sez" data-s="${esc(g.nome)}"><td colspan="6" style="background:var(--grigio)"><input class="sn" value="${esc(g.nome)}" style="width:70%;font-weight:700"> <button class="s p sn_ok">Rinomina sezione</button></td><td colspan="2" style="background:var(--grigio)"><button class="s p nv" data-dopo="${g.voci[g.voci.length - 1].ordine}" data-sez="${i}">+ voce</button></td></tr>`
       + g.voci.map(riga).join('')).join('')}</table>
     <p class="nota"><b>Libreria:</b> le modifiche valgono solo per questa scena finché non le salvi qui sotto.</p>
@@ -771,7 +772,7 @@ async function apriVociScheda(id, vista = 'voci', scala) {
     const ultima = [...document.querySelectorAll(`#dlg tr[data-o]`)].filter((r) => Number(r.dataset.o) <= Number(b.dataset.dopo)).pop() || tr;
     ultima.insertAdjacentHTML('afterend', `<tr id="nv_riga"><td colspan="8" style="background:#fff8e1"><div class="riga"><div style="flex:3"><label>Nuova voce in «${esc(sez)}»</label><input id="nv_t" placeholder="Testo della voce"></div>
       <div><label>Punteggi (scala)</label><select id="nv_s">${scale.map((x) => `<option value="${esc(x.codice)}">${esc(x.codice)} (${LIV.map((l) => x[l] ?? '–').join('/')})</option>`).join('')}</select></div>
-      <div class="stretto"><label><input type="checkbox" id="nv_sep" style="width:auto"> SEP</label></div><div class="stretto"><button class="b" id="nv_ok">Aggiungi</button></div></div></td></tr>`);
+      <div class="stretto csep"><label><input type="checkbox" id="nv_sep" style="width:auto"> SEP</label></div><div class="stretto"><button class="b" id="nv_ok">Aggiungi</button></div></div></td></tr>`);
     $('#nv_t').focus();
     $('#nv_ok').onclick = () => { if (!$('#nv_t').value.trim()) return flash('Scrivi il testo della voce', false); ok(() => api(`/schede/${id}/voci`, { body: { sezione: sez, testo: $('#nv_t').value, scala: $('#nv_s').value, dopo: Number(b.dataset.dopo), is_sep: $('#nv_sep').checked } }), 'Voce aggiunta'); }; }; });
 }
@@ -1010,7 +1011,7 @@ function editorPatologia(p, voci, nuova = false) {
   const sc = cache.scale.map((s) => s.codice);
   const riga = (v = {}) => `<tr><td><input class="r_sez" value="${esc(v.sezione || '')}" placeholder="sezione"></td><td><input class="r_tx" value="${esc(v.testo || '')}" placeholder="testo della voce"></td>
     <td><select class="r_sc">${cache.scale.map((x) => `<option value="${esc(x.codice)}" ${x.codice === (v.scala || 'Standard') ? 'selected' : ''}>${esc(x.codice)} (${LIV.map((l) => x[l]).filter((n) => n !== null && n !== undefined).join(',')})</option>`).join('')}</select></td>
-    <td><input type="checkbox" class="r_sep" ${v.is_sep ? 'checked' : ''}></td>
+    <td class="csep"><input type="checkbox" class="r_sep" ${v.is_sep ? 'checked' : ''}></td>
     <td style="white-space:nowrap"><button class="s p su" title="Sposta su">↑</button> <button class="s p gi" title="Sposta giù">↓</button> <button class="b p piu" title="Aggiungi una voce sotto, nella stessa sezione">＋</button> <button class="x p rm">✕</button></td></tr>`;
   const dir = admin() || (me.aree || []).includes('schede'), sola = !!(p && p.id && !nuova && (p.comitato ? (dir && !admin()) : !dir));
   dlg(`<h3>${p && !nuova ? (sola ? 'Scheda' : 'Modifica') : 'Nuova'} scheda${p?.comitato ? ` <small>(privata · ${esc(p.comitato)})</small>` : ''}</h3>${sola ? '<p class="nota">Solo lettura: usa «Copia» per averne una tua da modificare.</p>' : ''}<div class="riga">
@@ -1024,7 +1025,7 @@ function editorPatologia(p, voci, nuova = false) {
     <div class="riga" style="align-items:center"><strong>Si usa in:</strong> ${TIPOLOGIE.map(([k, n]) => `<label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="pt_ti" value="${k}" style="width:auto" ${(p && p.tipologie ? p.tipologie : [fam === 'corsi' ? 'skill' : 'gara']).includes(k) ? 'checked' : ''}> ${n}</label>`).join('')}</div>
     ${(p?.tipologie || []).includes('skill') || (p?.tipologie || []).includes('megacode') ? `<div class="riga"><div style="flex:1"><label>Errori gravi (uno per riga, si stampano nel riquadro della scheda)</label><textarea id="pt_eg" rows="3" style="width:100%">${esc((p?.errori_gravi || []).join('\n'))}</textarea></div></div>` : ''}
     <div id="pt_sk"></div>
-    <table class="voci" id="pt_t"><tr><th>Sezione</th><th>Voce</th><th>Scala</th><th>SEP</th><th></th></tr>${voci.map(riga).join('')}</table>
+    ${(p?.tipologie || []).includes('skill') && !(p?.tipologie || []).includes('gara') && voci.length && voci.length < 10 ? `<p class="nota" style="color:#a15c00">Questa skill ha solo ${voci.length} voci: sotto le 10 le fasce di punteggio non hanno molto senso. Meglio accorparla in un'altra skill o aggiungere voci.</p>` : ''}<table class="voci" id="pt_t"><tr><th>Sezione</th><th>Voce</th><th>Scala</th><th class="csep">SEP</th><th></th></tr>${voci.map(riga).join('')}</table>
     <p><button class="s" id="pt_add">+ Voce</button> <button class="b" id="pt_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
   const t = $('#pt_t');
   // skill incorporate (schede composte, es. la Valutazione di un Mega Code): ognuna si apre dopo la voce indicata, con punteggio proprio
