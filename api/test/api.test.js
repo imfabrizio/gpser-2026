@@ -1877,7 +1877,7 @@ test('VAL-1 nei corsi valutano gli istruttori: elenco valutatori, assegnazione e
   assert.ok(!json(await chiama('GET', '/api/giudici', { token: O })).some((x) => x.id === u.id), 'tra i giudici delle gare non compare');
   assert.ok(json(await chiama('GET', '/api/giudici?valutatori=1', { token: O })).some((x) => x.id === u.id), 'tra i valutatori dei corsi sì');
   assert.ok(json(await chiama('GET', '/api/giudici?valutatori=1', { token: O })).some((x) => x.email === 'org@t'), 'anche l\'organizzazione può valutare');
-  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'VAL-MC', nome: 'Mega Code prova', tipo: 'megacode' } }));
+  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'VAL-MC', nome: 'Corso prova', tipo: 'corso' } }));
   const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'MC1', titolo: 'Scena', ordine: 1 } }));
   const pat = json(await chiama('GET', '/api/libreria/patologie', { token: O })).find((p) => !p.bozza && !p.is_master);
   const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } }));
@@ -1912,10 +1912,28 @@ test('VAL-2 nei Mega Code non valutano i trainer MS', async () => {
   const ms = await mk('vms@t.it', 'Tito Emmesse', 'trainer_ms'), ts = await mk('vts@t.it', 'Tina Titiesse', 'trainer_tssa');
   const el = json(await chiama('GET', '/api/giudici?valutatori=megacode', { token: O }));
   assert.ok(el.some((x) => x.id === ts.id), 'ts presente ' + JSON.stringify(el.map((x) => x.email))); assert.ok(!el.some((x) => x.id === ms.id), 'ms assente');
-  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'VAL-MC2', nome: 'Mega Code due', tipo: 'megacode' } }));
+  assert.equal((await chiama('POST', '/api/eventi', { token: O, body: { codice: 'VAL-MC0', nome: 'Mega Code senza corso', tipo: 'megacode' } })).statusCode, 400, 'il Mega Code vuole un corso');
+  const corso = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'VAL-CO2', nome: 'Corso TSSA', tipo: 'corso' } }));
+  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'VAL-MC2', nome: 'Mega Code due', tipo: 'megacode', corso_id: corso.id } }));
   const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'M1', titolo: 'Scena', ordine: 1 } }));
   const pat = json(await chiama('GET', '/api/libreria/patologie', { token: O })).find((p) => !p.bozza && !p.is_master);
   const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } }));
   assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [ms.id] } })).statusCode, 400);
   assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [ts.id] } })).statusCode, 200);
+});
+
+test('DISC-1 equipaggio del Mega Code solo dai discenti del corso', async () => {
+  const O = tok['org@t'];
+  const corso = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'DISC-C', nome: 'Corso con discenti', tipo: 'corso' } }));
+  const mc = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'DISC-M', nome: 'Mega Code del corso', tipo: 'megacode', corso_id: corso.id } }));
+  const mk = async (cognome) => json(await chiama('POST', '/api/persone', { token: O, body: { cognome, nome: 'Prova', email: `${cognome.toLowerCase()}@disc.t` } }));
+  const d = await mk('Discentea'), x = await mk('Estranea');
+  assert.equal((await chiama('POST', `/api/eventi/${mc.id}/discenti`, { token: O, body: { partecipante_id: d.id } })).statusCode, 400, 'si aggiungono al corso, non al Mega Code');
+  assert.equal((await chiama('POST', `/api/eventi/${corso.id}/discenti`, { token: O, body: { partecipante_id: d.id } })).statusCode, 200);
+  assert.deepEqual(json(await chiama('GET', `/api/eventi/${mc.id}/discenti`, { token: O })).discenti.map((z) => z.partecipante_id), [d.id], 'il Mega Code vede i discenti del corso');
+  const sq = json(await chiama('POST', `/api/eventi/${mc.id}/squadre`, { token: O, body: { nome: 'Equipaggio 1' } }));
+  assert.equal((await chiama('PUT', `/api/squadre/${sq.id}/membri`, { token: O, body: { membri: [{ partecipante_id: x.id, ruolo: 'componente' }] } })).statusCode, 400);
+  assert.equal((await chiama('PUT', `/api/squadre/${sq.id}/membri`, { token: O, body: { membri: [{ partecipante_id: d.id, ruolo: 'capo squadra' }] } })).statusCode, 200);
+  await chiama('DELETE', `/api/eventi/${corso.id}/discenti/${d.id}`, { token: O });
+  assert.equal(json(await chiama('GET', `/api/squadre/${sq.id}/membri`, { token: O })).length, 0, 'tolto dal corso, esce dall\'equipaggio');
 });

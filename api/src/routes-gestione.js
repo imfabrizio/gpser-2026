@@ -13,8 +13,8 @@ import { datiCf, hashCf } from './anagrafica.js';
 
 // ruoli che possono valutare nei corsi e nei Mega Code
 const VALUTATORI_CORSI = ['monitore', 'capo_monitore', 'formatore_ms', 'formatore_tssa', 'trainer_ms', 'trainer_tssa', 'istruttore_du', 'admin', 'organizzazione'];
-// i Mega Code sono TSSA: non vi valutano i trainer e i formatori MS
-const VALUTATORI_MEGACODE = VALUTATORI_CORSI.filter((x) => !['trainer_ms', 'formatore_ms'].includes(x));
+// i Mega Code sono TSSA: vi valutano solo trainer e formatori TSSA (oltre all'organizzazione)
+const VALUTATORI_MEGACODE = ['trainer_tssa', 'formatore_tssa', 'admin', 'organizzazione'];
 // le qualifiche che hanno un ruolo con lo stesso codice (formazione, simulatore, truccatore) danno il ruolo all'accesso della persona, come ruolo aggiuntivo
 async function sincronizzaRuoliQualifiche(db, partecipanteId) {
   const { rows: [p] } = await db.query('select p.utente_id, u.ruolo from partecipante p join utente u on u.id = p.utente_id where p.id=$1', [partecipanteId]);
@@ -97,10 +97,10 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     return u;
   });
   app.get('/api/giudici', { preHandler: soloOrg }, async (req) => {
-    const val = req.query?.valutatori ? (req.query.valutatori === 'megacode' ? VALUTATORI_MEGACODE : VALUTATORI_CORSI).map((x) => `'${x}',`).join('') : '';   // nei corsi valutano gli istruttori/formatori
+    const q = req.query?.valutatori, lista = !q ? ['giudice', 'giudice_master'] : q === 'megacode' ? VALUTATORI_MEGACODE : [...VALUTATORI_CORSI, 'giudice', 'giudice_master'], elenco = lista.map((x) => `'${x}'`).join(',');   // nei corsi valutano gli istruttori/formatori
     return (await pool.query(`select * from (select id, nome, email, ruolo,
-        array_cat(array_prepend(ruolo, coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id=u.id), '{}')), (select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in (${val}'giudice','giudice_master'))) as ruoli
-        from utente u where attivo) q where ruoli && array[${val}'giudice','giudice_master'] order by nome`)).rows;
+        array_cat(array_prepend(ruolo, coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id=u.id), '{}')), (select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in (${elenco}))) as ruoli
+        from utente u where attivo) q where ruoli && array[${elenco}] order by nome`)).rows;
   });
 
   // ── assegnazioni giudici → schede ──
@@ -113,9 +113,10 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.put('/api/schede/:id/assegnazioni', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const ids = req.body?.utenti || [];
     if (!Array.isArray(ids)) throw httpErr(400, 'utenti: elenco di id');
-    const megacode = !!(await db.query(`select 1 from scena_scheda s join scena sc on sc.id=s.scena_id join evento e on e.id=sc.evento_id where s.id=$1 and e.tipo='megacode'`, [req.params.id])).rowCount;
-    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (ruolo = any($2::text[]) or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo = any($2::text[])) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in ('giudice','giudice_master'))) > 0)`, [ids, ['giudice', 'giudice_master', ...(megacode ? VALUTATORI_MEGACODE : VALUTATORI_CORSI)]]);
-    if (ok.length !== new Set(ids).size) throw httpErr(400, megacode ? 'nei Mega Code valutano solo istruttori e formatori TSSA (non MS), oltre all\'organizzazione' : 'solo utenti attivi con ruolo giudice, giudice master o di formazione');
+    const tipoEv = (await db.query(`select e.tipo from scena_scheda s join scena sc on sc.id=s.scena_id join evento e on e.id=sc.evento_id where s.id=$1`, [req.params.id])).rows[0]?.tipo, megacode = tipoEv === 'megacode';
+    const ammessi = megacode ? VALUTATORI_MEGACODE : ['corso', 'esame'].includes(tipoEv) ? ['giudice', 'giudice_master', ...VALUTATORI_CORSI] : ['giudice', 'giudice_master'];
+    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (ruolo = any($2::text[]) or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo = any($2::text[])) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo = any($2::text[]) and not $3)) > 0)`, [ids, ammessi, megacode]);
+    if (ok.length !== new Set(ids).size) throw httpErr(400, megacode ? 'nei Mega Code valutano solo trainer e formatori TSSA (oltre all\'organizzazione)' : 'solo utenti attivi con ruolo giudice, giudice master o di formazione');
     await db.query('delete from assegnazione where scheda_id=$1', [req.params.id]);
     for (const u of new Set(ids)) await db.query('insert into assegnazione values ($1,$2)', [req.params.id, u]);
     return { ok: true, assegnati: ids.length };
@@ -274,6 +275,33 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     }
     return { ok: true };
   }));
+  // ── discenti di un corso: con loro si compongono gli equipaggi dei Mega Code del corso ──
+  const corsoDi = async (req) => {
+    const e = await (async () => { const { rows: [x] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [req.params.id]); if (!x) throw httpErr(404, 'evento inesistente'); if (!(await puoGestireEvento(pool, req.utente, x))) throw httpErr(403, 'evento fuori dal tuo ambito'); return x; })();
+    return e.tipo === 'corso' ? e.id : (e.corso_id || null);
+  };
+  app.get('/api/eventi/:id/discenti', { preHandler: soloOrg }, async (req) => {
+    const corso = await corsoDi(req); if (!corso) return { corso_id: null, discenti: [] };
+    return { corso_id: corso, discenti: (await pool.query(
+      `select i.id as iscrizione_id, p.id as partecipante_id, p.cognome, p.nome, p.comitato, p.provincia,
+         (select coalesce(array_agg(q.qualifica order by q.qualifica), '{}') from persona_qualifica q where q.partecipante_id = p.id) as qualifiche
+       from iscrizione i join partecipante p on p.id = i.partecipante_id where i.evento_id=$1 and i.ruolo='discente' order by p.cognome, p.nome`, [corso])).rows };
+  });
+  app.post('/api/eventi/:id/discenti', { preHandler: soloOrg }, async (req) => {
+    const corso = await corsoDi(req); if (!corso || corso !== req.params.id) throw httpErr(400, 'i discenti si aggiungono al corso');
+    const ids = [].concat(req.body?.partecipanti ?? req.body?.partecipante_id ?? []);
+    if (!ids.length || ids.length > 100) throw httpErr(400, 'indica da 1 a 100 persone');
+    const { rows: ok } = await pool.query('select id from partecipante where id = any($1::uuid[])', [ids]);
+    if (ok.length !== new Set(ids).size) throw httpErr(400, 'persona inesistente');
+    for (const id of new Set(ids)) await pool.query(`insert into iscrizione (evento_id, partecipante_id, ruolo) values ($1,$2,'discente') on conflict (evento_id, partecipante_id) do update set ruolo = 'discente' where iscrizione.ruolo = 'discente'`, [corso, id]);
+    return { ok: true };
+  });
+  app.delete('/api/eventi/:id/discenti/:pid', { preHandler: soloOrg }, async (req) => {
+    const corso = await corsoDi(req); if (!corso || corso !== req.params.id) throw httpErr(400, 'i discenti si tolgono dal corso');
+    await pool.query(`delete from squadra_membro where partecipante_id=$2 and squadra_id in (select s.id from squadra s join evento e on e.id=s.evento_id where e.corso_id=$1)`, [corso, req.params.pid]);
+    await pool.query(`delete from iscrizione where evento_id=$1 and partecipante_id=$2 and ruolo='discente'`, [corso, req.params.pid]);
+    return { ok: true };
+  });
   app.get('/api/squadre/:id/membri', { preHandler: soloOrg }, async (req) => (await pool.query(
     `select m.partecipante_id, m.ruolo, p.cognome, p.nome, p.comitato, p.provincia, (select coalesce(array_agg(q.qualifica order by q.qualifica), '{}') from persona_qualifica q where q.partecipante_id = p.id) as qualifiche from squadra_membro m
        join partecipante p on p.id = m.partecipante_id where m.squadra_id=$1 order by p.cognome, p.nome`, [req.params.id])).rows);
@@ -282,8 +310,12 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     if (!Array.isArray(lista) || lista.length > 50) throw httpErr(400, 'membri: elenco (max 50)');
     const ids = lista.map((m) => m?.partecipante_id);
     if (new Set(ids).size !== ids.length) throw httpErr(400, 'persona ripetuta');
-    const { rowCount: sq } = await db.query('select 1 from squadra where id=$1', [req.params.id]);
+    const { rows: [sq] } = await db.query('select e.tipo, e.corso_id from squadra s join evento e on e.id=s.evento_id where s.id=$1', [req.params.id]);
     if (!sq) throw httpErr(404, 'squadra inesistente');
+    if (sq.tipo === 'megacode' && sq.corso_id) {                                    // l'equipaggio di un Mega Code si compone dai discenti del suo corso
+      const { rows: d } = await db.query(`select partecipante_id from iscrizione where evento_id=$1 and ruolo='discente' and partecipante_id = any($2::uuid[])`, [sq.corso_id, ids]);
+      if (d.length !== ids.length) throw httpErr(400, 'nell\'equipaggio di un Mega Code possono esserci solo i discenti del corso');
+    }
     const { rows: ok } = await db.query('select id from partecipante where id = any($1::uuid[])', [ids]);
     if (ok.length !== ids.length) throw httpErr(400, 'persona inesistente');
     await db.query('delete from squadra_membro where squadra_id=$1', [req.params.id]);
@@ -297,6 +329,10 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     if (b.tipo && !['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode', 'corso_giudici'].includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
     const { rows: [att] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [req.params.id]);
     if (!att) throw httpErr(404, 'evento inesistente');
+    { const tipoFin = b.tipo ?? att.tipo, corsoFin = 'corso_id' in b ? (b.corso_id || null) : att.corso_id;
+      if (tipoFin === 'megacode' && (b.tipo === 'megacode' || 'corso_id' in b)) {
+        const { rows: [c] } = await pool.query('select tipo, archiviato from evento where id=$1', [corsoFin]);
+        if (!c || c.tipo !== 'corso' || c.archiviato) throw httpErr(400, 'il Mega Code va assegnato a un corso attivo'); } }
     const prof = soloFormazione(req.utente) ? await profiloFormativo(pool, req.utente.id) : null;
     if (!(await puoGestireEvento(pool, req.utente, att, prof))) throw httpErr(403, 'evento fuori dal tuo ambito');
     if (prof && b.tipo && !TIPI_CORSO.includes(b.tipo)) throw httpErr(403, 'tipo di evento non consentito');

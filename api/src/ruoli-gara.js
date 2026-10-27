@@ -11,6 +11,7 @@ export const RUOLI_BADGE = {
   truccatore: { nome: 'Truccatore', colore: '#B45F06' },
   fotografo: { nome: 'Fotografo', colore: '#444444' },
   organizzazione: { nome: 'Organizzazione', colore: '#444444' },
+  discente: { nome: 'Discente', colore: '#6A1B9A' },
   altro: { nome: 'Altro', colore: '#444444' },
 };
-export const SENZA_SQUADRA_OK = ['giudice', 'giudice_master', 'simulatore', 'truccatore', 'organizzazione', 'altro'];
+export const SENZA_SQUADRA_OK = ['giudice', 'giudice_master', 'simulatore', 'truccatore', 'organizzazione', 'discente', 'altro'];
