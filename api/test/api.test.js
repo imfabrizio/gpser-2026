@@ -1950,3 +1950,19 @@ test('DEL-1 solo admin elimina un evento, un corso porta con sé i suoi Mega Cod
   assert.equal(json(r).eliminati, 2);
   assert.equal((await pool.query('select 1 from evento where id = any($1::uuid[])', [[corso.id, mc.id]])).rowCount, 0);
 });
+
+test('MCP-1 esito Mega Code con equipaggio e skill incorporate; anteprime con le skill', async () => {
+  const O = tok['org@t'];
+  const { rows: [mc] } = await pool.query(`select id from patologia where codice='mc-scenario-2-scoop'`);
+  assert.ok(mc, 'scheda del Mega Code importata');
+  const { rows: sk } = await pool.query(`select count(*)::int n from patologia_skill where patologia_id=$1`, [mc.id]); assert.equal(sk[0].n, 2);
+  const an = await chiama('GET', `/api/libreria/patologie/${mc.id}/anteprima.pdf`, { token: O }); assert.equal(an.statusCode, 200, 'anteprima libreria: ' + an.body);
+  const corso = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'MCP-C', nome: 'Corso esito', tipo: 'corso' } }));
+  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'MCP-M', nome: 'Mega Code esito', tipo: 'megacode', corso_id: corso.id } }));
+  const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'S1', titolo: 'Scena', ordine: 1 } }));
+  const kr = await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: mc.id, slot: 1, simulatore: '01' } }); assert.equal(kr.statusCode, 200, 'crea scheda: ' + kr.body); const k = json(kr);
+  const sq = json(await chiama('POST', `/api/eventi/${e.id}/squadre`, { token: O, body: { nome: 'Equipaggio A' } }));
+  { const a2 = await chiama('GET', `/api/schede/${k.id}/anteprima.pdf`, { token: O }); assert.equal(a2.statusCode, 200, 'anteprima scena: ' + a2.body); }
+  const r = await chiama('GET', `/api/schede/${k.id}/esito.pdf?squadra=${sq.id}`, { token: O });
+  assert.equal(r.statusCode, 200, r.body);
+});

@@ -1,5 +1,6 @@
 import { creaDocumento, disegnaScheda } from '../pdf/scheda.js';
 import { disegnaSkill } from '../pdf/skill.js';
+import { disegnaMegacode } from '../pdf/megacode.js';
 import { httpErr } from './compilazioni.js';
 
 /**
@@ -36,7 +37,12 @@ export async function generaPdfSchede(db, { eventoId, scenaCodice, squadraNumeri
             rows.forEach((r) => risposte.set(r.voce_id, r.livello));
           }
         }
-        disegnaScheda(doc, { evento, squadra: sq, scena: sc, scheda, voci, compilazione, risposte, vuota: vuote });
+        if (evento.tipo === 'megacode') {                                  // layout proprio: equipaggio con i ruoli e checklist su più pagine
+          const { rows: equipaggio } = await db.query(`select p.cognome || ' ' || p.nome as nome, p.comitato, m.ruolo from squadra_membro m join partecipante p on p.id = m.partecipante_id where m.squadra_id=$1
+            order by case lower(coalesce(m.ruolo,'')) when 'team leader' then 0 when 'capo squadra' then 0 when 'autista' then 1 else 2 end, p.cognome, p.nome`, [sq.id]);
+          const { rows: [pm] } = await db.query('select fasce, errori_gravi from patologia where id=$1', [scheda.patologia_id]);
+          disegnaMegacode(doc, { titolo: scheda.titolo, evento, scena: sc, squadra: sq, equipaggio: vuote ? [] : equipaggio, voci, fasce: scheda.fasce ?? pm?.fasce, erroriGravi: pm?.errori_gravi ?? [], valutatore: vuote ? '' : (compilazione?.giudice || ''), risposte: vuote ? new Map() : risposte });
+        } else disegnaScheda(doc, { evento, squadra: sq, scena: sc, scheda, voci, compilazione, risposte, vuota: vuote });
         pagine++;
         for (const bid of new Set(tutte.filter((v) => v.blocco_id).map((v) => v.blocco_id))) {
           const bv = tutte.filter((v) => v.blocco_id === bid), { rows: [pt] } = await db.query('select sigla, fasce, errori_gravi from patologia where id=$1', [bid]);

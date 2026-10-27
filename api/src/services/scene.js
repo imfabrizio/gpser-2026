@@ -48,10 +48,10 @@ export async function aggiungiSchedaDaPatologia(db, {
        where scheda_id = $1 and ordine = $2`,
       [scheda.id, o.ordine, o.mb ?? null, o.be ?? null, o.su ?? null, o.in ?? null, o.ne ?? null, o.is_sep ?? null]);
   }
-  // skill incorporate: i loro punteggi restano separati (blocco_id) e le voci si inseriscono dopo la voce indicata (ordine = dopo × 1000 + n)
+  // skill incorporate: i loro punteggi restano separati (blocco_id) e le voci si inseriscono dopo la voce indicata (ordine = dopo × 1000 + posizione della skill × 100 + n: più skill possono stare dopo la stessa voce)
   await db.query(
     `insert into scena_scheda_voce (scheda_id, ordine, sezione, voce_id, testo, scala, mb, be, su, "in", ne, is_sep, blocco_id, blocco_nome)
-     select $1, ps.dopo_ordine * 1000 + pv.ordine, sk.nome, v.id, v.testo, sp.codice, sp.mb, sp.be, sp.su, sp."in", sp.ne, false, sk.id, sk.nome
+     select $1, ps.dopo_ordine * 1000 + dense_rank() over (partition by ps.dopo_ordine order by sk.nome) * 100 + pv.ordine, sk.nome, v.id, v.testo, sp.codice, sp.mb, sp.be, sp.su, sp."in", sp.ne, false, sk.id, sk.nome
        from patologia_skill ps join patologia sk on sk.id = ps.skill_id
        join patologia_voce pv on pv.patologia_id = sk.id join voce v on v.id = pv.voce_id join scala_punteggio sp on sp.id = pv.scala_id
       where ps.patologia_id = $2`, [scheda.id, pat.id]);

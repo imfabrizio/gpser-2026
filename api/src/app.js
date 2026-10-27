@@ -35,8 +35,9 @@ import { registraComitati } from './routes-comitati.js';
 import { canonico } from './comitati.js';
 import { generaClassificaPdf } from './pdf/classifica.js';
 import { generaEsitoPdf } from './pdf/esito.js';
-import { fasceAuto } from './esito.js';
+import { fasceAuto, valutaEsito } from './esito.js';
 import { disegnaSkill } from './pdf/skill.js';
+import { disegnaMegacode } from './pdf/megacode.js';
 // una scheda è una "skill" (layout cartaceo 0-1-2) se la sua tipologia è solo skill/megacode o se è una scheda d'esame TSSA
 const èSkill = (p) => p?.categoria === 'Esame TSSA' || (Array.isArray(p?.tipologie) && p.tipologie.includes('skill') && !p.tipologie.includes('gara') && !p.tipologie.includes('olimpiadi'));
 import { registraAi } from './routes-ai.js';
@@ -554,7 +555,23 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
               coalesce(greatest(v.mb, v.be, v.su, v."in", v.ne), 0) as max, (v.be is null and v."in" is null) as tre
          from scena_scheda_voce v left join risposta r on r.voce_id = v.id and r.compilazione_id = $2 where v.scheda_id=$1 and v.blocco_id is null order by v.ordine`, [s.id, c?.id ?? null]);
     const punti = voci.reduce((a, v) => a + (v.livello ? Number(v.punti) : 0), 0), massimo = voci.reduce((a, v) => a + Number(v.max), 0);
-    const pdf = await generaEsitoPdf({ evento: e, scheda: s.titolo, candidato: q, giudice: c?.giudice, voci, punti, massimo, soglia: e.soglia_pct ? Number(e.soglia_pct) : null, fasce: s.fasce ?? (SKILL_AUTO.includes(e.tipo) && voci.length ? fasceAuto(voci.length) : null) });
+    const { rows: equipaggio } = await pool.query(`select p.cognome || ' ' || p.nome as nome, p.comitato, m.ruolo from squadra_membro m join partecipante p on p.id = m.partecipante_id where m.squadra_id=$1
+      order by case lower(coalesce(m.ruolo,'')) when 'team leader' then 0 when 'capo squadra' then 0 when 'autista' then 1 else 2 end, p.cognome, p.nome`, [sq]);
+    const { rows: vb } = await pool.query(
+      `select v.blocco_id, v.blocco_nome, v.testo, r.livello,
+              case r.livello when 'MB' then v.mb when 'BE' then v.be when 'SU' then v.su when 'IN' then v."in" when 'NE' then v.ne end as punti,
+              coalesce(greatest(v.mb, v.be, v.su, v."in", v.ne), 0) as max, (select errori_gravi from patologia where id = v.blocco_id) as errori
+         from scena_scheda_voce v left join risposta r on r.voce_id = v.id and r.compilazione_id = $2 where v.scheda_id=$1 and v.blocco_id is not null order by v.ordine`, [s.id, c?.id ?? null]);
+    const blocchi = [];
+    for (const v of vb) {
+      let b = blocchi.find((x) => x.id === v.blocco_id); if (!b) blocchi.push(b = { id: v.blocco_id, nome: v.blocco_nome, voci: [], erroriGravi: v.errori || [] });
+      b.voci.push(v);
+    }
+    for (const b of blocchi) {
+      b.punti = b.voci.reduce((a, v) => a + (v.livello ? Number(v.punti) : 0), 0); b.massimo = b.voci.reduce((a, v) => a + Number(v.max), 0);
+      b.giudizio = valutaEsito({ punti: b.punti, massimo: b.massimo, fasce: fasceAuto(b.voci.length), soglia: null }).giudizio;
+    }
+    const pdf = await generaEsitoPdf({ evento: e, scheda: s.titolo, candidato: q, equipaggio, blocchi, giudice: c?.giudice, voci, punti, massimo, soglia: e.soglia_pct ? Number(e.soglia_pct) : null, fasce: s.fasce ?? (SKILL_AUTO.includes(e.tipo) && voci.length ? fasceAuto(voci.length) : null) });
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="esito.pdf"').send(pdf);
   });
   // override per scena: solo i campi presenti nel corpo vengono cambiati (null = livello non consentito)
@@ -588,7 +605,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
 
   const schedaValutata = async (db, id) => (await db.query('select 1 from compilazione where scheda_id=$1 limit 1', [id])).rowCount > 0;
   app.get('/api/schede/:id/anteprima.pdf', { preHandler: soloOrg }, async (req, reply) => {
-    const { rows: [k] } = await pool.query(`select s.titolo, s.simulatore, s.is_master, s.gravita, s.parametri, sc.codice, sc.titolo as scena_titolo, e.nome as ev_nome, e.titolo_stampa, e.luogo
+    const { rows: [k] } = await pool.query(`select s.titolo, s.simulatore, s.is_master, s.gravita, s.parametri, s.fasce, s.patologia_id, sc.codice, sc.titolo as scena_titolo, e.nome as ev_nome, e.tipo as ev_tipo, e.titolo_stampa, e.luogo
       from scena_scheda s join scena sc on sc.id=s.scena_id join evento e on e.id=sc.evento_id where s.id=$1`, [req.params.id]);
     if (!k) throw httpErr(404, 'scheda inesistente');
     const { rows: voci } = await pool.query(`select ordine as id, sezione, testo, is_sep, mb, be, su, "in", ne from scena_scheda_voce where scheda_id=$1 and blocco_id is null order by ordine`, [req.params.id]);
@@ -596,8 +613,17 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const { rows: [pk] } = await pool.query('select p.tipologie, p.categoria, p.fasce, p.errori_gravi, p.sigla from scena_scheda s join patologia p on p.id=s.patologia_id where s.id=$1', [req.params.id]);
     if (pk && èSkill(pk)) { disegnaSkill(doc, { titolo: k.titolo, modello: `SKILL ${pk.sigla}`, voci, fasce: pk.fasce, erroriGravi: pk.errori_gravi }); doc.end(); await fine;
       return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="anteprima.pdf"').send(Buffer.concat(chunks)); }
+    if (k.ev_tipo === 'megacode') {
+      const { rows: [pm] } = await pool.query('select fasce, errori_gravi from patologia where id=$1', [k.patologia_id]);
+      disegnaMegacode(doc, { titolo: k.titolo, evento: { nome: k.ev_nome, luogo: k.luogo || '' }, scena: { codice: k.codice, titolo: k.scena_titolo }, voci, fasce: k.fasce ?? pm?.fasce, erroriGravi: pm?.errori_gravi ?? [] });
+    } else
     disegnaScheda(doc, { evento: { nome: k.ev_nome, titolo_stampa: k.titolo_stampa || k.ev_nome, luogo: k.luogo || '', data_txt: null }, squadra: { numero: 0, nome: 'Anteprima' },
       scena: { codice: k.codice, titolo: k.scena_titolo }, scheda: { simulatore: k.simulatore, titolo: k.titolo, is_master: k.is_master, gravita: k.gravita, parametri: k.parametri || {} }, voci, compilazione: null, risposte: new Map(), vuota: true });
+    const { rows: vb } = await pool.query(`select blocco_id, blocco_nome, sezione, testo from scena_scheda_voce where scheda_id=$1 and blocco_id is not null order by ordine`, [req.params.id]);
+    for (const bid of new Set(vb.map((v) => v.blocco_id))) {                          // le skill incorporate escono su fogli propri, dopo la scheda
+      const bv = vb.filter((v) => v.blocco_id === bid), { rows: [pt] } = await pool.query('select sigla, fasce, errori_gravi from patologia where id=$1', [bid]);
+      disegnaSkill(doc, { titolo: bv[0].blocco_nome, modello: `SKILL ${pt?.sigla ?? ''}`.trim(), voci: bv.map((v) => ({ sezione: v.sezione, testo: v.testo })), fasce: pt?.fasce, erroriGravi: pt?.errori_gravi ?? [] });
+    }
     doc.end(); await fine;
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="anteprima.pdf"').send(Buffer.concat(chunks));
   });
@@ -702,8 +728,15 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const doc = creaDocumento(); const chunks = []; doc.on('data', (c) => chunks.push(c)); const fine = new Promise((r) => doc.on('end', r));
     if (èSkill(pt)) { disegnaSkill(doc, { titolo: pt.nome, modello: `SKILL ${pt.sigla}`, voci, fasce: pt.fasce, erroriGravi: pt.errori_gravi }); doc.end(); await fine;
       return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="anteprima.pdf"').send(Buffer.concat(chunks)); }
+    if ((pt.tipologie || []).includes('megacode') && !(pt.tipologie || []).some((t) => ['gara', 'olimpiadi'].includes(t))) disegnaMegacode(doc, { titolo: pt.nome, evento: { nome: 'Anteprima scheda' }, voci, fasce: pt.fasce, erroriGravi: pt.errori_gravi });
+    else
     disegnaScheda(doc, { evento: { nome: 'Anteprima scheda', titolo_stampa: 'Anteprima scheda', luogo: '', data_txt: null }, squadra: { numero: 0, nome: 'Test' },
       scena: { codice: 'T', titolo: 'Nome Scena' }, scheda: { simulatore: 'M', titolo: pt.nome, is_master: pt.is_master, gravita: pt.gravita, parametri: { coscienza: 'Vigile', fr: 16, fc: 80, cute: 'Normale' } }, voci, compilazione: null, risposte: new Map(), vuota: true });
+    const { rows: incl } = await pool.query(`select sk.id, sk.nome, sk.sigla, sk.fasce, sk.errori_gravi from patologia_skill ps join patologia sk on sk.id = ps.skill_id where ps.patologia_id=$1 order by ps.dopo_ordine, sk.nome`, [req.params.id]);
+    for (const sk of incl) {                                                          // skill incorporate: su fogli propri, dopo la scheda
+      const { rows: bv } = await pool.query(`select pv.sezione, v.testo from patologia_voce pv join voce v on v.id=pv.voce_id where pv.patologia_id=$1 order by pv.ordine`, [sk.id]);
+      disegnaSkill(doc, { titolo: sk.nome, modello: `SKILL ${sk.sigla ?? ''}`.trim(), voci: bv, fasce: sk.fasce, erroriGravi: sk.errori_gravi ?? [] });
+    }
     doc.end(); await fine;
     return reply.type('application/pdf').header('Content-Disposition', 'inline; filename="anteprima.pdf"').send(Buffer.concat(chunks));
   });
