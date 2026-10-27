@@ -168,7 +168,7 @@ const DESC = { corsi: 'Corsi, Mega Code ed esami', evento: 'Date, luogo, tipo ed
   richieste: 'Chi ha chiesto l\'accesso: approva e assegna il ruolo', ruoli: 'Crea ruoli e scegli a quali aree possono accedere', utenti: 'Accessi, ruoli e gara assegnata' };
 // tre mondi separati: si sceglie all'ingresso e dentro si vede solo ciò che li riguarda (il motore è lo stesso)
 const GRUPPI = [['gara', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede, squadre e classifiche', 'evento', ['evento', 'scene', 'risorse', 'squadre', 'segreteria', 'libreria', 'punteggi', 'classifiche', 'monitor', 'stampa', 'importa', 'news', 'documenti']],
-  ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['corsi', 'evento', 'scene', 'risorse', 'squadre', 'news']],
+  ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['corsi', 'evento', 'scene', 'libreria', 'risorse', 'squadre', 'news']],
   ['comune', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli', 'persone', ['persone', 'comitati', 'richieste', 'ruoli', 'utenti']]];
 const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli'];
 const admin = () => me.ruolo === 'admin';
@@ -841,7 +841,7 @@ function gruppiPatologie(pat) {
 const opzioniPatologie = (pat) => gruppiPatologie(pat).map(([c, l]) => `<optgroup label="${esc(c)}">${l.filter((p) => !p._sec).map((p) => `<option value="${p.id}">${esc(p.nome)}${p.categoria2 ? ' + ' + esc(p.categoria2) : ''} (${p.voci} voci${p.revisioni > 1 ? ' · rev. ' + p.revisione + ' di ' + p.revisioni : ''})</option>`).join('')}</optgroup>`).join('');
 const TIPOLOGIE = [['gara', 'Gara'], ['olimpiadi', 'Olimpiadi'], ['megacode', 'Mega Code'], ['skill', 'Skill']];
 // quali schede si propongono in un evento: per tipo di evento
-const TIPOLOGIE_EVENTO = { gara: ['gara'], olimpiadi: ['olimpiadi'], allenamento: ['gara', 'olimpiadi'], corso_giudici: ['gara', 'olimpiadi'], megacode: ['megacode'], corso: ['skill'], esame: ['skill'] };
+const TIPOLOGIE_EVENTO = { gara: ['gara'], olimpiadi: ['olimpiadi'], allenamento: ['gara', 'olimpiadi'], corso_giudici: ['gara', 'olimpiadi'], megacode: ['megacode', 'skill'], corso: ['skill'], esame: ['skill'] };
 const tipologieDi = (p) => (p && p.tipologie && p.tipologie.length ? p.tipologie : TIPOLOGIE.map((t) => t[0]));
 const dataIt = (d) => (d ? d.split('-').reverse().join('/') : '');
 const descGara = (u) => [u.codice || u.evento, u.luogo, dataIt(u.data)].filter(Boolean).join(' - ');
@@ -866,16 +866,18 @@ async function tPunteggi() {
 async function tLibreria() {
   const direzione = admin() || (me.aree || []).includes('schede');
   const conComitati = direzione && localStorage.getItem('libComitati') === '1';
-  const [pat, scale, macro] = await Promise.all([api('/libreria/patologie' + (conComitati ? '?comitati=1' : '')), api('/libreria/scale'), api('/libreria/macro')]);
+  let [pat, scale, macro] = await Promise.all([api('/libreria/patologie' + (conComitati ? '?comitati=1' : '')), api('/libreria/scale'), api('/libreria/macro')]);
   cache.scale = scale; cache.pat = pat; cache.macro = macro;
+  const tipFam = fam === 'corsi' ? ['megacode', 'skill'] : ['gara', 'olimpiadi'], tipVis = TIPOLOGIE.filter((t) => tipFam.includes(t[0]));
+  pat = pat.filter((p) => tipologieDi(p).some((t) => tipFam.includes(t)));
   const modificabile = (p) => (p.comitato ? (!direzione || admin()) : direzione);
-  $('#app').innerHTML = `<div class="card"><h3>Schede in libreria (${pat.length})</h3>
+  $('#app').innerHTML = `<div class="card"><h3>${fam === 'corsi' ? 'Schede di Formazione: Mega Code e skill' : 'Schede in libreria'} (${pat.length})</h3>
     ${direzione ? '' : `<p class="nota">Le schede che crei qui sono visibili solo al tuo comitato. Le schede generali puoi guardarle e copiarle, ma non modificarle.</p>`}
     <p><button class="b" id="np">Nuova scheda</button> ${direzione ? '<button class="s" id="vp">Punteggi MB/BE/SU/IN/NE</button> ' : ''}<button class="s" id="nm">Nuova da modello…</button> <button class="s" id="ai">Genera con l'AI</button>
       ${direzione ? `<label style="display:inline-flex;gap:6px;align-items:center;font-size:15px;color:inherit;margin-left:10px"><input type="checkbox" id="vcom" ${conComitati ? 'checked' : ''}> Vedi anche schede dei comitati</label>` : ''}</p>
     <div class="riga"><div style="flex:3"><input id="pf" placeholder="Cerca per nome, sigla, autore, gara (es. Ictus, frattura, Olimpiadi)"></div>
       <div><select id="pf_t"><option value="">Tutti i tipi</option>${(cache.macro || []).map((m) => `<option value="${m.codice}">${esc(m.nome)}</option>`).join('')}</select></div>
-      <div><select id="pf_ti"><option value="">Tutte le tipologie</option>${TIPOLOGIE.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div>
+      <div><select id="pf_ti"><option value="">Tutte le tipologie</option>${tipVis.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div>
       <div><select id="pf_o"><option value="">Qualsiasi origine</option><option value="generale">Libreria generale</option><option value="regione">Catalogo regionale</option><option value="comitato">Del mio comitato</option></select></div></div>
     ${gruppiPatologie(pat).map(([cat, l]) => `<details class="grp"><summary><strong>${esc(cat)}</strong> <span class="tag">${l.length}</span></summary><table class="lib"><colgroup><col><col style="width:70px"><col style="width:430px"></colgroup>${l.map((p) => `<tr class="pr" data-m="${esc(p.macro || '')}" data-m2="${esc(p.macro2 || '')}" data-o="${p.comitato ? 'comitato' : p.regione ? 'regione' : 'generale'}" data-ti="${tipologieDi(p).join(' ')}" data-n="${esc((p.nome + ' ' + (p.categoria2 || '') + ' ' + p.sigla + ' ' + (p.autore || '') + ' ' + usiTesto(p)).toLowerCase())}"><td>${puntoGrav(p.gravita)}<strong>${esc(p.nome)}</strong>${p._sec ? ' <span class="tag">secondaria</span>' : ''} <span class="tag">${esc(p.sigla)}</span>${tipologieDi(p).length < 4 ? tipologieDi(p).map((t) => `<span class="tag ok">${esc(TIPOLOGIE.find((x) => x[0] === t)?.[1] || t)}</span>`).join('') : ''}
       ${p.revisioni > 1 ? `<span class="tag ok" title="Questa scheda ha ${p.revisioni} revisioni: vedi la più recente (rev. ${p.revisione})">rev. ${p.revisione} · ${p.revisioni} revisioni</span>` : ''}
@@ -1019,7 +1021,7 @@ function editorPatologia(p, voci, nuova = false) {
     <div class="riga"><div><label>Patologia (gruppo)</label><input id="pt_c" list="dl_cat" value="${esc(p ? categoriaDi(p) : '')}" placeholder="es. Ictus"><datalist id="dl_cat">${[...new Set((cache.pat || []).map(categoriaDi))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
     <div><label>Seconda patologia (facoltativa)</label><input id="pt_c2" list="dl_cat" value="${esc(p?.categoria2 || '')}" placeholder="es. Frattura polso"></div>
     <div class="stretto"><label>BLSD</label><input type="checkbox" id="pt_b" ${p?.is_bls ? 'checked' : ''}></div><div class="stretto"><label>DIU</label><input type="checkbox" id="pt_d" ${p?.is_diu ? 'checked' : ''}></div><div class="stretto"><label>Master</label><input type="checkbox" id="pt_m" ${p?.is_master ? 'checked' : ''}></div></div>
-    <div class="riga" style="align-items:center"><strong>Si usa in:</strong> ${TIPOLOGIE.map(([k, n]) => `<label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="pt_ti" value="${k}" style="width:auto" ${(p && p.tipologie ? p.tipologie : ['gara']).includes(k) ? 'checked' : ''}> ${n}</label>`).join('')}</div>
+    <div class="riga" style="align-items:center"><strong>Si usa in:</strong> ${TIPOLOGIE.map(([k, n]) => `<label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" class="pt_ti" value="${k}" style="width:auto" ${(p && p.tipologie ? p.tipologie : [fam === 'corsi' ? 'skill' : 'gara']).includes(k) ? 'checked' : ''}> ${n}</label>`).join('')}</div>
     ${(p?.tipologie || []).includes('skill') || (p?.tipologie || []).includes('megacode') ? `<div class="riga"><div style="flex:1"><label>Errori gravi (uno per riga, si stampano nel riquadro della scheda)</label><textarea id="pt_eg" rows="3" style="width:100%">${esc((p?.errori_gravi || []).join('\n'))}</textarea></div></div>` : ''}
     <div id="pt_sk"></div>
     <table class="voci" id="pt_t"><tr><th>Sezione</th><th>Voce</th><th>Scala</th><th>SEP</th><th></th></tr>${voci.map(riga).join('')}</table>
@@ -1453,7 +1455,7 @@ async function render() {
   if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata all\'organizzazione. <a href="/">Torna alle valutazioni</a></div></main>'; return; }
   try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch (e) { /* offline: resta il profilo salvato */ }
   if (!['admin', 'organizzazione'].includes(me.ruolo)) { document.body.innerHTML = '<main><div class="card">Area riservata. <a href="/">Torna alla Home</a></div></main>'; return; }
-  $('#chi').textContent = me.nome; const h0 = location.hash.slice(1).replace(/^hub:(\w+)$/, (_, m) => { window.__mondo0 = m; return 'hub'; }); tab = TABS.some(([k]) => k === h0) && consentito(h0) ? h0 : 'menu';
+  $('#chi').textContent = me.nome; const h0 = location.hash.slice(1).replace(/^hub:(\w+)$/, (_, m) => { window.__mondo0 = m; return 'hub'; }).replace(/^(\w+)\.(\w+)$/, (_, m, t) => { window.__mondo0 = m; return t; }); tab = TABS.some(([k]) => k === h0) && consentito(h0) ? h0 : 'menu';
   await caricaEventi(); if (window.__mondo0 && GRUPPI.some((g) => g[0] === window.__mondo0)) impostaMondo(window.__mondo0); else if (tab !== 'menu' && tab !== 'hub') { const m = GRUPPI.find((g) => g[4].includes(tab)); if (m) impostaMondo(m[0]); }
   disegnaTabs(); render();
 })();

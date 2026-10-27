@@ -350,7 +350,7 @@ async function vistaHome() {
   const tileF = (href, ico, titolo, desc) => `<a class="tile" href="${href}"><i class="ico">${ICONE[ico]}</i><b>${titolo}</b><span>${desc}</span></a>`;
   const formazione = `<div class="sezione-home"><h3>Formazione</h3><div class="tiles">
       ${aree.includes('esami') ? tileF('/esami.html', 'esami', 'Esami', 'Sessioni d\'esame e valutazioni') : ''}
-      ${aree.includes('formazione_esame') ? tileF('/admin.html#libreria', 'libreria', 'Schede d\'esame', 'Libreria delle schede e schede del comitato') : ''}
+      ${aree.includes('formazione_esame') ? tileF('/admin.html#corsi.libreria', 'libreria', 'Schede d\'esame', 'Skill e schede dei Mega Code') : ''}
       ${tileF('#documenti', 'documenti', 'Documentazione', 'Regolamento, comunicazioni, manuali')}</div></div>`;
   // due mondi: chi ha accesso a entrambi sceglie all'ingresso; ciascuno vede solo le proprie cose
   const haForm = org() && (me.admin || aree.some((a) => ['esami', 'formazione_esame'].includes(a))), haGara = !soloFormazione;

@@ -2935,7 +2935,7 @@ create table if not exists sessione_esame_invito (
   primary key (sessione_id, utente_id)
 );
 create index if not exists sessione_esame_invito_utente_idx on sessione_esame_invito (utente_id);
-insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql') on conflict do nothing;
+insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql') on conflict do nothing;
 
 -- 046-skill-fasce-scoop
 -- Skill: fasce di giudizio automatiche (75/80/85/95%, calcolate sul numero di voci) e Barella Scoop in due schede (trasporto, semi-verticalizzazione).
@@ -3074,3 +3074,7 @@ group by sc.evento_id;
 -- Canovacci: oltre a Gara e Olimpiadi, la descrizione di uno scenario di Mega Code
 alter table canovaccio drop constraint if exists canovaccio_versione_check;
 alter table canovaccio add constraint canovaccio_versione_check check (versione in ('gara','olimpiadi','megacode'));
+
+-- 050-skill-solo-formazione
+-- Le skill (schede d'esame TSSA e Scoop) si usano solo nei Mega Code e negli esami: fuori da gare, olimpiadi e allenamenti
+update patologia set tipologie = '{skill}' where categoria = 'Esame TSSA' or codice like 'skill-scoop-%';
