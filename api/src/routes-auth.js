@@ -38,6 +38,10 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
 
   app.get('/api/auth/:prov/inizio', async (req, reply) => {
     const c = configurato(req.params.prov); if (!c) throw httpErr(404, 'accesso non configurato');
+    // il cookie di sessione SSO deve nascere sullo stesso indirizzo a cui il provider ritorna (PUBLIC_URL): se si parte da un altro (es. *.onrender.com), si riparte da quello giusto
+    const pub = process.env.PUBLIC_URL && process.env.PUBLIC_URL.replace(/\/$/, '');
+    const qui = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`;
+    if (pub && /^https?:\/\//.test(pub) && qui !== pub) return reply.redirect(`${pub}/api/auth/${req.params.prov}/inizio`);
     const state = b64u(crypto.randomBytes(16)), nonce = b64u(crypto.randomBytes(16)), verifier = b64u(crypto.randomBytes(32));
     const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
     const q = new URLSearchParams({ client_id: c.id, redirect_uri: `${baseUrl(req)}/api/auth/${req.params.prov}/callback`, response_type: 'code', scope: 'openid email profile',

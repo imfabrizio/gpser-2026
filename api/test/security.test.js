@@ -108,7 +108,9 @@ test('SSO_RICHIEDE_MFA restituisce una sfida, non una sessione', async () => {
   let nonce;
   const app = buildApp({ query: async () => ({ rows: [user] }) }, { fetchImpl: async () => ({ ok: true, json: async () => ({ id_token: `test.${Buffer.from(JSON.stringify({ iss: 'https://accounts.google.com', aud: 'test-client', exp: Date.now() / 1000 + 60, nonce, sub: 'test-sub', email: user.email, email_verified: true })).toString('base64url')}.test` }) }) });
   try {
-    const start = await app.inject({ url: '/api/auth/google/inizio' });
+    const altro = await app.inject({ url: '/api/auth/google/inizio' });   // da un indirizzo diverso da PUBLIC_URL: si riparte da quello giusto, senza cookie
+    assert.equal(altro.headers.location, 'https://example.invalid/api/auth/google/inizio'); assert.equal(altro.headers['set-cookie'], undefined);
+    const start = await app.inject({ url: '/api/auth/google/inizio', headers: { host: 'example.invalid', 'x-forwarded-proto': 'https' } });
     const q = new URL(start.headers.location).searchParams; nonce = q.get('nonce');
     const cb = await app.inject({ url: `/api/auth/google/callback?code=test&state=${q.get('state')}`, headers: { cookie: start.headers['set-cookie'].split(';')[0] } });
     const ticket = cb.headers.location.split('#sso=')[1];
