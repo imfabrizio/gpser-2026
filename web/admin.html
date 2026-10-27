@@ -44,6 +44,10 @@ body.corsi .csep{display:none}
   table.punteggi input[type=checkbox] { display:block; margin:0 auto; }
   .griglia { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; }
   .scena { border-left:6px solid var(--rosso); padding:0; overflow:hidden } .scena.sosta { border-left-color:#7a8cab }
+  .pers-l { margin-top:10px; border:1px solid #e3e5ea; border-radius:12px; overflow:hidden } .pers { border-top:1px solid #eceef2 } .pers:first-child { border-top:0 } .pers.ap { background:#f8f9fb }
+  .pers-r { display:grid; grid-template-columns:36px minmax(160px,1.4fr) 1fr minmax(120px,1fr); align-items:center; gap:10px; padding:8px 12px } .pers-r .pt { width:30px; height:30px; padding:0; border:0; background:none; font-size:14px; cursor:pointer } .pers-r .pn { font-size:16px } .pers-r .pc { color:#555 } .muto { color:#888 }
+  .pers-d { padding:2px 16px 14px 58px } .pers-g { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px 18px; margin-bottom:8px } .pers-q { margin:6px 0 } .pers-d .sez-a { margin-top:8px }
+  @media (max-width:700px) { .pers-r { grid-template-columns:30px 1fr } .pers-r .pc, .pers-r .pa { grid-column:2 } .pers-d { padding-left:16px } }
   .sez-c { padding:10px 14px; border-top:1px solid #e3e5ea } .sez-t { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px } .sez-r { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 0; border-top:1px solid #f0f1f4 } .sez-a { display:flex; gap:8px; justify-content:flex-end; align-items:center }
   details.aggiungi { margin:0 14px 10px; border:1px solid #d9dce3; border-radius:10px; padding:8px 12px } details.aggiungi summary { cursor:pointer; font-weight:700 } .lista-t { max-height:260px; overflow:auto; margin:8px 0; border:1px solid #eee; border-radius:8px; padding:6px 10px } .gr-t { margin-bottom:8px } .ck-t { display:block; font-size:15px; color:inherit; padding:3px 0; margin:0 } .ck-t input { width:auto; margin-right:6px }
   .scena .sc-testa { display:flex; align-items:center; gap:10px; padding:12px 14px; background:#f6f7f9; flex-wrap:wrap } .scena .sc-testa h3 { margin:0; flex:1 1 280px } .scena .sc-t { border:0; background:#fff; border:1px solid var(--bordo); border-radius:8px; width:36px; height:36px; font-size:18px; cursor:pointer } .scena .sc-sint { color:#555 }
@@ -698,21 +702,28 @@ async function tComitati() {
       fai(() => api('/comitati/' + c.id, { method: 'PATCH', body }), 'Comitato salvato'); }; }; });
 }
 
+const pAperte = new Set();
 async function tPersone() {
   const q = (cache.qPersone || '').trim();
   const [lista, ruoliR, quals] = await Promise.all([api('/persone' + (q ? '?q=' + encodeURIComponent(q) : '')), admin() ? api('/ruoli') : Promise.resolve({ ruoli: [] }), api('/qualifiche')]);
   const ruoli = ruoliR.ruoli; QUALIFICHE = Object.fromEntries(quals.map((q) => [q.codice, q.nome]));
   $('#app').innerHTML = `<div class="card"><h3>Anagrafica persone (${lista.length}${lista.length === 500 ? '+' : ''})</h3>
     <div class="riga"><input id="pq" placeholder="Cerca per cognome, nome, comitato, codice fiscale" value="${esc(q)}"><div class="stretto"><button class="s" id="pqc">Cerca</button> <button class="b" id="pn">Nuova persona</button></div></div>
-    <table style="margin-top:8px"><tr><th>Cognome e nome</th><th>Nascita</th><th>Comitato</th><th>Prov.</th><th>Squadre</th><th>Accesso al sito</th><th></th></tr>
-    ${lista.map((p) => `<tr><td>${esc(p.cognome)} ${esc(p.nome)}<br>${(p.qualifiche || []).map((q) => `<span class="tag">${esc(QUALIFICHE[q] || q)}</span>`).join('')}<small>${esc(p.email || '')}${p.codice_fiscale ? ' · ' + esc(p.codice_fiscale) : p.ha_cf ? ' · CF registrato' : ''}${p.ruolo_gara ? ' · ' + esc(RUOLI_GARA[p.ruolo_gara] || p.ruolo_gara) : ''}</small></td>
-      <td>${esc(p.data_nascita || '')}</td><td>${esc(p.comitato || '')}</td><td>${esc(p.provincia || '')}</td><td>${p.squadre}</td>
-      <td>${p.utente_id ? `<span class="tag ok">${esc(p.ruolo_utente || '')}</span>${p.admin_utente ? '<span class="tag">admin</span>' : ''}${(p.ruoli_extra || []).map((c) => `<span class="tag">${esc((ruoli.find((r) => r.codice === c) || {}).nome || c)}</span>`).join('')}` : '<small>—</small>'}${admin() ? `<br><button class="s p pr" data-id="${p.id}">Ruoli…</button>` : ''}</td>
-      <td style="white-space:nowrap"><button class="s p pe" data-id="${p.id}">Modifica</button> <button class="x p pd" data-id="${p.id}">Elimina</button></td></tr>`).join('') || '<tr><td colspan="7"><em>Nessuna persona.</em></td></tr>'}</table>
+    <div class="pers-l">${lista.map((p) => {
+      const aperta = pAperte.has(p.id), nomeRuolo = (c) => (ruoli.find((r) => r.codice === c) || {}).nome || c;
+      const accesso = p.utente_id ? `<span class="tag ok">${esc(nomeRuolo(p.ruolo_codice) !== p.ruolo_codice ? nomeRuolo(p.ruolo_codice) : (p.ruolo_utente || 'Accesso'))}</span>${p.admin_utente ? '<span class="tag">admin</span>' : ''}` : '<small class="muto">senza accesso</small>';
+      const dato = (et, v) => (v ? `<div><small>${et}</small><br>${esc(v)}</div>` : '');
+      return `<div class="pers ${aperta ? 'ap' : ''}" data-id="${p.id}"><div class="pers-r"><button class="sc-t pt" data-id="${p.id}" aria-expanded="${aperta}" aria-label="Dettaglio">${aperta ? '▾' : '▸'}</button>
+        <b class="pn">${esc(p.cognome)} ${esc(p.nome)}</b><span class="pc">${esc(p.comitato || '')}</span><span class="pa">${accesso}</span></div>
+        ${aperta ? `<div class="pers-d"><div class="pers-g">${dato('Data di nascita', dataIt(p.data_nascita))}${dato('Provincia', p.provincia)}${dato('Email', p.email)}${dato('Codice fiscale', p.codice_fiscale || (p.ha_cf ? 'registrato' : ''))}${dato('Ruolo in gara', p.ruolo_gara ? (RUOLI_GARA[p.ruolo_gara] || p.ruolo_gara) : '')}${dato('Squadre', p.squadre ? String(p.squadre) : '')}</div>
+          ${(p.qualifiche || []).length ? `<p class="pers-q"><small>Qualifiche</small><br>${p.qualifiche.map((q) => `<span class="tag">${esc(QUALIFICHE[q] || q)}</span>`).join('')}</p>` : ''}
+          ${p.utente_id && (p.ruoli_extra || []).length ? `<p class="pers-q"><small>Ruoli aggiuntivi</small><br>${p.ruoli_extra.map((c) => `<span class="tag">${esc(nomeRuolo(c))}</span>`).join('')}</p>` : ''}
+          <div class="sez-a">${admin() ? `<button class="s p pr" data-id="${p.id}">Ruoli…</button>` : ''}<button class="s p pe" data-id="${p.id}">Modifica</button><button class="x p pd" data-id="${p.id}">Elimina</button></div></div>` : ''}</div>`; }).join('') || '<p><em>Nessuna persona.</em></p>'}</div>
     <p class="nota">Dati personali: visibili solo a organizzazione e admin. Codice fiscale, email e data di nascita sono facoltativi.</p></div>`;
   const cerca = () => { cache.qPersone = $('#pq').value; render(); };
   $('#pqc').onclick = cerca; $('#pq').onkeydown = (e) => { if (e.key === 'Enter') cerca(); };
   $('#pn').onclick = () => formPersona(null);
+  document.querySelectorAll('.pers-r').forEach((r) => { r.style.cursor = 'pointer'; r.onclick = (e) => { if (e.target.closest('.pr,.pe,.pd')) return; const id = r.closest('.pers').dataset.id; pAperte.has(id) ? pAperte.delete(id) : pAperte.add(id); tPersone(); }; });
   document.querySelectorAll('.pr').forEach((c) => { c.onclick = () => formRuoli(lista.find((p) => p.id === c.dataset.id), ruoli); });
   document.querySelectorAll('.pe').forEach((b) => { b.onclick = () => formPersona(lista.find((p) => p.id === b.dataset.id)); });
   document.querySelectorAll('.pd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la persona dall\'anagrafica? Se ha un accesso al sito, viene eliminato anche quello.')) fai(() => api(`/persone/${b.dataset.id}`, { method: 'DELETE' }), 'Persona eliminata'); }; });
