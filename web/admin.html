@@ -442,7 +442,7 @@ async function anteprimaCanovaccio(c) {
 const COMITATI_OK = new Set();
 function cercaComitato(id) { const el = $('#' + id); if (!el) return; let t;
   const carica = async () => { const r = await api('/comitati/cerca?q=' + encodeURIComponent(el.value.trim())).catch(() => []); r.forEach((c) => COMITATI_OK.add(c.nome));
-    $('#dl_comitati').innerHTML = r.map((c) => `<option value="${esc(c.nome)}">${esc(c.provincia || '')}</option>`).join(''); };
+    $('#dl_comitati').innerHTML = r.map((c) => `<option value="${esc(c.nome)}"></option>`).join(''); };
   el.oninput = () => { clearTimeout(t); t = setTimeout(carica, 200); }; el.onfocus = carica; }
 const comitatoValido = (v) => !v || COMITATI_OK.has(v);
 // elenco di ciò che è stato archiviato, con il tasto per riaprirlo (utile per le prove)
