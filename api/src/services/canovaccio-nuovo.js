@@ -1,9 +1,22 @@
 // Creazione e modifica di un canovaccio da modulo (senza file .docx): Gara, Olimpiadi o descrizione di uno scenario di Mega Code.
 import { httpErr } from './compilazioni.js';
+import { calcolaFabbisogno } from './canovaccio.js';
 
 export const VERSIONI = ['gara', 'olimpiadi', 'megacode'];
 const t = (v, max = 4000) => String(v ?? '').replace(/\r/g, '').trim().slice(0, max);
 const righe = (v, n = 30, max = 300) => (Array.isArray(v) ? v : String(v ?? '').split('\n')).map((x) => t(x, max)).filter(Boolean).slice(0, n);
+
+const GRAVITA = { rosso: 'ROSSO · T1', giallo: 'GIALLO · T2', verde: 'VERDE · T3', bianco: 'BIANCO' };
+// pazienti dall'editor (nell'ordine di gravità scelto): il triage si ricava da qui; senza elenco restano i dati già salvati
+export function normalizzaPazienti(pazienti, triageVecchio = []) {
+  if (!Array.isArray(pazienti)) return { pazienti: [], triage: Array.isArray(triageVecchio) ? triageVecchio : [] };
+  const ps = pazienti.slice(0, 30).map((p, i) => ({
+    n: i + 1, nome: t(p.nome, 120) || `Paziente ${i + 1}`, patologia: t(p.patologia, 300), gravita: GRAVITA[p.gravita] ? p.gravita : 'bianco',
+    coscienza: t(p.coscienza, 300), parametri: t(p.parametri, 400),
+    righe: righe(p.righe, 30, 600).map((x) => { const [k, ...v] = x.split(':'); return v.length ? { k: k.trim(), v: v.join(':').trim(), tipo: /^Attore/i.test(k) ? 'attore' : /^(Nota|Ricerca|Gestione|Evoluzione|Ruolo)/i.test(k) ? 'nota' : 'dato' } : { k: 'Nota', v: x, tipo: 'nota' }; }),
+  }));
+  return { pazienti: ps, triage: ps.map((p) => ({ n: p.n, paziente: `${p.nome} (P${p.n})`, patologia: p.patologia, codice: GRAVITA[p.gravita], gravita: p.gravita })) };
+}
 
 export function normalizzaDati(versione, d = {}) {
   if (versione === 'megacode') {
@@ -19,7 +32,8 @@ export function normalizzaDati(versione, d = {}) {
   const blocchi = (v) => righe(v, 40, 1500).map((x) => ({ tipo: 'testo', testo: x }));
   const sezioni = [['briefing', 'Briefing per la squadra', d.briefing], ['descrizione', 'Descrizione della scena', d.descrizione], ['scena_recitata', 'Scena recitata', d.scena_recitata]]
     .filter(([, , v]) => righe(v).length).map(([tipo, titolo, v]) => ({ tipo, titolo, blocchi: blocchi(v) }));
-  return { sottotitolo: t(d.sottotitolo, 200), squadra: t(d.squadra, 200), sezioni, pazienti: d.pazienti ?? [], triage: d.triage ?? [], logistica: righe(d.logistica, 20, 300).map((x) => { const [k, ...v] = x.split(':'); return { k: k.trim(), v: v.join(':').trim() || '—' }; }) };
+  const { pazienti, triage } = normalizzaPazienti(d.pazienti, d.triage);
+  return { sottotitolo: t(d.sottotitolo, 200), squadra: t(d.squadra, 200), sezioni, pazienti, triage, logistica: righe(d.logistica, 20, 300).map((x) => { const [k, ...v] = x.split(':'); return { k: k.trim(), v: v.join(':').trim() || '—' }; }) };
 }
 
 export function validaIntestazione(b, versione) {

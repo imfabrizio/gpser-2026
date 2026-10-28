@@ -1035,7 +1035,7 @@ test('CAN-3: canovaccio di Mega Code creato da modulo — descrizione scenario, 
   assert.equal((await chiama('GET', `/api/canovacci/${g.id}/canovaccio.pdf`, { token: O })).statusCode, 200);
   const es = json(await chiama('POST', '/api/canovacci/esempi-megacode', { token: O, body: {} })); assert.equal(es.creati, 4);
   assert.equal(json(await chiama('POST', '/api/canovacci/esempi-megacode', { token: O, body: {} })).creati, 0);
-  assert.equal((await chiama('PUT', `/api/canovacci/${g.id}`, { token: O, body: { versione: 'gara', codice: 'Q', titolo: 'x' } })).statusCode, 400);   // gara/olimpiadi importate da file: solo via import
+  assert.equal((await chiama('PUT', `/api/canovacci/${g.id}`, { token: O, body: { versione: 'gara', codice: 'Q', gara_codice: 'CN3-GARA', titolo: 'x' } })).statusCode, 200);   // gara/olimpiadi ora modificabili da modulo
 });
 
 test('ESA-1 area Esami: sessione, principale + secondari, valore diverso per un candidato, errore grave, chiusura, PDF', async () => {
@@ -2146,4 +2146,17 @@ test('ELV-1 eliminare una valutazione: solo organizzazione, risposte cancellate,
   assert.equal((await chiama('DELETE', `/api/compilazioni/${id}`, { token: O })).statusCode, 200);
   assert.equal(json(await chiama('GET', `/api/compilazioni?scheda=${k.id}&squadra=${sq.id}`, { token: O })).compilazione, null);
   assert.equal((await pool.query(`select 1 from audit_log where azione='elimina_valutazione' and entita_id=$1`, [id])).rowCount, 1);
+});
+
+test('CAN-4: canovaccio di gara da modulo — pazienti in ordine di gravità, triage e fabbisogno ricavati, modifica senza perdere i pazienti', async () => {
+  const O = tok['org@t'];
+  const body = { versione: 'gara', codice: 'Q', gara_codice: 'cn4-2031', titolo: 'Incidente', tempo_min: 20, dati: { sottotitolo: 'Via Roma', briefing: 'Entrate in scena', logistica: 'Manichini RCP: 1',
+    pazienti: [{ nome: 'Uomo 40', patologia: 'Arresto', gravita: 'rosso', righe: 'Allergie: nessuna' }, { nome: 'Donna 30', patologia: 'Contusione', gravita: 'verde' }] } };
+  const r = json(await chiama('POST', '/api/canovacci', { token: O, body })); assert.ok(r.id);
+  let c = json(await chiama('GET', `/api/canovacci/${r.id}`, { token: O }));
+  assert.equal(c.dati.pazienti.length, 2); assert.equal(c.dati.triage[1].gravita, 'verde'); assert.equal(c.dati.triage[0].codice, 'ROSSO · T1');
+  assert.equal(c.fabbisogno.simulatori, 2); assert.equal(c.fabbisogno.manichini_rcp, 1);
+  assert.equal((await chiama('PUT', `/api/canovacci/${r.id}`, { token: O, body: { ...body, titolo: 'Incidente 2', dati: { sottotitolo: 'x' } } })).statusCode, 200);
+  c = json(await chiama('GET', `/api/canovacci/${r.id}`, { token: O })); assert.equal(c.titolo, 'Incidente 2'); assert.equal(c.dati.pazienti.length, 2, 'senza elenco i pazienti restano');
+  assert.equal((await chiama('GET', `/api/canovacci/${r.id}/canovaccio.pdf`, { token: O })).statusCode, 200);
 });

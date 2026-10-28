@@ -18,6 +18,7 @@ import { creaCanovaccio } from './pdf/canovaccio.js';
 import fs from 'node:fs';
 import { creaScenario } from './pdf/scenario.js';
 import { normalizzaDati, validaIntestazione } from './services/canovaccio-nuovo.js';
+import { calcolaFabbisogno } from './services/canovaccio.js';
 import { aggiungiSchedaDaPatologia, CODICE_SCENA, creaScena, duplicaScena, aggiornaElencoPazienti } from './services/scene.js';
 import { importaExcel } from './services/import-excel.js';
 import { èAllInOne, importaAllInOne, importaValutazioniAllInOne } from './services/import-allinone.js';
@@ -482,16 +483,17 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     return reply.type('application/pdf').header('Content-Disposition', `inline; filename="canovaccio-${c.codice}-${c.versione}.pdf"`).send(Buffer.concat(chunks));
   });
   // nuovo canovaccio da modulo (Gara, Olimpiadi o scenario di Mega Code) e modifica del suo contenuto
+  const fab = (versione, dati) => (versione === 'megacode' ? {} : calcolaFabbisogno(dati));
   const salvaCanovaccio = async (id, versione, b) => {
     const h = validaIntestazione(b, versione), dati = normalizzaDati(versione, b.dati);
     try {
       if (id) {
         const { rows: [vecchio] } = await pool.query('select dati from canovaccio where id=$1', [id]); if (!vecchio) throw httpErr(404, 'canovaccio inesistente');
-        if (versione !== 'megacode') { dati.pazienti = vecchio.dati?.pazienti ?? []; dati.triage = vecchio.dati?.triage ?? []; }
-        const r = await pool.query('update canovaccio set codice=$2, titolo=$3, tempo_min=$4, gara_codice=$5, dati=$6, updated_at=now() where id=$1 returning id', [id, h.codice, h.titolo, h.tempo, h.gara, dati]);
+        if (versione !== 'megacode' && !Array.isArray(b.dati?.pazienti)) { dati.pazienti = vecchio.dati?.pazienti ?? []; dati.triage = vecchio.dati?.triage ?? []; }
+        const r = await pool.query('update canovaccio set codice=$2, titolo=$3, tempo_min=$4, gara_codice=$5, dati=$6, fabbisogno=$7, updated_at=now() where id=$1 returning id', [id, h.codice, h.titolo, h.tempo, h.gara, dati, fab(versione, dati)]);
         return { id: r.rows[0].id };
       }
-      const r = await pool.query('insert into canovaccio (codice, versione, titolo, tempo_min, dati, fabbisogno, gara_codice) values ($1,$2,$3,$4,$5,$6,$7) returning id', [h.codice, versione, h.titolo, h.tempo, dati, {}, h.gara]);
+      const r = await pool.query('insert into canovaccio (codice, versione, titolo, tempo_min, dati, fabbisogno, gara_codice) values ($1,$2,$3,$4,$5,$6,$7) returning id', [h.codice, versione, h.titolo, h.tempo, dati, fab(versione, dati), h.gara]);
       return { id: r.rows[0].id };
     } catch (e) { if (e.code === '23505') throw httpErr(409, 'esiste già un canovaccio con questa lettera, questo tipo e questo codice evento'); throw e; }
   };
@@ -507,7 +509,6 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.post('/api/canovacci', { preHandler: soloOrg }, async (req) => salvaCanovaccio(null, req.body?.versione, req.body || {}));
   app.put('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => {
     const { rows: [c] } = await pool.query('select versione from canovaccio where id=$1', [req.params.id]); if (!c) throw httpErr(404, 'canovaccio inesistente');
-    if (c.versione !== 'megacode') throw httpErr(400, 'i canovacci di gara e olimpiadi importati da file non si modificano da qui');
     return salvaCanovaccio(req.params.id, c.versione, req.body || {});
   });
   // il codice della gara si scrive a mano oppure si ricava dalla gara in cui il canovaccio è già usato
