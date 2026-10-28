@@ -275,7 +275,7 @@ async function tEvento() {
       <div><label style="display:block">Punteggi ai giudici</label><label style="font-size:15px;color:inherit"><input type="checkbox" id="e_mp" ${ev.mostra_punteggi ? 'checked' : ''}> mostra punti e percentuale mentre compilano (esami, corsi, allenamenti)</label></div></div>`}
     ${fam === 'corsi' ? `<p class="nota">Proprietario: ${ev.comitato ? 'comitato ' + esc(ev.comitato) : 'nessun comitato indicato'}. Per i corsi è sempre il comitato di chi li apre.</p>` : me.ruolo === 'admin' ? `<div class="riga"><div><label>Proprietario del materiale</label><select id="e_liv"><option value="">Nessuno (storico, visibile a tutto lo staff)</option>
         ${[['comitato', 'Un comitato'], ['regione', 'Una regione'], ['nazionale', 'Nazionale']].map(([v, t]) => `<option value="${v}" ${ev.livello === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-      <div><label>Comitato (se proprietario è un comitato)</label><input id="e_comp" value="${esc(ev.livello === 'comitato' ? ev.comitato || '' : '')}" placeholder="Prignano sulla Secchia"></div>
+      <div><label>Comitato (se proprietario è un comitato)</label><input id="e_comp" list="dl_comitati" autocomplete="off" value="${esc(ev.livello === 'comitato' ? ev.comitato || '' : '')}" placeholder="cerca il comitato"><datalist id="dl_comitati"></datalist></div>
       <div><label>Regione (se proprietaria è una regione)</label><select id="e_reg"><option value="">—</option>${regioni.map((r) => `<option ${ev.regione === r && ev.livello === 'regione' ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></div></div>`
       : (ev.livello ? `<p class="nota">Materiale ${ev.livello === 'comitato' ? 'del comitato ' + esc(ev.comitato || '') : ev.livello === 'regione' ? 'della regione ' + esc(ev.regione || '') : 'nazionale'}: lo vedono solo i membri di quell'ente.</p>` : '')}
     <p><button class="b" id="e_salva">Salva</button> <button class="s" id="e_attiva" ${ev.attivo ? 'disabled' : ''}>Rendi attivo</button>
@@ -312,8 +312,9 @@ async function tEvento() {
       $('#ci_ok').onclick = () => fai(async () => { inv = await api(`/eventi/${ev.id}/comitati-invitati`, { method: 'PUT', body: { comitati: inv } }); disegnaInv(); }, 'Inviti salvati'); }
   }
   if (ev) {
+    if (ev.comitato) COMITATI_OK.add(ev.comitato); cercaComitato('e_comp');
     attivaComune('lc', { istat: ev.comune_istat, regione: ev.luogo_regione, provincia: ev.luogo_provincia }).catch((e) => flash(e.message, false));
-    $('#e_salva').onclick = () => fai(async () => { await api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
+    $('#e_salva').onclick = () => fai(async () => { if ($('#e_comp') && !comitatoValido($('#e_comp').value.trim())) throw new Error('Scegli il comitato dall\'elenco'); await api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,
       luogo: ev.luogo || '', data: $('#e_data').value || null, tipo: $('#e_tipo').value, soglia_pct: $('#e_soglia') ? $('#e_soglia').value : (ev.soglia_pct ?? ''), mostra_punteggi: $('#e_mp') ? $('#e_mp').checked : ev.mostra_punteggi, codice_gaia: $('#e_gaia')?.value ?? ev.codice_gaia, corso_id: $('#e_corso') ? $('#e_corso').value || null : ev.corso_id } })
       .then(() => api(`/eventi/${ev.id}/data-fine`, { method: 'PUT', body: { data_fine: $('#e_dfine').value || null } }))
       .then(() => (me.ruolo === 'admin' && $('#e_liv') ? api(`/eventi/${ev.id}/ente`, { method: 'PUT', body: { livello: $('#e_liv').value, comitato: $('#e_comp').value.trim(), regione: $('#e_reg').value } }) : null))
@@ -437,6 +438,13 @@ async function anteprimaCanovaccio(c) {
 }
 
 // ───────── CORSI: corso (n. Gaia) con i suoi Mega Code ed esami ─────────
+// comitato scelto dall'anagrafica comitati: suggerimenti mentre si scrive, e il valore deve essere uno di quelli
+const COMITATI_OK = new Set();
+function cercaComitato(id) { const el = $('#' + id); if (!el) return; let t;
+  const carica = async () => { const r = await api('/comitati/cerca?q=' + encodeURIComponent(el.value.trim())).catch(() => []); r.forEach((c) => COMITATI_OK.add(c.nome));
+    $('#dl_comitati').innerHTML = r.map((c) => `<option value="${esc(c.nome)}">${esc(c.provincia || '')}</option>`).join(''); };
+  el.oninput = () => { clearTimeout(t); t = setTimeout(carica, 200); }; el.onfocus = carica; }
+const comitatoValido = (v) => !v || COMITATI_OK.has(v);
 // elenco di ciò che è stato archiviato, con il tasto per riaprirlo (utile per le prove)
 const cardArchiviati = (tipi, titolo) => { const l = eventi.filter((e) => e.archiviato && tipi.includes(e.tipo)); return l.length ? `<div class="card"><h3>${titolo}</h3>${l.map((e) => `<div class="riga" style="align-items:center"><div style="flex:3"><b>${esc(e.nome)}</b> <small>${esc(NOME_TIPO[e.tipo] || e.tipo)}${e.data ? ' · ' + esc(periodo(e)) : ''}</small></div><div class="stretto"><button class="s p riap" data-id="${e.id}">Riapri</button></div></div>`).join('')}</div>` : ''; };
 const legaRiapri = () => document.querySelectorAll('.riap').forEach((b) => { b.onclick = () => fai(() => api(`/eventi/${b.dataset.id}`, { method: 'PATCH', body: { archiviato: false } }).then(caricaEventi), 'Riaperto'); });
@@ -446,13 +454,14 @@ async function tNuovoCorso() {
   $('#app').innerHTML = `<div class="card"><h3>Nuovo corso</h3>
     <div class="riga"><div><label>N° corso su Gaia</label><input id="c_gaia" placeholder="es. 12345"></div><div style="flex:2"><label>Nome del corso</label><input id="c_nome" placeholder="Corso TSSA Modena autunno"></div></div>
     <div class="riga"><div><label>Inizio del corso</label><input id="c_data" type="date"></div><div><label>Fine del corso (anche dopo mesi)</label><input id="c_fine" type="date"></div>
-      <div style="flex:2"><label>Comitato organizzatore</label><input id="c_com" placeholder="se vuoto, il comitato della tua anagrafica"></div></div>
+      <div style="flex:2"><label>Comitato organizzatore</label><input id="c_com" list="dl_comitati" placeholder="cerca il comitato (se vuoto, il tuo)" autocomplete="off"><datalist id="dl_comitati"></datalist></div></div>
     <p class="nota" style="margin:8px 0 0"><b>Luogo</b> (comune del corso)</p>${htmlComune('nc')}
     <p><button class="b" id="c_ok">Crea corso</button> <button class="s" id="c_no">Annulla</button></p>
     <p class="nota">Il corso è del comitato che lo apre. I Mega Code e gli esami si creano poi dentro il corso, e restano suoi.</p></div>`;
-  attivaComune('nc').catch((e) => flash(e.message, false));
+  attivaComune('nc').catch((e) => flash(e.message, false)); cercaComitato('c_com');
   $('#c_no').onclick = () => { creaCorso = false; render(); };
   $('#c_ok').onclick = () => { const nome = $('#c_nome').value.trim(), g = $('#c_gaia').value.trim(); if (!nome) return flash('Scrivi il nome del corso', false);
+    if (!comitatoValido($('#c_com').value.trim())) return flash('Scegli il comitato dall\'elenco che compare mentre scrivi', false);
     if ($('#c_data').value && $('#c_fine').value && $('#c_fine').value < $('#c_data').value) return flash('La fine del corso è prima dell\'inizio', false);
     fai(async () => { const e = await api('/eventi', { body: { codice: ('CORSO-' + (g || nome)).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: 'corso', nome, titolo_stampa: nome, comune: $('#nc_com').value || undefined, data: $('#c_data').value || null, data_fine: $('#c_fine').value || null, codice_gaia: g, comitato: $('#c_com').value.trim() || undefined } });
       creaCorso = false; await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_corsi', ev.id); }, 'Corso creato'); };
