@@ -1,71 +1,146 @@
-/* Versione per telefono (schermi stretti): barra in alto compatta, menu a scorrimento, moduli a colonna singola, pulsanti grandi. */
-@media (max-width: 700px) {
-  html, body { overflow-x: hidden; max-width: 100vw; -webkit-text-size-adjust: 100%; }
-  body { font-size: 16px; }
-  main { padding: 10px !important; max-width: 100% !important; margin: 0 !important; }
-  main > * { max-width: 100% !important; }
+/* Versione per telefono: si attiva con la classe «tel» su <html> (mobile.js: automatica sotto i 700 px, oppure scelta a mano). */
+
+html.tel, html.tel body { overflow-x: hidden; max-width: 100vw; -webkit-text-size-adjust: 100%; }
+
+html.tel body { font-size: 16px; }
+
+html.tel main { padding: 10px !important; max-width: 100% !important; margin: 0 !important; }
+
+html.tel main > * { max-width: 100% !important; }
+
 
   /* barra in alto: una sola riga, solo icone */
-  header { display: flex !important; flex-wrap: nowrap !important; align-items: center; gap: 6px !important; padding: 6px 10px !important; border-top-width: 5px !important; position: sticky !important; top: 0; z-index: 20; }
-  header .logo, header > img { height: 34px !important; width: auto !important; max-width: none; flex: none; }
-  header h1, header #titolo { display: none !important; }
-  header a, header button, header #chi, header select { padding: 0 !important; min-width: 40px; height: 40px; min-height: 40px; display: inline-flex !important; align-items: center; justify-content: center; font-size: 0 !important; flex: none; }
-  header #campana { padding: 0 !important; font-size: 18px !important; }
-  header #aree { font-size: 14px !important; padding: 0 10px !important; flex: 1 1 auto; min-width: 0; max-width: none !important; }
-  header #chi, header a#hsic { margin-left: auto; }
-  header #chi::before, header a#hsic::before, header a#chi::before { margin: 0 !important; width: 18px !important; height: 18px !important; }
-  header #esci { font-size: 13px !important; padding: 0 12px !important; }
-  header a.home { width: 40px !important; }
+html.tel header { display: flex !important; flex-wrap: nowrap !important; align-items: center; gap: 6px !important; padding: 6px 10px !important; border-top-width: 5px !important; position: sticky !important; top: 0; z-index: 20; }
+
+html.tel header .logo, html.tel header > img { height: 34px !important; width: auto !important; max-width: none; flex: none; }
+
+html.tel header h1, html.tel header #titolo { display: none !important; }
+
+html.tel header a, html.tel header button, html.tel header #chi, html.tel header select { padding: 0 !important; min-width: 40px; height: 40px; min-height: 40px; display: inline-flex !important; align-items: center; justify-content: center; font-size: 0 !important; flex: none; }
+
+html.tel header #campana { padding: 0 !important; font-size: 18px !important; }
+
+html.tel header #aree { font-size: 14px !important; padding: 0 10px !important; flex: 1 1 auto; min-width: 0; max-width: none !important; }
+
+html.tel header #chi, html.tel header a#hsic { margin-left: auto; }
+
+html.tel header #chi::before, html.tel header a#hsic::before, html.tel header a#chi::before { margin: 0 !important; width: 18px !important; height: 18px !important; }
+
+html.tel header #esci { font-size: 13px !important; padding: 0 12px !important; }
+
+html.tel header a.home { width: 40px !important; }
+
 
   /* menu delle sezioni: strisce scorrevoli, senza il blocco con la banda */
-  #tabs { display: flex !important; flex-wrap: nowrap !important; overflow-x: auto; gap: 6px; padding: 8px 10px !important; position: sticky; top: 51px; z-index: 15; background: #fff; border-bottom: 1px solid #d9dce3; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-  #tabs[hidden] { display: none !important; }
-  #tabs::-webkit-scrollbar { display: none; }
-  #tabs .banda { display: none !important; }
-  #tabs button { flex: none; white-space: nowrap !important; min-height: 40px; padding: 0 14px !important; border-radius: 999px !important; font-size: 14px !important; }
-  #tabs .w { display: none; }
-  #lat, #rail { display: none !important; }
+html.tel #tabs { display: flex !important; flex-wrap: nowrap !important; overflow-x: auto; gap: 6px; padding: 8px 10px !important; position: sticky; top: 51px; z-index: 15; background: #fff; border-bottom: 1px solid #d9dce3; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+
+html.tel #tabs[hidden] { display: none !important; }
+
+html.tel #tabs::-webkit-scrollbar { display: none; }
+
+html.tel #tabs .banda { display: none !important; }
+
+html.tel #tabs button { flex: none; white-space: nowrap !important; min-height: 40px; padding: 0 14px !important; border-radius: 999px !important; font-size: 14px !important; }
+
+html.tel #tabs .w { display: none; }
+
+html.tel #lat, html.tel #rail { display: none !important; }
+
 
   /* moduli: una colonna */
-  .riga { flex-direction: column !important; align-items: stretch !important; gap: 10px !important; }
-  .riga > * { flex: 1 1 auto !important; width: 100% !important; min-width: 0 !important; }
-  .riga > .stretto, .stretto { width: 100% !important; display: flex; flex-wrap: wrap; gap: 8px; }
-  .riga > .stretto > * { flex: 1 1 auto; }
-  .griglia { grid-template-columns: 1fr !important; }
-  input, select, textarea { font-size: 16px !important; width: 100%; max-width: 100%; min-height: 46px; box-sizing: border-box; }
-  input[type=checkbox], input[type=radio] { width: 24px; min-height: 24px; height: 24px; flex: none; }
-  textarea { min-height: 90px; }
-  label { display: block; margin-top: 6px; }
-  label:has(> input[type=checkbox]), label:has(> input[type=radio]) { display: flex; align-items: center; gap: 10px; min-height: 44px; }
-  button, .btn, a.b, a.s { min-height: 46px; font-size: 15px; padding-left: 14px; padding-right: 14px; }
-  button.p, button.x.p { min-height: 44px !important; }
-  .card { padding: 12px !important; border-radius: 12px; }
-  h3 { font-size: 19px; }
-  .navbar { gap: 6px; } .navbar a, .navbar button { flex: 1 1 calc(50% - 6px); text-align: center; }
+html.tel .riga { flex-direction: column !important; align-items: stretch !important; gap: 10px !important; }
+
+html.tel .riga > * { flex: 1 1 auto !important; width: 100% !important; min-width: 0 !important; }
+
+html.tel .riga > .stretto, html.tel .stretto { width: 100% !important; display: flex; flex-wrap: wrap; gap: 8px; }
+
+html.tel .riga > .stretto > * { flex: 1 1 auto; }
+
+html.tel .griglia { grid-template-columns: 1fr !important; }
+
+html.tel input, html.tel select, html.tel textarea { font-size: 16px !important; width: 100%; max-width: 100%; min-height: 46px; box-sizing: border-box; }
+
+html.tel input[type=checkbox], html.tel input[type=radio] { width: 24px; min-height: 24px; height: 24px; flex: none; }
+
+html.tel textarea { min-height: 90px; }
+
+html.tel label { display: block; margin-top: 6px; }
+
+html.tel label:has(> input[type=checkbox]), html.tel label:has(> input[type=radio]) { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+
+html.tel button, html.tel .btn, html.tel a.b, html.tel a.s { min-height: 46px; font-size: 15px; padding-left: 14px; padding-right: 14px; }
+
+html.tel button.p, html.tel button.x.p { min-height: 44px !important; }
+
+html.tel .card { padding: 12px !important; border-radius: 12px; }
+
+html.tel h3 { font-size: 19px; }
+
+html.tel .navbar { gap: 6px; }
+
+html.tel .navbar a, html.tel .navbar button { flex: 1 1 calc(50% - 6px); text-align: center; }
+
 
   /* tabelle: scorrono di lato invece di sbordare */
-  table:not(.punteggi) { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  table:not(.punteggi) td, table:not(.punteggi) th { white-space: normal; min-width: 70px; }
-  table.punteggi { max-width: 100%; }
+html.tel table:not(.punteggi) { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+html.tel table:not(.punteggi) td, html.tel table:not(.punteggi) th { white-space: normal; min-width: 70px; }
+
+html.tel table.punteggi { max-width: 100%; }
+
 
   /* finestre: a schermo intero */
-  dialog { width: 100vw !important; max-width: 100vw !important; height: 100dvh !important; max-height: 100dvh !important; margin: 0 !important; border-radius: 0 !important; padding: 14px !important; box-sizing: border-box; }
-  dialog .riga + p, dialog p:last-child { position: static; }
-  #dlgn { width: 100vw !important; max-width: 100vw !important; }
+html.tel dialog { width: 100vw !important; max-width: 100vw !important; height: 100dvh !important; max-height: 100dvh !important; margin: 0 !important; border-radius: 0 !important; padding: 14px !important; box-sizing: border-box; }
+
+html.tel dialog .riga + p, html.tel dialog p:last-child { position: static; }
+
+html.tel #dlgn { width: 100vw !important; max-width: 100vw !important; }
+
 
   /* schede e pulsanti di valutazione */
   /* livelli di valutazione: sempre su un'unica riga, tutti i pulsanti della stessa misura (le schede a 3 livelli hanno 2 caselle non cliccabili) */
-  .liv, .liv.tre { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; width: 100% !important; }
-  .liv button { width: auto !important; min-width: 0 !important; min-height: 60px; padding: 4px 2px !important; font-size: 12.5px !important; font-weight: 700; line-height: 1.15; white-space: normal !important; hyphens: manual; overflow-wrap: normal; word-break: normal; }
-  .liv .ph { display: block !important; }
+html.tel .liv, html.tel .liv.tre { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; width: 100% !important; }
+
+html.tel .liv button { width: auto !important; min-width: 0 !important; min-height: 60px; padding: 4px 2px !important; font-size: 12.5px !important; font-weight: 700; line-height: 1.15; white-space: normal !important; hyphens: manual; overflow-wrap: normal; word-break: normal; }
+
+html.tel .liv .ph { display: block !important; }
+
   /* schede a 3 livelli sulle stesse colonne dei 5: Bene · vuoto · Sufficiente · vuoto · Non eseguito */
-  .liv.tre button[data-l=MB] { order: 1; } .liv.tre .ph:nth-last-child(2) { order: 2; } .liv.tre button[data-l=SU] { order: 3; } .liv.tre .ph:last-child { order: 4; } .liv.tre button[data-l=NE] { order: 5; }
-  .liv button.on::before { content: none !important; }
-  .tile { padding: 18px 12px !important; min-height: 0; } .tile .ico { width: 56px !important; height: 56px !important; } .tile .ico svg { width: 32px !important; height: 32px !important; } .tile b { font-size: 19px !important; }
-  .banda b { font-size: 15px; }
-  .scena .sc-testa { padding: 10px !important; } .scena .sc-corpo { padding: 10px !important; }
-  .pers-g { grid-template-columns: 1fr !important; }
-  .sez-a { display: flex; flex-wrap: wrap; gap: 6px; } .sez-a > * { flex: 1 1 auto; }
-  .esito { font-size: 16px; }
-  select { text-overflow: ellipsis; }
-}
+html.tel .liv.tre button[data-l=MB] { order: 1; }
+
+html.tel .liv.tre .ph:nth-last-child(2) { order: 2; }
+
+html.tel .liv.tre button[data-l=SU] { order: 3; }
+
+html.tel .liv.tre .ph:last-child { order: 4; }
+
+html.tel .liv.tre button[data-l=NE] { order: 5; }
+
+html.tel .liv button.on::before { content: none !important; }
+
+html.tel .tile { padding: 18px 12px !important; min-height: 0; }
+
+html.tel .tile .ico { width: 56px !important; height: 56px !important; }
+
+html.tel .tile .ico svg { width: 32px !important; height: 32px !important; }
+
+html.tel .tile b { font-size: 19px !important; }
+
+html.tel .banda b { font-size: 15px; }
+
+html.tel .scena .sc-testa { padding: 10px !important; }
+
+html.tel .scena .sc-corpo { padding: 10px !important; }
+
+html.tel .pers-g { grid-template-columns: 1fr !important; }
+
+html.tel .sez-a { display: flex; flex-wrap: wrap; gap: 6px; }
+
+html.tel .sez-a > * { flex: 1 1 auto; }
+
+html.tel .esito { font-size: 16px; }
+
+html.tel select { text-overflow: ellipsis; }
+
+html.tel header [hidden], html.tel header #hhome[hidden] { display: none !important; }
+html.tel header #lay { min-width: 40px; }

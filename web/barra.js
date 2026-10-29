@@ -4,7 +4,7 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const stile = document.createElement('style');
   stile.textContent = `#aree{border:1.5px solid #8C94A3;border-radius:999px;padding:7px 12px;font:inherit;font-size:14px;font-weight:700;background:#fff;color:inherit;max-width:190px}
-  #campana{position:relative;padding:8px 12px!important;line-height:1}#campana .nb{position:absolute;top:-6px;right:-4px;background:#C62828;color:#fff;border-radius:999px;font-size:12px;min-width:20px;padding:1px 5px;font-weight:700}
+  #lay{padding:8px 12px!important;line-height:1}#campana{position:relative;padding:8px 12px!important;line-height:1}#campana .nb{position:absolute;top:-6px;right:-4px;background:#C62828;color:#fff;border-radius:999px;font-size:12px;min-width:20px;padding:1px 5px;font-weight:700}
   .banda{display:flex;gap:10px;align-items:center;border-radius:12px;padding:14px 12px;margin-bottom:12px;color:#fff;white-space:normal;text-align:left}.banda svg{flex:none;width:30px;height:30px}.banda b{display:block;font-size:17px;line-height:1.15;color:#fff}.banda small{display:block;font-size:12px;color:#fff;margin-top:2px}
   #dlgn{border:0;border-radius:14px;max-width:460px;width:92vw;padding:0;box-shadow:0 12px 40px #0004}#dlgn .nt{padding:12px 16px;border-bottom:1px solid #e3e5ea;cursor:pointer}#dlgn .nt.nl{background:#fff4f4}#dlgn .nt small{color:#666;display:block}`;
   document.head.append(stile);
@@ -42,6 +42,7 @@
     document.getElementById('nt_tutte').onclick = async () => { await api('/me/notifiche/lette', {}); dlg.close(); conta(); };
     dlg.querySelectorAll('.nt').forEach((el) => { el.onclick = async () => { await api('/me/notifiche/lette', { id: el.dataset.id }).catch(() => {}); dlg.close(); conta(); if (el.dataset.l) { if (el.dataset.l.startsWith('/admin.html#') && location.pathname === '/admin.html') location.hash = el.dataset.l.split('#')[1]; else location.href = el.dataset.l; } }; });
   }
+  const flashLay = (t) => { const d = document.createElement('div'); d.textContent = 'Layout: ' + t; d.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1b1f27;color:#fff;padding:10px 16px;border-radius:999px;z-index:99;font:600 14px sans-serif'; document.body.append(d); setTimeout(() => d.remove(), 2000); };
   window.Barra = {
     marchio: MARCHIO,
     colore: (k) => (SEZ[k] ? SEZ[k][1] : '#C8102E'),
@@ -69,6 +70,10 @@
       if (!document.getElementById('campana')) { const b = document.createElement('button'); b.id = 'campana'; b.title = 'Notifiche'; b.setAttribute('aria-label', 'Notifiche');
         b.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
         b.onclick = apri; const ref = document.getElementById('chi') || document.getElementById('hsic'); (ref || h.lastElementChild).before(b); }
+      if (window.Layout2 && !document.getElementById('lay')) { const l = document.createElement('button'); l.id = 'lay'; l.type = 'button';
+        const ico = (m) => (m === 'tel' ? '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>' : m === 'pc' ? '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>' : '<rect x="3" y="5" width="12" height="9" rx="1.5"/><rect x="13" y="9" width="8" height="12" rx="1.5"/>');
+        const agg = () => { const m = Layout2.modo(); l.title = 'Layout: ' + Layout2.nome(m) + ' (tocca per cambiare)'; l.setAttribute('aria-label', l.title); l.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ico(m)}</svg>`; };
+        agg(); l.onclick = () => { Layout2.giro(); agg(); flashLay(Layout2.nome(Layout2.modo())); }; document.getElementById('campana').before(l); }
       conta(); if (!timer) timer = setInterval(conta, 60000);
     },
   };
