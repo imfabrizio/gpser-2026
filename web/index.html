@@ -41,7 +41,7 @@
   .liv.tre button { width:104px; white-space:normal; line-height:1.15; font-size:12.5px; padding:6px 6px; }
   .liv button[disabled] { background:#000; border-color:#000; }
   .liv button.on { color:#fff !important; border-color:#111; }
-  .liv .ab { display:none }
+  .liv .ph { display:none }
   .liv button.on[data-l=BE], .liv button.on[data-l=SU], .liv button.on[data-l=IN] { color:#111 !important; }
   .liv button.on::before { content:'✓ '; }
   .liv button.on[data-l=MB] { background:var(--mb) } .liv button.on[data-l=BE] { background:var(--be) }
@@ -79,6 +79,7 @@
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const LIV = [['MB','Molto bene'],['BE','Bene'],['SU','Soddisfacente'],['IN','Insufficiente'],['NE','Non eseguito']];   // nessun punteggio: chi inserisce i dati non lo conosce
+const etSill = (t) => t.replace('Soddisfacente', 'Soddisfa&shy;cente').replace('Insufficiente', 'Insuffi&shy;ciente').replace('Sufficiente', 'Suffi&shy;ciente');   // a capo ordinato sui pulsanti stretti del telefono
 const ET3 = { NE: 'Non eseguito', SU: 'Sufficiente', MB: 'Bene' };   // schede a 3 livelli (0-1-2) degli esami
 const TIPO_EV = { gara: 'Gara', olimpiadi: 'Olimpiadi', allenamento: 'Allenamento', corso: 'Corso', esame: 'Esame', megacode: 'Mega Code' };
 const master = () => me && me.ruolo === 'giudice_master';
@@ -581,9 +582,9 @@ async function vistaValuta(schedaId, squadraId) {
     const tre = v.consentiti.length === 3 && !v.consentiti.includes('BE') && !v.consentiti.includes('IN');
     html += `<div class="voce" data-id="${v.id}"><p>${esc(v.testo)}</p><div class="liv${tre ? ' tre' : ''}">` +
       (tre
-        ? ['NE', 'SU', 'MB'].map((k) => `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${ET3[k]}${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`)
+        ? ['NE', 'SU', 'MB'].map((k) => `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${etSill(ET3[k])}${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`).concat('<button disabled class="ph" tabindex="-1" aria-hidden="true"></button>'.repeat(2))
         : LIV.map(([k, et]) => !v.consentiti.includes(k) ? `<button disabled></button>` :
-        `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}"><span class="ab">${k}</span><span class="lg">${et}</span>${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`)).join('') + `</div></div>`;
+        `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${etSill(et)}${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`)).join('') + `</div></div>`;
   }
   chiudiBlocco();
   $('#titolo').textContent = scheda.titolo;
