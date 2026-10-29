@@ -58,6 +58,8 @@
   .liv, .liv.tre { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; width: 100% !important; }
   .liv button { width: auto !important; min-width: 0 !important; min-height: 60px; padding: 4px 2px !important; font-size: 12.5px !important; font-weight: 700; line-height: 1.15; white-space: normal !important; hyphens: manual; overflow-wrap: normal; word-break: normal; }
   .liv .ph { display: block !important; }
+  /* schede a 3 livelli sulle stesse colonne dei 5: Bene · vuoto · Sufficiente · vuoto · Non eseguito */
+  .liv.tre button[data-l=MB] { order: 1; } .liv.tre .ph:nth-last-child(2) { order: 2; } .liv.tre button[data-l=SU] { order: 3; } .liv.tre .ph:last-child { order: 4; } .liv.tre button[data-l=NE] { order: 5; }
   .liv button.on::before { content: none !important; }
   .tile { padding: 18px 12px !important; min-height: 0; } .tile .ico { width: 56px !important; height: 56px !important; } .tile .ico svg { width: 32px !important; height: 32px !important; } .tile b { font-size: 19px !important; }
   .banda b { font-size: 15px; }
