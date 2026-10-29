@@ -54,8 +54,13 @@
   #dlgn { width: 100vw !important; max-width: 100vw !important; }
 
   /* schede e pulsanti di valutazione */
-  .liv { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; width: 100% !important; }
-  .liv button { width: auto !important; min-width: 0 !important; min-height: 54px; font-size: 14px !important; line-height: 1.15; white-space: normal !important; padding: 6px 4px !important; overflow-wrap: anywhere; hyphens: auto; }
+  /* livelli di valutazione: sempre su un'unica riga (i 5 livelli con sigla grande e nome piccolo), per non sbagliare pulsante */
+  .liv { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; width: 100% !important; }
+  .liv.tre { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .liv button { width: auto !important; min-width: 0 !important; min-height: 58px; padding: 4px 1px !important; font-size: 13px !important; line-height: 1.1; white-space: normal !important; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; overflow: hidden; }
+  .liv.tre button { font-size: 14px !important; }
+  .liv button .ab { display: block; font-size: 19px; font-weight: 800; line-height: 1; }
+  .liv button .lg { font-size: 8.5px; font-weight: 600; line-height: 1.05; max-width: 100%; overflow-wrap: normal; word-break: keep-all; letter-spacing: -.1px; }
   .tile { padding: 18px 12px !important; min-height: 0; } .tile .ico { width: 56px !important; height: 56px !important; } .tile .ico svg { width: 32px !important; height: 32px !important; } .tile b { font-size: 19px !important; }
   .banda b { font-size: 15px; }
   .scena .sc-testa { padding: 10px !important; } .scena .sc-corpo { padding: 10px !important; }

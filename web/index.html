@@ -41,6 +41,7 @@
   .liv.tre button { width:104px; white-space:normal; line-height:1.15; font-size:12.5px; padding:6px 6px; }
   .liv button[disabled] { background:#000; border-color:#000; }
   .liv button.on { color:#fff !important; border-color:#111; }
+  .liv .ab { display:none }
   .liv button.on[data-l=BE], .liv button.on[data-l=SU], .liv button.on[data-l=IN] { color:#111 !important; }
   .liv button.on::before { content:'✓ '; }
   .liv button.on[data-l=MB] { background:var(--mb) } .liv button.on[data-l=BE] { background:var(--be) }
@@ -582,7 +583,7 @@ async function vistaValuta(schedaId, squadraId) {
       (tre
         ? ['NE', 'SU', 'MB'].map((k) => `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${ET3[k]}${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`)
         : LIV.map(([k, et]) => !v.consentiti.includes(k) ? `<button disabled></button>` :
-        `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${et}${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`)).join('') + `</div></div>`;
+        `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}"><span class="ab">${k}</span><span class="lg">${et}</span>${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`)).join('') + `</div></div>`;
   }
   chiudiBlocco();
   $('#titolo').textContent = scheda.titolo;
