@@ -41,6 +41,7 @@
   .liv.tre button { width:104px; white-space:normal; line-height:1.15; font-size:12.5px; padding:6px 6px; }
   .liv button[disabled] { background:#000; border-color:#000; }
   .liv button.on { color:#fff !important; border-color:#111; }
+  .liv button[disabled], .liv button.ph { background:#000 !important; border:2px solid #000 !important; opacity:1; }
   /* schede a 3 livelli sulle stesse colonne dei 5: Bene · vuoto · Sufficiente · vuoto · Non eseguito */
   .liv.tre button[data-l=MB] { order:1; } .liv.tre .ph:nth-last-child(2) { order:2; } .liv.tre button[data-l=SU] { order:3; } .liv.tre .ph:last-child { order:4; } .liv.tre button[data-l=NE] { order:5; }
   /* su schermo largo: voce a sinistra, pulsanti a destra sulla stessa riga */
