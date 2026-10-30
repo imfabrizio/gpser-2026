@@ -7,8 +7,8 @@ import { nuovoSegreto, verificaTotp, cifra, decifra, otpauth, nuoviCodiciRecuper
 
 // aree = unione di quelle del ruolo principale e dei ruoli aggiuntivi; ruoli_extra = codici dei ruoli aggiuntivi
 export const SQL_UTENTE = `select u.*,
-  coalesce((select array_agg(distinct a) from ruolo r2, unnest(r2.aree) a where r2.codice = u.ruolo or r2.codice in (select x.ruolo from utente_ruolo_extra x where x.utente_id = u.id)), '{}') as aree,
-  coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id = u.id), '{}') as ruoli_extra,
+  coalesce((select array_agg(distinct a) from ruolo r2, unnest(r2.aree) a where r2.codice = u.ruolo or r2.codice in (select x.ruolo from utente_ruolo_extra x where x.utente_id = u.id) or r2.codice in (select gr.ruolo from utente_gruppo ug join gruppo_ruolo gr on gr.gruppo = ug.gruppo where ug.utente_id = u.id)), '{}') as aree,
+  coalesce((select array_agg(distinct y) from (select x.ruolo as y from utente_ruolo_extra x where x.utente_id = u.id union select gr.ruolo from utente_gruppo ug join gruppo_ruolo gr on gr.gruppo = ug.gruppo where ug.utente_id = u.id) q), '{}') as ruoli_extra,
   -- accessi legati a un evento: chi è iscritto a una gara come giudice / giudice master ha quell'accesso solo per quella gara
   coalesce((select json_agg(json_build_object('evento_id', i.evento_id, 'ruolo', i.ruolo)) from iscrizione i join partecipante p on p.id = i.partecipante_id join evento e on e.id = i.evento_id
              where p.utente_id = u.id and not e.archiviato and i.ruolo in ('giudice','giudice_master')), '[]'::json) as ev_ruoli,

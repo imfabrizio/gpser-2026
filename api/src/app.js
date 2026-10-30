@@ -378,6 +378,26 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'direzione_gara','evento',$2,$3)`, [req.utente.id, req.params.id, JSON.stringify({ utenti: ids })]);
     return { ok: true, direzione: ids.length };
   }));
+  // ── staff della gara: direzione e logistica (ruoli della singola gara). Chi è scelto può essere chiunque abbia un accesso al sito ──
+  app.get('/api/eventi/:id/staff', { preHandler: soloOrg }, async (req) => {
+    await verificaAccessoEvento(pool, req.utente, req.params.id);
+    const q = (t) => pool.query(`select x.utente_id, u.nome, u.email from ${t} x join utente u on u.id=x.utente_id where x.evento_id=$1 order by u.nome`, [req.params.id]);
+    const [dir, log, persone] = await Promise.all([q('evento_direzione'), q('evento_logistica'), pool.query('select id, nome, email from utente where attivo order by nome')]);
+    return { direzione: dir.rows, logistica: log.rows, persone: persone.rows };
+  });
+  app.put('/api/eventi/:id/staff', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    await verificaAccessoEvento(db, req.utente, req.params.id);
+    const lista = (k, max) => { const l = req.body?.[k] ?? []; if (!Array.isArray(l) || l.length > max || l.some((x) => typeof x !== 'string')) throw httpErr(400, `${k}: elenco di id (max ${max})`); return [...new Set(l)]; };
+    const dir = lista('direzione', 12), log = lista('logistica', 30);
+    const { rows: ok } = await db.query('select id from utente where id = any($1::uuid[]) and attivo', [[...new Set([...dir, ...log])]]);
+    if (ok.length !== new Set([...dir, ...log]).size) throw httpErr(400, 'solo utenti attivi');
+    for (const [t, ids] of [['evento_direzione', dir], ['evento_logistica', log]]) {
+      await db.query(`delete from ${t} where evento_id=$1`, [req.params.id]);
+      for (const u of ids) await db.query(`insert into ${t} (evento_id, utente_id, aggiunto_da) values ($1,$2,$3)`, [req.params.id, u, req.utente.id]);
+    }
+    await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'staff_gara','evento',$2,$3)`, [req.utente.id, req.params.id, JSON.stringify({ direzione: dir, logistica: log })]);
+    return { ok: true, direzione: dir.length, logistica: log.length };
+  }));
   // ── allenamento del comitato: comitati invitati (consultano l'allenamento, non lo modificano) ──
   const soloAllenamento = async (id) => { const { rows: [e] } = await pool.query('select id, tipo from evento where id=$1', [id]); if (!e) throw httpErr(404, 'evento inesistente'); if (e.tipo !== 'allenamento') throw httpErr(400, 'solo gli allenamenti si aprono ad altri comitati'); };
   app.get('/api/eventi/:id/comitati-invitati', { preHandler: soloOrg }, async (req) => (await pool.query('select comitato from evento_comitato_invitato where evento_id=$1 order by comitato', [req.params.id])).rows.map((r) => r.comitato));

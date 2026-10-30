@@ -5,6 +5,7 @@ import pg from 'pg';
 import { buildApp } from '../src/app.js';
 import { creaPool, inTransazione } from '../src/db.js';
 import { hashPassword, firmaToken } from '../src/auth.js';
+import { SQL_UTENTE } from '../src/routes-auth.js';
 import { fileURLToPath } from 'node:url';
 import { importaExcel } from '../src/services/import-excel.js';
 
@@ -2229,4 +2230,28 @@ test('OFF-1: scena offline — blocco online, codici, pacchetto cifrato, disposi
   assert.equal(json(await chiama('GET', '/api/dispositivi', { token: O })).find((d) => d.id === dev).modalita, 'online');
   assert.equal(json(await chiama('POST', '/api/offline/sync', { token: O, body: { evento_id: ev, invii: [{ utente_id: giuId, payload: { ...corpo(), scheda_id: randomUUID() } }] } })).errori, 1);
   await chiama('PUT', `/api/scene/${scena.id}/offline`, { token: O, body: { offline: false } });
+});
+
+test('GRP-1: ruoli senza principale, gruppi di ruoli e staff della gara (direzione + logistica)', async () => {
+  const A = tok['adm@t'], O = tok['org@t'];
+  const uid = await nuovoUtente('grp@t', 'partecipante');
+  const { rows: [pz] } = await pool.query("insert into partecipante (cognome, nome, email, utente_id) values ('Gruppo','Prova','grp@t',$1) returning id", [uid]);
+  // un gruppo «Staff tecnico» con due ruoli: chi è nel gruppo ha le aree di entrambi
+  const g = json(await chiama('POST', '/api/gruppi', { token: A, body: { nome: 'Staff tecnico', ruoli: ['segreteria', 'giudice_master'] } }));
+  assert.equal(g.codice, 'staff_tecnico'); assert.deepEqual(g.ruoli.sort(), ['giudice_master', 'segreteria']);
+  assert.equal((await chiama('POST', '/api/gruppi', { token: O, body: { nome: 'X', ruoli: [] } })).statusCode, 403);   // solo admin
+  assert.equal((await chiama('PUT', `/api/persone/${pz.id}/gruppi`, { token: A, body: { gruppi: ['staff_tecnico'] } })).statusCode, 200);
+  const { rows: [u] } = await pool.query(`${SQL_UTENTE} where u.id=$1`, [uid]);
+  assert.ok(u.aree.includes('segreteria')); assert.ok(u.ruoli_extra.includes('giudice_master'));
+  // ruoli come insieme: il «principale» lo sceglie il server
+  assert.equal((await chiama('POST', `/api/persone/${pz.id}/accesso`, { token: A, body: { ruoli: ['accompagnatore', 'organizzazione'], admin: false } })).statusCode, 200);
+  const { rows: [u2] } = await pool.query('select ruolo from utente where id=$1', [uid]); assert.equal(u2.ruolo, 'organizzazione');
+  const { rows: [{ n }] } = await pool.query('select count(*)::int n from utente_ruolo_extra where utente_id=$1 and ruolo=$2', [uid, 'accompagnatore']); assert.equal(n, 1);
+  // staff della gara
+  assert.equal((await chiama('PUT', `/api/eventi/${ev}/staff`, { token: O, body: { direzione: [uid], logistica: [uid, (await pool.query("select id from utente where email='giu@t'")).rows[0].id] } })).statusCode, 200);
+  const st = json(await chiama('GET', `/api/eventi/${ev}/staff`, { token: O }));
+  assert.equal(st.direzione.length, 1); assert.equal(st.logistica.length, 2);
+  assert.equal((await chiama('PUT', `/api/eventi/${ev}/staff`, { token: tok['giu@t'], body: { direzione: [], logistica: [] } })).statusCode, 403);
+  await chiama('PUT', `/api/eventi/${ev}/staff`, { token: O, body: { direzione: [], logistica: [] } });
+  await chiama('DELETE', '/api/gruppi/staff_tecnico', { token: A });
 });

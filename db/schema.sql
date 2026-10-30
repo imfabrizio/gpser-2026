@@ -2936,7 +2936,7 @@ create table if not exists sessione_esame_invito (
   primary key (sessione_id, utente_id)
 );
 create index if not exists sessione_esame_invito_utente_idx on sessione_esame_invito (utente_id);
-insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql'), ('055-preferenze-utente.sql'), ('056-istruttore-du-apre-corsi.sql'), ('057-esiti-pubblicati.sql'), ('058-trainer-del-corso.sql'), ('059-backup-log.sql'), ('060-direzione-gara.sql'), ('061-offline.sql') on conflict do nothing;
+insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql'), ('055-preferenze-utente.sql'), ('056-istruttore-du-apre-corsi.sql'), ('057-esiti-pubblicati.sql'), ('058-trainer-del-corso.sql'), ('059-backup-log.sql'), ('060-direzione-gara.sql'), ('061-offline.sql'), ('062-gruppi-logistica.sql') on conflict do nothing;
 
 -- 046-skill-fasce-scoop
 -- Skill: fasce di giudizio automatiche (75/80/85/95%, calcolate sul numero di voci) e Barella Scoop in due schede (trasporto, semi-verticalizzazione).
@@ -3602,4 +3602,29 @@ create table if not exists dispositivo (
   evento_id   uuid references evento(id) on delete set null,
   preparato_il timestamptz,
   ultima_sync timestamptz
+);
+
+-- 062-gruppi-logistica
+-- Gruppi di ruoli (trasversali): un gruppo raccoglie più ruoli, chi è nel gruppo li ha tutti. Logistica: ruolo per singola gara
+create table if not exists gruppo (
+  codice text primary key,
+  nome   text not null,
+  created_at timestamptz not null default now()
+);
+create table if not exists gruppo_ruolo (
+  gruppo text not null references gruppo(codice) on delete cascade,
+  ruolo  text not null references ruolo(codice) on delete cascade,
+  primary key (gruppo, ruolo)
+);
+create table if not exists utente_gruppo (
+  utente_id uuid not null references utente(id) on delete cascade,
+  gruppo    text not null references gruppo(codice) on delete cascade,
+  primary key (utente_id, gruppo)
+);
+create table if not exists evento_logistica (
+  evento_id uuid not null references evento(id) on delete cascade,
+  utente_id uuid not null references utente(id) on delete cascade,
+  aggiunto_da uuid references utente(id) on delete set null,
+  created_at timestamptz not null default now(),
+  primary key (evento_id, utente_id)
 );

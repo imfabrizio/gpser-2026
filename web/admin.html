@@ -49,6 +49,7 @@ body.corsi .csep{display:none}
   .matrice { overflow-x:auto; border:1px solid var(--bordo); border-radius:10px } .matrice table { border-collapse:separate; border-spacing:0; width:100%; font-size:14px } .matrice th, .matrice td { padding:6px 4px; text-align:center; border-bottom:1px solid #eceef1 } .matrice th.mr { position:sticky; left:0; background:#fff; text-align:left; min-width:150px; padding:8px 12px; z-index:1; border-right:1px solid var(--bordo) }
   .matrice th.mc { height:150px; vertical-align:bottom; font-weight:600; font-size:13px; background:#f6f7f9 } .matrice th.mc span { writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; display:inline-block } .matrice thead th.mr { background:#f6f7f9 }
   .matrice td input { width:22px; height:22px; accent-color:var(--rosso) } .matrice tr:hover td, .matrice tr:hover th.mr { background:#fdf3f4 } .matrice td.ma { padding:6px 10px; min-width:96px } .matrice td.ma button { display:block; width:100%; margin:3px 0 }
+  .pn { display:flex; flex-direction:column; gap:1px } .pn .pe-m { font-weight:400; color:#555; font-size:13px; word-break:break-all }
   .acc-box { background:#f6f7f9; border-radius:10px; padding:10px 12px; margin:8px 0; display:flex; flex-wrap:wrap; gap:8px; align-items:center } .acc-box small { flex-basis:100%; color:#555; font-weight:600 } .acc-box select { max-width:220px }
   .pers-d { padding:2px 16px 14px 58px } .pers-g { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:10px 24px; margin-bottom:8px } .pers-g > div { min-width:0; overflow-wrap:anywhere } .pers-q { margin:6px 0 } .pers-d .sez-a { margin-top:8px }
   @media (max-width:700px) { .pers-r { grid-template-columns:30px 1fr } .pers-r .pc, .pers-r .pa { grid-column:2 } .pers-d { padding-left:16px } }
@@ -260,19 +261,23 @@ async function caricaRotazione() {
   } catch (e) { box.innerHTML = `<h3>Svolgimento della gara</h3><p>${esc(e.message)}</p>`; }
 }
 // direzione gara: le persone (3-4) che in questa gara riaprono le schede chiuse e compilano al posto dei giudici
-async function cardDirezione(ev) {
-  const [elenco, scelti] = await Promise.all([api('/giudici'), api(`/eventi/${ev.id}/direzione`)]).catch(() => [null, null]);
-  if (!elenco) return;
-  const sel = new Set(scelti.map((x) => x.utente_id));
-  $('#app').insertAdjacentHTML('beforeend', `<div class="card" id="dz"><h3>Direzione gara</h3>
-    <p class="nota">Le persone che, solo in questa gara, possono riaprire le schede chiuse e compilarle al posto dei giudici. Il giudice master consulta le schede degli altri e può solo riaprirle al giudice; il giudice da solo non può riaprire una scheda chiusa.</p>
-    <input id="dz_q" placeholder="Cerca per nome" autocomplete="off">
-    <div id="dz_l" style="max-height:240px;overflow:auto;margin:8px 0">${elenco.map((g) => `<label class="ck-t" data-q="${esc((g.nome + ' ' + g.email).toLowerCase())}" style="display:flex;gap:8px;align-items:center"><input type="checkbox" value="${g.id}" ${sel.has(g.id) ? 'checked' : ''}> ${esc(g.nome)} <small>${esc(g.email)}</small></label>`).join('')}</div>
-    <p><button class="b" id="dz_ok">Salva la direzione gara</button> <small id="dz_n"></small></p></div>`);
-  const conta = () => { $('#dz_n').textContent = document.querySelectorAll('#dz_l input:checked').length + ' persone'; };
-  conta(); $('#dz_l').onchange = conta;
-  $('#dz_q').oninput = () => { const q = $('#dz_q').value.trim().toLowerCase(); document.querySelectorAll('#dz_l .ck-t').forEach((l) => { l.style.display = !q || l.dataset.q.includes(q) ? 'flex' : 'none'; }); };
-  $('#dz_ok').onclick = () => fai(() => api(`/eventi/${ev.id}/direzione`, { method: 'PUT', body: { utenti: [...document.querySelectorAll('#dz_l input:checked')].map((i) => i.value) } }), 'Direzione gara salvata');
+async function cardDirezione(ev) {   // «Staff della gara»: direzione gara e logistica, assegnate gara per gara
+  const D = await api(`/eventi/${ev.id}/staff`).catch(() => null); if (!D) return;
+  const sel = { direzione: new Set(D.direzione.map((x) => x.utente_id)), logistica: new Set(D.logistica.map((x) => x.utente_id)) };
+  const blocco = (k, titolo, nota) => `<div class="stf"><h4>${titolo}</h4><p class="nota">${nota}</p>
+    <input class="stf_q" data-k="${k}" placeholder="Cerca per nome o email" autocomplete="off">
+    <div class="stf_l" data-k="${k}" style="max-height:220px;overflow:auto;margin:8px 0">${D.persone.map((g) => `<label class="ck-t" data-q="${esc((g.nome + ' ' + g.email).toLowerCase())}" style="display:flex;gap:8px;align-items:center"><input type="checkbox" value="${g.id}" ${sel[k].has(g.id) ? 'checked' : ''}> ${esc(g.nome)} <small>${esc(g.email)}</small></label>`).join('')}</div>
+    <small class="stf_n" data-k="${k}"></small></div>`;
+  $('#app').insertAdjacentHTML('beforeend', `<div class="card" id="dz"><h3>Staff della gara</h3>
+    <div class="griglia" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px">
+    ${blocco('direzione', 'Direzione gara', 'Solo in questa gara possono riaprire le schede chiuse e compilarle al posto dei giudici. Il giudice master consulta le schede degli altri e può solo riaprirle al giudice; il giudice da solo non può riaprire la sua.')}
+    ${blocco('logistica', 'Logistica', 'Vedono i materiali necessari di ogni scena di questa gara, mai le schede di valutazione.')}</div>
+    <p><button class="b" id="dz_ok">Salva lo staff</button></p></div>`);
+  const conta = () => ['direzione', 'logistica'].forEach((k) => { document.querySelector(`.stf_n[data-k=${k}]`).textContent = document.querySelectorAll(`.stf_l[data-k=${k}] input:checked`).length + ' persone'; });
+  conta(); document.querySelectorAll('.stf_l').forEach((l) => { l.onchange = conta; });
+  document.querySelectorAll('.stf_q').forEach((i) => { i.oninput = () => { const q = i.value.trim().toLowerCase(); document.querySelectorAll(`.stf_l[data-k=${i.dataset.k}] .ck-t`).forEach((l) => { l.style.display = !q || l.dataset.q.includes(q) ? 'flex' : 'none'; }); }; });
+  const prendi = (k) => [...document.querySelectorAll(`.stf_l[data-k=${k}] input:checked`)].map((i) => i.value);
+  $('#dz_ok').onclick = () => fai(() => api(`/eventi/${ev.id}/staff`, { method: 'PUT', body: { direzione: prendi('direzione'), logistica: prendi('logistica') } }), 'Staff della gara salvato');
 }
 async function tEvento() {
   const regioni = me.ruolo === 'admin' ? await api('/regioni').catch(() => []) : [];
@@ -749,7 +754,7 @@ async function tComitati() {
 const pAperte = new Set();
 async function tPersone() {
   const q = (cache.qPersone || '').trim();
-  const [lista, ruoliR, quals] = await Promise.all([api('/persone' + (q ? '?q=' + encodeURIComponent(q) : '')), admin() ? api('/ruoli') : Promise.resolve({ ruoli: [] }), api('/qualifiche')]);
+  const [lista, ruoliR, quals, gruppi] = await Promise.all([api('/persone' + (q ? '?q=' + encodeURIComponent(q) : '')), admin() ? api('/ruoli') : Promise.resolve({ ruoli: [] }), api('/qualifiche'), admin() ? api('/gruppi') : Promise.resolve([])]);
   const ruoli = ruoliR.ruoli; QUALIFICHE = Object.fromEntries(quals.map((q) => [q.codice, q.nome]));
   const vista = cache.soloAccesso ? lista.filter((p) => p.utente_id) : lista;
   $('#app').innerHTML = `<div class="card"><h3>Persone (${vista.length}${lista.length === 500 ? '+' : ''})</h3>
@@ -757,10 +762,10 @@ async function tPersone() {
     ${admin() ? `<label class="ar" style="margin:6px 0"><input type="checkbox" id="p_acc" ${cache.soloAccesso ? 'checked' : ''}> Solo chi ha un accesso al sito</label>` : ''}
     <div class="pers-l">${vista.map((p) => {
       const aperta = pAperte.has(p.id), nomeRuolo = (c) => (ruoli.find((r) => r.codice === c) || {}).nome || c;
-      const accesso = p.utente_id ? `<span class="tag ok">${esc(nomeRuolo(p.ruolo_codice) !== p.ruolo_codice ? nomeRuolo(p.ruolo_codice) : (p.ruolo_utente || 'Accesso'))}</span>${p.admin_utente ? '<span class="tag">admin</span>' : ''}` : '<small class="muto">senza accesso</small>';
+      const accesso = p.utente_id ? [p.ruolo_codice, ...(p.ruoli_extra || [])].filter(Boolean).map((c) => `<span class="tag ok">${esc(nomeRuolo(c))}</span>`).join('') + (p.gruppi || []).map((g) => `<span class="tag">${esc((gruppi.find((x) => x.codice === g) || {}).nome || g)}</span>`).join('') + (p.admin_utente ? '<span class="tag">admin</span>' : '') : '<small class="muto">senza accesso</small>';
       const dato = (et, v) => (v ? `<div><small>${et}</small><br>${esc(v)}</div>` : '');
       return `<div class="pers ${aperta ? 'ap' : ''}" data-id="${p.id}"><div class="pers-r"><button class="sc-t pt" data-id="${p.id}" aria-expanded="${aperta}" aria-label="Dettaglio">${aperta ? '▾' : '▸'}</button>
-        <b class="pn">${esc(p.cognome)} ${esc(p.nome)}</b><span class="pc">${esc(p.comitato || '')}</span><span class="pa">${accesso}</span></div>
+        <b class="pn">${esc(p.cognome)} ${esc(p.nome)}<small class="pe-m">${esc(p.email || 'senza email')}</small></b><span class="pc">${esc(p.comitato || '')}</span><span class="pa">${accesso}</span></div>
         ${aperta ? `<div class="pers-d"><div class="pers-g">${dato('Data di nascita', dataIt(p.data_nascita))}${dato('Provincia', p.provincia)}${dato('Email', p.email)}${dato('Codice fiscale', p.codice_fiscale || (p.ha_cf ? 'registrato' : ''))}${dato('Ruolo in gara', p.ruolo_gara ? (RUOLI_GARA[p.ruolo_gara] || p.ruolo_gara) : '')}${dato('Squadre', p.squadre ? String(p.squadre) : '')}</div>
           ${(p.qualifiche || []).length ? `<p class="pers-q"><small>Qualifiche</small><br>${p.qualifiche.map((q) => `<span class="tag">${esc(QUALIFICHE[q] || q)}</span>`).join('')}</p>` : ''}
           ${p.utente_id && (p.ruoli_extra || []).length ? `<p class="pers-q"><small>Ruoli aggiuntivi</small><br>${p.ruoli_extra.map((c) => `<span class="tag">${esc(nomeRuolo(c))}</span>`).join('')}</p>` : ''}
@@ -778,22 +783,30 @@ async function tPersone() {
   $('#pqc').onclick = cerca; $('#pq').onkeydown = (e) => { if (e.key === 'Enter') cerca(); };
   $('#pn').onclick = () => formPersona(null);
   document.querySelectorAll('.pers-r').forEach((r) => { r.style.cursor = 'pointer'; r.onclick = (e) => { if (e.target.closest('.pr,.pe,.pd')) return; const id = r.closest('.pers').dataset.id; pAperte.has(id) ? pAperte.delete(id) : pAperte.add(id); tPersone(); }; });
-  document.querySelectorAll('.pr').forEach((c) => { c.onclick = () => formRuoli(lista.find((p) => p.id === c.dataset.id), ruoli); });
+  document.querySelectorAll('.pr').forEach((c) => { c.onclick = () => formRuoli(lista.find((p) => p.id === c.dataset.id), ruoli, gruppi); });
   document.querySelectorAll('.pe').forEach((b) => { b.onclick = () => formPersona(lista.find((p) => p.id === b.dataset.id)); });
   document.querySelectorAll('.pd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la persona dall\'anagrafica? Se ha un accesso al sito, viene eliminato anche quello.')) fai(() => api(`/persone/${b.dataset.id}`, { method: 'DELETE' }), 'Persona eliminata'); }; });
 }
 const FAMIGLIE_Q = [['Formazione', ['capo_monitore', 'formatore_ms', 'formatore_tssa', 'istruttore_du', 'trainer_ms', 'trainer_tssa', 'monitore']], ['Gara e scene', ['giudice', 'giudice_master', 'simulatore', 'truccatore']], ['Mega Code e retraining TSSA', ['operatore_tssa', 'discente_tssa']], ['Altre', []]];
 let QUALIFICHE = {};   // codice → nome, caricato da /api/qualifiche
-function formRuoli(p, ruoli) {
-  const prima = p.ruolo_codice || 'partecipante', extra = new Set(p.ruoli_extra || []);
+function formRuoli(p, ruoli, gruppi = []) {
+  const miei = new Set([p.ruolo_codice, ...(p.ruoli_extra || [])].filter(Boolean)), mieiG = new Set(p.gruppi || []);
+  if (!p.utente_id) miei.clear();
+  const base = ruoli.filter((r) => r.sistema), altri = ruoli.filter((r) => !r.sistema);
+  const daQual = (r) => r.codice in QUALIFICHE;   // alcuni ruoli (giudice master, istruttore…) derivano dalle qualifiche della persona: si cambiano da «Modifica»
+  const ck = (r) => daQual(r) ? `<label class="ar" title="Deriva dalla qualifica: si assegna da Modifica, Qualifiche"><input type="checkbox" class="r_q" disabled ${miei.has(r.codice) ? 'checked' : ''}> ${esc(r.nome)} <small>(da qualifica)</small></label>` : `<label class="ar"><input type="checkbox" class="r_x" value="${r.codice}" ${miei.has(r.codice) ? 'checked' : ''}> ${esc(r.nome)}</label>`;
   dlg(`<h3>Ruoli di ${esc(p.cognome)} ${esc(p.nome)}</h3>
-    <p class="nota">Il ruolo principale dà l'accesso al sito; i ruoli aggiuntivi sommano i loro permessi (es. giudice master e organizzazione).${p.utente_id ? '' : ' La persona non ha ancora un accesso: sarà creato con la sua email, solo con Google o Microsoft.'}</p>
-    <label>Ruolo principale</label><select id="r_p">${ruoli.map((r) => `<option value="${r.codice}" ${r.codice === prima ? 'selected' : ''}>${esc(r.nome)}</option>`).join('')}</select>
-    <label>Ruoli aggiuntivi</label><div class="aree">${ruoli.map((r) => `<label class="ar"><input type="checkbox" class="r_x" value="${r.codice}" ${extra.has(r.codice) ? 'checked' : ''}> ${esc(r.nome)}</label>`).join('')}</div>
+    <p class="nota">Spunta tutti i ruoli che la persona ha: i permessi sono la somma di tutti. ${p.utente_id ? '' : 'La persona non ha ancora un accesso: sarà creato con l\'email in anagrafica. '}Direzione gara e logistica non sono qui: si assegnano gara per gara, nella scheda «Staff» della gara.</p>
+    <label>Ruoli</label><div class="aree">${[...base, ...altri].map(ck).join('')}</div>
+    ${gruppi.length ? `<label>Gruppi di ruoli</label><div class="aree">${gruppi.map((g) => `<label class="ar" title="${esc(g.ruoli.join(', '))}"><input type="checkbox" class="r_g" value="${g.codice}" ${mieiG.has(g.codice) ? 'checked' : ''}> ${esc(g.nome)} <small>(${g.ruoli.length} ruoli)</small></label>`).join('')}</div>` : ''}
     <label class="ar"><input type="checkbox" id="r_ad" ${p.admin_utente ? 'checked' : ''}> Amministratore</label>
     <label class="ar"><input type="checkbox" id="r_pe" ${p.per_evento ? 'checked' : ''}> Organizzazione solo per le gare a cui è iscritto come «Organizzazione» (Segreteria)</label>
     <p><button class="b" id="r_ok">Salva</button> <button class="s" onclick="chiudi()">Annulla</button></p>`);
-  $('#r_ok').onclick = () => { const body = { ruolo: $('#r_p').value, extra: [...document.querySelectorAll('.r_x')].filter((i) => i.checked && i.value !== $('#r_p').value).map((i) => i.value), admin: $('#r_ad').checked, per_evento: $('#r_pe').checked }; chiudi(); fai(() => api(`/persone/${p.id}/accesso`, { body }), 'Ruoli salvati'); };
+  $('#r_ok').onclick = () => {
+    const body = { ruoli: [...document.querySelectorAll('.r_x')].filter((i) => i.checked).map((i) => i.value), admin: $('#r_ad').checked, per_evento: $('#r_pe').checked };
+    const g = [...document.querySelectorAll('.r_g')].filter((i) => i.checked).map((i) => i.value), haG = document.querySelectorAll('.r_g').length > 0;
+    chiudi(); fai(async () => { const r = await api(`/persone/${p.id}/accesso`, { body }); if (haG) await api(`/persone/${p.id}/gruppi`, { method: 'PUT', body: { gruppi: g } }); return r; }, 'Ruoli salvati');
+  };
 }
 function formPersona(p) {
   const f = (id, et, v = '', tipo = 'text', extra = '') => `<div><label>${et}</label><input id="${id}" type="${tipo}" value="${esc(v)}" ${extra}></div>`;
@@ -1652,7 +1665,7 @@ async function tUtenti() {
 
 // ───────── RUOLI E PERMESSI ─────────
 async function tRuoli() {
-  const [{ ruoli, aree }, quals] = await Promise.all([api('/ruoli'), api('/qualifiche')]);
+  const [{ ruoli, aree }, quals, gruppi] = await Promise.all([api('/ruoli'), api('/qualifiche'), api('/gruppi')]);
   const casella = (r, k) => `<label class="ar"><input type="checkbox" data-k="${k}" ${r.aree.includes(k) ? 'checked' : ''} ${r.sistema && r.codice !== 'organizzazione' ? 'disabled' : ''}> ${esc(aree[k])}</label>`;
   const chiavi = Object.keys(aree), soloApp = (r) => r.sistema && r.codice !== 'organizzazione';
   const gestori = ruoli.filter((r) => !soloApp(r)), base = ruoli.filter(soloApp);
@@ -1664,11 +1677,19 @@ async function tRuoli() {
       <td class="ma"><button class="b p rs">Salva</button>${r.sistema ? '' : '<button class="x p rd">Elimina</button>'}</td></tr>`).join('')}</tbody></table></div>
     ${base.length ? `<p class="nota" style="margin-top:12px"><b>Ruoli di sola app</b> (nessun accesso alla Gestione, usano l'app o la Home): ${base.map((r) => `${esc(r.nome)} <small>(${r.utenti})</small>`).join(', ')}.</p>` : ''}
   </div>
+  <div class="card"><h3>Gruppi di ruoli</h3><p class="nota">Un gruppo raccoglie più ruoli (per esempio «Staff tecnico»): chi è nel gruppo ha tutti i ruoli del gruppo. Si assegna alla persona da Persone, «Ruoli…».</p>
+    ${gruppi.map((g) => `<div class="gr" data-g="${g.codice}" style="border:1px solid var(--bordo);border-radius:10px;padding:10px 12px;margin:8px 0"><b>${esc(g.nome)}</b> <small>${g.persone} person${g.persone === 1 ? 'a' : 'e'}</small>
+      <div class="aree">${ruoli.map((r) => `<label class="ar"><input type="checkbox" class="gr_r" value="${r.codice}" ${g.ruoli.includes(r.codice) ? 'checked' : ''}> ${esc(r.nome)}</label>`).join('')}</div>
+      <button class="b p grs">Salva</button> <button class="x p grd">Elimina</button></div>`).join('') || '<p><em>Nessun gruppo.</em></p>'}
+    <div class="riga"><div><label>Nuovo gruppo</label><input id="ng_n" placeholder="es. Staff tecnico"></div><div class="stretto"><button class="b" id="ng_ok">Crea gruppo</button></div></div></div>
   <div class="card"><h3>Nuovo ruolo</h3><div class="riga"><div><label>Nome (es. Segreteria, Gestore news)</label><input id="nr_n"></div></div>
     <div class="aree">${chiavi.map((k) => casella({ aree: [], sistema: false }, k)).join('')}</div><p><button class="b" id="nr_ok">Crea ruolo</button></p></div>
   <div class="card"><h3>Qualifiche</h3><p><small>Titoli permanenti della persona (si assegnano dall'anagrafica). Da sole non danno accesso: l'accesso arriva dall'assegnazione a un evento. Locale = opera nel proprio comitato, nazionale = in tutta Italia.</small></p>
     <table>${quals.map((q) => `<tr><td>${esc(q.nome)}${q.ambito ? ` <span class="tag">${q.ambito}</span>` : ''}${q.sistema ? ' <span class="tag">di base</span>' : ''}</td><td><small>${q.persone} persone</small></td><td>${q.sistema ? '' : `<button class="x p qd" data-c="${q.codice}">Elimina</button>`}</td></tr>`).join('')}</table>
     <div class="riga"><div><label>Nuova qualifica</label><input id="nq_n"></div><div><label>Ambito</label><select id="nq_a"><option value="">nessuno</option><option value="locale">locale</option><option value="nazionale">nazionale</option></select></div><div class="stretto"><button class="b" id="nq_ok">Aggiungi</button></div></div></div>`;
+  document.querySelectorAll('.grs').forEach((b) => { b.onclick = () => { const g = b.closest('[data-g]'); fai(() => api(`/gruppi/${g.dataset.g}`, { method: 'PUT', body: { ruoli: [...g.querySelectorAll('.gr_r:checked')].map((i) => i.value) } }), 'Gruppo salvato'); }; });
+  document.querySelectorAll('.grd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare il gruppo? Le persone perdono i ruoli che avevano solo da questo gruppo.')) fai(() => api(`/gruppi/${b.closest('[data-g]').dataset.g}`, { method: 'DELETE' }), 'Gruppo eliminato'); }; });
+  $('#ng_ok').onclick = () => { const n = $('#ng_n').value.trim(); if (!n) return alert('Scrivi il nome del gruppo'); fai(() => api('/gruppi', { body: { nome: n, ruoli: [] } }), 'Gruppo creato: spunta i ruoli e salva'); };
   $('#nq_ok').onclick = () => { const n = $('#nq_n').value.trim(); if (!n) return alert('Scrivi il nome della qualifica'); fai(() => api('/qualifiche', { body: { nome: n, ambito: $('#nq_a').value || null } }), 'Qualifica aggiunta'); };
   document.querySelectorAll('.qd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare la qualifica?')) fai(() => api(`/qualifiche/${b.dataset.c}`, { method: 'DELETE' }), 'Qualifica eliminata'); }; });
   const scelte = (el) => [...el.querySelectorAll('input[data-k]')].filter((i) => i.checked).map((i) => i.dataset.k);

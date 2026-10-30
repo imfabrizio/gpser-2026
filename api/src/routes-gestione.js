@@ -56,6 +56,34 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     await pool.query('delete from ruolo where codice=$1', [r.codice]); return { ok: true };
   });
 
+  // ── gruppi di ruoli: un gruppo raccoglie più ruoli; chi è nel gruppo li ha tutti ──
+  const gruppoCompleto = `select g.codice, g.nome, coalesce((select array_agg(r.ruolo order by r.ruolo) from gruppo_ruolo r where r.gruppo = g.codice), '{}') as ruoli, (select count(*)::int from utente_gruppo ug where ug.gruppo = g.codice) as persone from gruppo g`;
+  const ruoliValidi = async (db, l) => { const el = [...new Set((Array.isArray(l) ? l : []).filter((x) => typeof x === 'string'))]; const { rows } = await db.query('select codice from ruolo where codice = any($1::text[])', [el]); if (rows.length !== el.length) throw httpErr(400, 'ruoli non validi'); return el; };
+  app.get('/api/gruppi', { preHandler: soloAdmin }, async () => (await pool.query(gruppoCompleto + ' order by g.nome')).rows);
+  app.post('/api/gruppi', { preHandler: soloAdmin }, async (req) => inTransazione(pool, async (db) => {
+    const nome = String(req.body?.nome || '').trim().slice(0, 60), codice = slug(nome); if (!codice) throw httpErr(400, 'scrivi il nome del gruppo');
+    const ruoli = await ruoliValidi(db, req.body?.ruoli);
+    try { await db.query('insert into gruppo (codice, nome) values ($1,$2)', [codice, nome]); } catch (e) { if (e.code === '23505') throw httpErr(409, 'esiste già un gruppo con questo nome'); throw e; }
+    for (const r of ruoli) await db.query('insert into gruppo_ruolo values ($1,$2)', [codice, r]);
+    return (await db.query(gruppoCompleto + ' where g.codice=$1', [codice])).rows[0];
+  }));
+  app.put('/api/gruppi/:codice', { preHandler: soloAdmin }, async (req) => inTransazione(pool, async (db) => {
+    const { rows: [g] } = await db.query('select * from gruppo where codice=$1', [req.params.codice]); if (!g) throw httpErr(404, 'gruppo inesistente');
+    if (req.body?.nome) await db.query('update gruppo set nome=$2 where codice=$1', [g.codice, String(req.body.nome).trim().slice(0, 60) || g.nome]);
+    if (req.body?.ruoli !== undefined) { const ruoli = await ruoliValidi(db, req.body.ruoli); await db.query('delete from gruppo_ruolo where gruppo=$1', [g.codice]); for (const r of ruoli) await db.query('insert into gruppo_ruolo values ($1,$2)', [g.codice, r]); }
+    return (await db.query(gruppoCompleto + ' where g.codice=$1', [g.codice])).rows[0];
+  }));
+  app.delete('/api/gruppi/:codice', { preHandler: soloAdmin }, async (req) => { await pool.query('delete from gruppo where codice=$1', [req.params.codice]); return { ok: true }; });
+  app.put('/api/persone/:id/gruppi', { preHandler: soloAdmin }, async (req) => inTransazione(pool, async (db) => {
+    const { rows: [p] } = await db.query('select utente_id from partecipante where id=$1', [req.params.id]); if (!p) throw httpErr(404, 'persona inesistente');
+    if (!p.utente_id) throw httpErr(400, 'la persona non ha ancora un accesso: dalle prima un ruolo');
+    const el = [...new Set((Array.isArray(req.body?.gruppi) ? req.body.gruppi : []).filter((x) => typeof x === 'string'))];
+    const { rows: v } = await db.query('select codice from gruppo where codice = any($1::text[])', [el]); if (v.length !== el.length) throw httpErr(400, 'gruppo non valido');
+    await db.query('delete from utente_gruppo where utente_id=$1', [p.utente_id]);
+    for (const x of el) await db.query('insert into utente_gruppo values ($1,$2)', [p.utente_id, x]);
+    return { ok: true };
+  }));
+
   const nomeCognome = (nome, cognome) => {
     nome = String(nome || '').trim(); cognome = String(cognome || '').trim();
     if (!cognome) { const i = nome.lastIndexOf(' '); if (i > 0) { cognome = nome.slice(i + 1); nome = nome.slice(0, i); } else cognome = nome; }
@@ -157,7 +185,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     if (comitato) { p.provincia ??= comitato.provincia?.toUpperCase() ?? null; const u = comitato.unita.length ? comitato.unita : [comitato.nome]; p.unita = u.find((x) => x.toLowerCase() === (p.unita || '').toLowerCase()) ?? (u.length === 1 ? u[0] : p.unita); }
   };
   const COL_PERSONA = `p.id, p.cognome, p.nome, to_char(p.data_nascita,'YYYY-MM-DD') as data_nascita, p.cf_cifrato, p.email, p.comitato, p.provincia, p.unita, p.note, p.ruolo_gara, p.utente_id,
-    (select r.nome from utente u join ruolo r on r.codice = u.ruolo where u.id = p.utente_id) as ruolo_utente, (select u.ruolo from utente u where u.id = p.utente_id) as ruolo_codice, (select coalesce(array_agg(x.ruolo), '{}') from utente_ruolo_extra x where x.utente_id = p.utente_id) as ruoli_extra, (select u.per_evento from utente u where u.id = p.utente_id) as per_evento, (select u.attivo from utente u where u.id = p.utente_id) as accesso_attivo, (select u.evento_id from utente u where u.id = p.utente_id) as accesso_evento, (select u.mfa_attiva from utente u where u.id = p.utente_id) as accesso_mfa, (select coalesce(array_agg(q.qualifica order by q.qualifica), '{}') from persona_qualifica q where q.partecipante_id = p.id) as qualifiche, (select u.admin from utente u where u.id = p.utente_id) as admin_utente`;
+    (select r.nome from utente u join ruolo r on r.codice = u.ruolo where u.id = p.utente_id) as ruolo_utente, (select u.ruolo from utente u where u.id = p.utente_id) as ruolo_codice, (select coalesce(array_agg(x.ruolo), '{}') from utente_ruolo_extra x where x.utente_id = p.utente_id) as ruoli_extra, (select u.per_evento from utente u where u.id = p.utente_id) as per_evento, (select coalesce(array_agg(ug.gruppo), '{}') from utente_gruppo ug where ug.utente_id = p.utente_id) as gruppi, (select u.attivo from utente u where u.id = p.utente_id) as accesso_attivo, (select u.evento_id from utente u where u.id = p.utente_id) as accesso_evento, (select u.mfa_attiva from utente u where u.id = p.utente_id) as accesso_mfa, (select coalesce(array_agg(q.qualifica order by q.qualifica), '{}') from persona_qualifica q where q.partecipante_id = p.id) as qualifiche, (select u.admin from utente u where u.id = p.utente_id) as admin_utente`;
   // il codice fiscale in chiaro lo vede solo l'admin; gli altri sanno solo se c'è
   const uscita = (req) => ({ cf_cifrato, ...r }) => ({ ...r, ha_cf: !!cf_cifrato, codice_fiscale: req.utente.ruolo === 'admin' && cf_cifrato ? decifra(cf_cifrato) : undefined });
   const duplicato = (e) => { if (e.code === '23505') throw httpErr(409, 'codice fiscale già presente in anagrafica'); throw e; };
@@ -223,7 +251,16 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   }));
   // assegna il ruolo direttamente dall'anagrafica: se la persona non ha ancora un accesso lo crea (solo Google/Microsoft, collegato all'email), altrimenti cambia il ruolo
   app.post('/api/persone/:id/accesso', { preHandler: soloAdmin }, async (req) => {
-    const { ruolo, admin, extra, per_evento } = req.body || {};
+    let { ruolo, admin, extra, per_evento, ruoli } = req.body || {};
+    if (Array.isArray(ruoli)) {   // nessun ruolo «principale» per l'utente: la persona ha un insieme di ruoli; quello usato internamente come principale è il più «alto» (i permessi sono la somma di tutti)
+      const el = [...new Set(ruoli.filter((x) => typeof x === 'string'))];
+      const { rows: v } = await pool.query('select codice from ruolo where codice = any($1::text[])', [el]);
+      if (v.length !== el.length) throw httpErr(400, 'ruolo non valido');
+      const ordine = ['organizzazione', 'segreteria', 'approvatore', 'accompagnatore'], basso = ['giudice_master', 'giudice', 'partecipante'];
+      const peso = (c) => (ordine.includes(c) ? ordine.indexOf(c) : basso.includes(c) ? 100 + basso.indexOf(c) : 50);
+      ruolo = [...el].sort((x, y) => peso(x) - peso(y))[0] || 'partecipante';
+      extra = el.filter((x) => x !== ruolo);
+    }
     if (!ruolo || !(await ruoloEsiste(pool, ruolo))) throw httpErr(400, 'ruolo non valido');
     return inTransazione(pool, async (db) => {
       const { rows: [p] } = await db.query('select id, cognome, nome, email, utente_id from partecipante where id=$1', [req.params.id]);
