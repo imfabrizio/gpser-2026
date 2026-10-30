@@ -59,7 +59,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   // ── sicurezza: intestazioni ──
   app.addHook('onSend', async (req, reply) => {
     if (req.routeOptions?.url?.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
-    reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; object-src 'none'; frame-src blob:; base-uri 'none'; frame-ancestors 'self'");
+    reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org; object-src 'none'; frame-src blob:; base-uri 'none'; frame-ancestors 'self'");
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'no-referrer');
   });
@@ -112,7 +112,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       if (idEv) { const { rows: [e] } = await pool.query('select id, tipo, livello, comitato, regione from evento where id=$1', [idEv]);
         if (e) { const acc = await accessoEvento(pool, req.utente, e); if (!acc) throw httpErr(403, 'evento di un altro ente'); if (acc === 'lettura' && req.method !== 'GET') throw httpErr(403, 'il tuo comitato è invitato: puoi consultare l\'allenamento ma non modificarlo'); } }
     }
-    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/me/') || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta)) || rotta === '/api/eventi/:id/materiali' || rotta === '/api/materiali/:id' || ((u.aree || []).includes('accompagnatore') && /\/(accompagnatore|attesa)$/.test(rotta))))
+    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/me/') || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta)) || rotta === '/api/eventi/:id/materiali' || rotta === '/api/eventi/:id/sopralluogo' || rotta === '/api/materiali/:id' || ((u.aree || []).includes('accompagnatore') && /\/(accompagnatore|attesa)$/.test(rotta))))
       throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
     if (!RUOLI_ORG.includes(req.utente.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
       const m = rotta.startsWith('/api/eventi/:id') ? [null, req.params.id] : null;
@@ -426,6 +426,30 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const q = Math.max(1, Math.min(9999, Number(b.quantita) || 1)); let scena = null;
     if (b.scena_id) { const { rows: [s] } = await pool.query('select id from scena where id=$1 and evento_id=$2', [b.scena_id, req.params.id]); if (!s) throw httpErr(400, 'scena non valida'); scena = s.id; }
     return (await pool.query('insert into scena_materiale (evento_id, scena_id, nome, quantita, nota, ordine) values ($1,$2,$3,$4,$5,(select coalesce(max(ordine),0)+1 from scena_materiale where evento_id=$1)) returning id, scena_id, nome, quantita, nota, pronto', [req.params.id, scena, nome, q, b.nota ? String(b.nota).slice(0, 300) : null])).rows[0];
+  });
+  // ── sopralluogo: posizione delle scene sulla mappa e percorso registrato (dal telefono o disegnato al PC) ──
+  const num = (v, min, max) => { const n = Number(v); return Number.isFinite(n) && n >= min && n <= max ? n : null; };
+  app.get('/api/eventi/:id/sopralluogo', async (req) => {
+    const ruolo = await ruoloMateriali(pool, req.utente, req.params.id);
+    const { rows: [e] } = await pool.query('select id, nome, lat, lng, segreteria_lat, segreteria_lng, percorso from evento where id=$1', [req.params.id]); if (!e) throw httpErr(404, 'evento inesistente');
+    const scene = (await pool.query('select id, codice, titolo, lat, lng from scena where evento_id=$1 order by ordine, codice', [req.params.id])).rows;
+    return { ruolo, evento: { id: e.id, nome: e.nome, lat: e.lat, lng: e.lng }, scene, percorso: e.percorso || [] };
+  });
+  app.put('/api/eventi/:id/sopralluogo', async (req) => {
+    if (await ruoloMateriali(pool, req.utente, req.params.id) !== 'gestore') throw httpErr(403, 'solo la direzione e l\'organizzazione modificano il sopralluogo');
+    const b = req.body || {};
+    return inTransazione(pool, async (db) => {
+      if (Array.isArray(b.percorso)) {
+        const p = b.percorso.slice(0, 5000).map((x) => [num(x[0], -90, 90), num(x[1], -180, 180)]).filter((x) => x[0] !== null && x[1] !== null).map((x) => [Math.round(x[0] * 1e6) / 1e6, Math.round(x[1] * 1e6) / 1e6]);
+        await db.query('update evento set percorso=$2::jsonb, updated_at=now() where id=$1', [req.params.id, JSON.stringify(p)]);
+      }
+      for (const s of Array.isArray(b.scene) ? b.scene : []) {
+        const la = s.lat === null ? null : num(s.lat, -90, 90), lo = s.lng === null ? null : num(s.lng, -180, 180);
+        if (s.lat !== null && (la === null || lo === null)) throw httpErr(400, 'coordinate non valide');
+        await db.query('update scena set lat=$3, lng=$4 where id=$1 and evento_id=$2', [s.id, req.params.id, la, lo]);
+      }
+      return { ok: true };
+    });
   });
   app.patch('/api/materiali/:id', async (req) => {
     const { rows: [m] } = await pool.query('select * from scena_materiale where id=$1', [req.params.id]); if (!m) throw httpErr(404, 'materiale inesistente');

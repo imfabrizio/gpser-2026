@@ -38,6 +38,7 @@
           (org || ha('valutazione')) && ['#valutazione', 'Valutazione'],
           (ha('accompagnatore') || org || me.ruolo === 'giudice_master') && ['#accompagnatore', 'Accompagnatore'],
           (org || (me.logistica || []).length) && ['#materiali', 'Materiali'],
+          (org || (me.logistica || []).length) && ['#sopralluogo', 'Sopralluogo'],
           (org || ha('valutazione')) && ['#offline', 'Offline'],
           org && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame'].includes(a)) && ['/admin.html#hub:gara', 'Gestione'],
           ha('classifiche') && ['#monitor', 'Monitor'], ['#documenti', 'Documentazione']] : [];

@@ -2312,3 +2312,17 @@ test('MAT-1: materiali delle scene (gestore scrive, logistica legge e segna pron
   await chiama('PUT', `/api/eventi/${ev}/staff`, { token: O, body: { direzione: [], logistica: [] } });
   await pool.query('delete from assegnazione where scheda_id=$1 and utente_id=$2', [sk.id, gid]);
 });
+
+test('SOP-1: sopralluogo — il gestore salva percorso e posizioni, la logistica legge soltanto', async () => {
+  const O = tok['org@t'];
+  const { rows: [sc] } = await pool.query('select id from scena where evento_id=$1 order by ordine limit 1', [ev]);
+  const r = await chiama('PUT', `/api/eventi/${ev}/sopralluogo`, { token: O, body: { percorso: [[44.4, 10.59], [44.401, 10.591], ['x', 1]], scene: [{ id: sc.id, lat: 44.4005, lng: 10.5905 }] } });
+  assert.equal(r.statusCode, 200, r.body);
+  const g = json(await chiama('GET', `/api/eventi/${ev}/sopralluogo`, { token: O }));
+  assert.equal(g.percorso.length, 2); assert.equal(Number(g.scene.find((s) => s.id === sc.id).lat), 44.4005);
+  assert.equal((await chiama('PUT', `/api/eventi/${ev}/sopralluogo`, { token: O, body: { scene: [{ id: sc.id, lat: 999, lng: 1 }] } })).statusCode, 400);
+  const lid = (await pool.query("select id from utente where email='log@t'")).rows[0].id;
+  await chiama('PUT', `/api/eventi/${ev}/staff`, { token: O, body: { direzione: [], logistica: [lid] } });
+  const lg = await chiama('GET', `/api/eventi/${ev}/sopralluogo`, { token: tok['log@t'] }); assert.equal(json(lg).ruolo, 'logistica');
+  assert.equal((await chiama('PUT', `/api/eventi/${ev}/sopralluogo`, { token: tok['log@t'], body: { percorso: [] } })).statusCode, 403);
+});
