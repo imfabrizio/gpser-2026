@@ -112,7 +112,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       if (idEv) { const { rows: [e] } = await pool.query('select id, tipo, livello, comitato, regione from evento where id=$1', [idEv]);
         if (e) { const acc = await accessoEvento(pool, req.utente, e); if (!acc) throw httpErr(403, 'evento di un altro ente'); if (acc === 'lettura' && req.method !== 'GET') throw httpErr(403, 'il tuo comitato è invitato: puoi consultare l\'allenamento ma non modificarlo'); } }
     }
-    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/me/') || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta)) || ((u.aree || []).includes('accompagnatore') && /\/(accompagnatore|attesa)$/.test(rotta))))
+    if (req.utente.ruolo === 'partecipante' && !(rotta === '/api/me' || rotta.startsWith('/api/me/') || rotta.startsWith('/api/mfa') || (req.method === 'GET' && ['/api/avvisi', '/api/eventi', '/api/documenti'].includes(rotta)) || rotta === '/api/eventi/:id/materiali' || rotta === '/api/materiali/:id' || ((u.aree || []).includes('accompagnatore') && /\/(accompagnatore|attesa)$/.test(rotta))))
       throw httpErr(403, 'permesso negato');            // il partecipante vede solo home e notizie
     if (!RUOLI_ORG.includes(req.utente.ruolo) && u.evento_id) {     // chi è legato a una gara non esce da quella gara
       const m = rotta.startsWith('/api/eventi/:id') ? [null, req.params.id] : null;
@@ -126,7 +126,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   const soloOrg = async (req) => { if (!RUOLI_ORG.includes(req.utente.ruolo)) throw httpErr(403, 'permesso negato'); };
   const soloAdmin = async (req) => { if (req.utente.ruolo !== 'admin') throw httpErr(403, 'solo admin'); };
   // il giudice accede solo alle schede che gli sono assegnate
-  const accessoScheda = async (utente, schedaId) => {
+  const accessoScheda = async (utente, schedaId, interno = false) => {
     if (utente.ruolo === 'organizzazione') {
       const { rows: [s] } = await pool.query('select sc.evento_id from scena_scheda s join scena sc on sc.id=s.scena_id where s.id=$1', [schedaId]);
       if (!s) throw httpErr(404, 'scheda inesistente');
@@ -140,6 +140,12 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
        union all select 1 from scena_scheda s join scena sc on sc.id = s.scena_id join evento_direzione d on d.evento_id = sc.evento_id
         where s.id=$1 and d.utente_id=$2`, [schedaId, utente.id, utente.ruolo]);
     if (!rowCount) throw httpErr(403, 'scheda non assegnata');
+    // riservatezza: in una gara o olimpiade le schede si aprono solo quando la direzione apre la gara (la direzione le vede sempre; il pacchetto offline le prepara prima)
+    if (!interno) {
+      const { rows: [g] } = await pool.query(`select e.attivo, e.tipo, exists (select 1 from evento_direzione d where d.evento_id = e.id and d.utente_id = $2) as dir
+        from scena_scheda s join scena sc on sc.id = s.scena_id join evento e on e.id = sc.evento_id where s.id = $1`, [schedaId, utente.id]);
+      if (g && ['gara', 'olimpiadi'].includes(g.tipo) && !g.attivo && !g.dir) throw httpErr(403, 'la gara non è ancora aperta: le schede si vedono quando la direzione la apre');
+    }
   };
 
   app.post('/api/login', async (req) => {
@@ -356,12 +362,13 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
          (select json_agg(json_build_object('id', s.id, 'slot', s.slot, 'titolo', s.titolo, 'simulatore', s.simulatore) order by s.slot)
             from scena_scheda s
             where s.scena_id = sc.id
+              and ($2::text in ('admin','organizzazione') or ev.attivo or ev.tipo not in ('gara','olimpiadi') or exists (select 1 from evento_direzione dd where dd.evento_id = sc.evento_id and dd.utente_id = $3::uuid))
               and ($2::text in ('admin','organizzazione') or exists
                    (select 1 from assegnazione a where a.scheda_id = s.id and a.utente_id = $3::uuid)
                   or ($2::text = 'giudice_master' and exists
                    (select 1 from scena_master m where m.scena_id = sc.id and m.utente_id = $3::uuid))
                   or exists (select 1 from evento_direzione d where d.evento_id = sc.evento_id and d.utente_id = $3::uuid))) as schede
-       from scena sc where sc.evento_id=$1 order by sc.ordine, sc.codice`,
+       from scena sc join evento ev on ev.id = sc.evento_id where sc.evento_id=$1 order by sc.ordine, sc.codice`,
       [req.params.id, req.utente.ruolo, req.utente.id]);
     return rows;
   });
@@ -398,6 +405,40 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'staff_gara','evento',$2,$3)`, [req.utente.id, req.params.id, JSON.stringify({ direzione: dir, logistica: log })]);
     return { ok: true, direzione: dir.length, logistica: log.length };
   }));
+  // ── materiali delle scene: li gestisce chi organizza la gara (organizzazione con accesso alla gara, admin, direzione); la logistica li vede e segna quelli pronti. Mai le schede ──
+  const ruoloMateriali = async (db, utente, eventoId) => {
+    if (utente.ruolo === 'admin' || utente.admin) return 'gestore';
+    if (utente.ruolo === 'organizzazione') { await verificaAccessoEvento(db, utente, eventoId, false); return 'gestore'; }
+    if ((await db.query('select 1 from evento_direzione where evento_id=$1 and utente_id=$2', [eventoId, utente.id])).rowCount) return 'gestore';
+    if ((await db.query('select 1 from evento_logistica where evento_id=$1 and utente_id=$2', [eventoId, utente.id])).rowCount) return 'logistica';
+    throw httpErr(403, 'non fai parte dello staff di questa gara');
+  };
+  app.get('/api/eventi/:id/materiali', async (req) => {
+    const ruolo = await ruoloMateriali(pool, req.utente, req.params.id);
+    const scene = (await pool.query('select id, codice, titolo from scena where evento_id=$1 order by ordine, codice', [req.params.id])).rows;
+    const m = (await pool.query('select id, scena_id, nome, quantita, nota, pronto from scena_materiale where evento_id=$1 order by ordine, created_at', [req.params.id])).rows;
+    const totali = (await pool.query(`select min(nome) as nome, sum(quantita)::int as quantita, count(*) filter (where pronto)::int as pronti, count(*)::int as righe from scena_materiale where evento_id=$1 group by lower(trim(nome)) order by min(nome)`, [req.params.id])).rows;
+    return { ruolo, scene: scene.map((s) => ({ ...s, materiali: m.filter((x) => x.scena_id === s.id) })), generici: m.filter((x) => !x.scena_id), totali };
+  });
+  app.post('/api/eventi/:id/materiali', async (req) => {
+    if (await ruoloMateriali(pool, req.utente, req.params.id) !== 'gestore') throw httpErr(403, 'solo la direzione e l\'organizzazione modificano i materiali');
+    const b = req.body || {}, nome = String(b.nome || '').trim().slice(0, 120); if (!nome) throw httpErr(400, 'scrivi il nome del materiale');
+    const q = Math.max(1, Math.min(9999, Number(b.quantita) || 1)); let scena = null;
+    if (b.scena_id) { const { rows: [s] } = await pool.query('select id from scena where id=$1 and evento_id=$2', [b.scena_id, req.params.id]); if (!s) throw httpErr(400, 'scena non valida'); scena = s.id; }
+    return (await pool.query('insert into scena_materiale (evento_id, scena_id, nome, quantita, nota, ordine) values ($1,$2,$3,$4,$5,(select coalesce(max(ordine),0)+1 from scena_materiale where evento_id=$1)) returning id, scena_id, nome, quantita, nota, pronto', [req.params.id, scena, nome, q, b.nota ? String(b.nota).slice(0, 300) : null])).rows[0];
+  });
+  app.patch('/api/materiali/:id', async (req) => {
+    const { rows: [m] } = await pool.query('select * from scena_materiale where id=$1', [req.params.id]); if (!m) throw httpErr(404, 'materiale inesistente');
+    const ruolo = await ruoloMateriali(pool, req.utente, m.evento_id), b = req.body || {};
+    if (ruolo === 'logistica' && Object.keys(b).some((k) => k !== 'pronto')) throw httpErr(403, 'la logistica può solo segnare i materiali pronti');
+    const nome = b.nome === undefined ? m.nome : (String(b.nome).trim().slice(0, 120) || m.nome), q = b.quantita === undefined ? m.quantita : Math.max(1, Math.min(9999, Number(b.quantita) || m.quantita));
+    return (await pool.query('update scena_materiale set nome=$2, quantita=$3, nota=$4, pronto=$5 where id=$1 returning id, scena_id, nome, quantita, nota, pronto', [m.id, nome, q, b.nota === undefined ? m.nota : (b.nota ? String(b.nota).slice(0, 300) : null), b.pronto === undefined ? m.pronto : !!b.pronto])).rows[0];
+  });
+  app.delete('/api/materiali/:id', async (req) => {
+    const { rows: [m] } = await pool.query('select evento_id from scena_materiale where id=$1', [req.params.id]); if (!m) throw httpErr(404, 'materiale inesistente');
+    if (await ruoloMateriali(pool, req.utente, m.evento_id) !== 'gestore') throw httpErr(403, 'solo la direzione e l\'organizzazione eliminano i materiali');
+    await pool.query('delete from scena_materiale where id=$1', [req.params.id]); return { ok: true };
+  });
   // ── allenamento del comitato: comitati invitati (consultano l'allenamento, non lo modificano) ──
   const soloAllenamento = async (id) => { const { rows: [e] } = await pool.query('select id, tipo from evento where id=$1', [id]); if (!e) throw httpErr(404, 'evento inesistente'); if (e.tipo !== 'allenamento') throw httpErr(400, 'solo gli allenamenti si aprono ad altri comitati'); };
   app.get('/api/eventi/:id/comitati-invitati', { preHandler: soloOrg }, async (req) => (await pool.query('select comitato from evento_comitato_invitato where evento_id=$1 order by comitato', [req.params.id])).rows.map((r) => r.comitato));
@@ -583,7 +624,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/schede/:id', async (req) => {
     const { rows: [s] } = await pool.query('select * from scena_scheda where id=$1', [req.params.id]);
     if (!s) throw httpErr(404, 'scheda inesistente');
-    await accessoScheda(req.utente, s.id);
+    await accessoScheda(req.utente, s.id, req.headers['x-offline-interno'] === INTERNO);
     const voci = (await pool.query('select * from scena_scheda_voce where scheda_id=$1 order by ordine', [s.id])).rows;
     const { rows: [ve] } = await pool.query('select e.id, e.tipo, e.soglia_pct, e.mostra_punteggi from scena sc join evento e on e.id = sc.evento_id where sc.id=$1', [s.scena_id]);
     s.evento = ve;
@@ -644,7 +685,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/schede/:id/esito.pdf', async (req, reply) => {
     const { rows: [s] } = await pool.query('select * from scena_scheda where id=$1', [req.params.id]);
     if (!s) throw httpErr(404, 'scheda inesistente');
-    await accessoScheda(req.utente, s.id);
+    await accessoScheda(req.utente, s.id, req.headers['x-offline-interno'] === INTERNO);
     const sq = req.query.squadra;
     if (!/^[0-9a-f-]{36}$/i.test(sq || '')) throw httpErr(400, 'squadra non valida');
     const pdf = await generaEsito(s, sq, { org: RUOLI_ORG.includes(req.utente.ruolo) });
@@ -896,7 +937,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   // ── compilazione ──
   app.get('/api/compilazioni', async (req) => {
     const { scheda, squadra } = req.query;
-    await accessoScheda(req.utente, scheda);
+    await accessoScheda(req.utente, scheda, req.headers['x-offline-interno'] === INTERNO);
     const { rows: [c] } = await pool.query('select * from compilazione where scheda_id=$1 and squadra_id=$2', [scheda, squadra]);
     const risposte = c ? (await pool.query('select voce_id, livello, updated_at from risposta where compilazione_id=$1 and livello is not null', [c.id])).rows : [];
     // cosa può fare chi guarda: la scheda chiusa la riaprono il master (al giudice) e la direzione gara; il giudice da solo no

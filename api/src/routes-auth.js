@@ -9,13 +9,14 @@ import { nuovoSegreto, verificaTotp, cifra, decifra, otpauth, nuoviCodiciRecuper
 export const SQL_UTENTE = `select u.*,
   coalesce((select array_agg(distinct a) from ruolo r2, unnest(r2.aree) a where r2.codice = u.ruolo or r2.codice in (select x.ruolo from utente_ruolo_extra x where x.utente_id = u.id) or r2.codice in (select gr.ruolo from utente_gruppo ug join gruppo_ruolo gr on gr.gruppo = ug.gruppo where ug.utente_id = u.id)), '{}') as aree,
   coalesce((select array_agg(distinct y) from (select x.ruolo as y from utente_ruolo_extra x where x.utente_id = u.id union select gr.ruolo from utente_gruppo ug join gruppo_ruolo gr on gr.gruppo = ug.gruppo where ug.utente_id = u.id) q), '{}') as ruoli_extra,
+  coalesce((select json_agg(l.evento_id) from evento_logistica l join evento e on e.id = l.evento_id where l.utente_id = u.id and not e.archiviato), '[]'::json) as ev_logistica,
   -- accessi legati a un evento: chi è iscritto a una gara come giudice / giudice master ha quell'accesso solo per quella gara
   coalesce((select json_agg(json_build_object('evento_id', i.evento_id, 'ruolo', i.ruolo)) from iscrizione i join partecipante p on p.id = i.partecipante_id join evento e on e.id = i.evento_id
              where p.utente_id = u.id and not e.archiviato and i.ruolo in ('giudice','giudice_master')), '[]'::json) as ev_ruoli,
   coalesce((select array_agg(i.evento_id) from iscrizione i join partecipante p on p.id = i.partecipante_id join evento e on e.id = i.evento_id
              where p.utente_id = u.id and not e.archiviato and i.ruolo = 'organizzazione'), '{}') as ev_org from utente u`;
 export const mfaObbligatoria = (u, via) => process.env.MFA_ORG !== '0' && eStaff(u) && !u.mfa_attiva && via === 'pwd';
-export const profilo = (u, via) => ({ id: u.id, nome: u.nome, email: u.email, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, ruoli_extra: u.ruoli_extra || [], per_evento: !!u.per_evento, admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, tema: u.tema ?? null, preferenze: u.preferenze || {}, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
+export const profilo = (u, via) => ({ id: u.id, nome: u.nome, email: u.email, ruolo: ruoloEffettivo(u), ruolo_codice: u.ruolo, ruoli_extra: u.ruoli_extra || [], per_evento: !!u.per_evento, admin: !!u.admin, aree: u.admin ? Object.keys(AREE) : (u.aree || []), evento_id: u.evento_id, logistica: u.ev_logistica || [], tema: u.tema ?? null, preferenze: u.preferenze || {}, mfa_attiva: !!u.mfa_attiva, mfa_da_configurare: mfaObbligatoria(u, via) });
 export const creaSessione = (u, via) => ({ token: firmaToken({ id: u.id, via }), utente: profilo(u, via) });
 
 // ── provider esterni (OpenID Connect, flusso "authorization code" + PKCE) ──

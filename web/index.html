@@ -398,6 +398,7 @@ async function vistaHome() {
   const gestioneGara = org() && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame'].includes(a));
   const tileGara = (aree.includes('valutazione') ? tileF('#valutazione', 'valutazione', 'Valutazione', esc(ev.nome)) : '')
     + (aree.includes('accompagnatore') || org() || master() ? tileF('#accompagnatore', 'monitor', 'Accompagnatore', 'Segna le squadre in attesa davanti alle scene') : '')
+    + (org() || (me.logistica || []).length ? tileF('#materiali', 'libreria', 'Materiali', 'Cosa serve in ogni scena e cosa è già pronto') : '')
     + (org() || aree.includes('valutazione') ? tileF('#offline', 'monitor', 'Offline', 'Prepara un tablet per le scene senza rete e sincronizza') : '')
     + (gestioneGara ? tileF('/admin.html#hub:gara', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '')
     + (gestioneGara && aree.includes('classifiche') ? tileF('#monitor', 'monitor', 'Monitor', 'Avanzamento delle schede') : '');
@@ -816,6 +817,38 @@ async function vistaOffline() {
       if (!r.errori) setTimeout(vistaOffline, 2500); else $('#of_sync').disabled = false; }
     catch (e) { $('#of_r').innerHTML = `<span class="err">${esc(e.message)}</span>`; $('#of_sync').disabled = false; } };
 }
+// ── materiali delle scene: chi organizza li scrive, la logistica li vede e segna quelli pronti (mai le schede) ──
+async function vistaMateriali() {
+  $('#titolo').textContent = 'Materiali'; $('#app').classList.remove('largo');
+  const tutti = await api('/eventi').catch(() => []);
+  let evs = tutti.filter((e) => ['gara', 'olimpiadi', 'allenamento'].includes(e.tipo) && !e.archiviato);
+  if (!org()) evs = evs.filter((e) => (me.logistica || []).includes(e.id));
+  if (!evs.length) { $('#app').innerHTML = '<div class="card">Nessuna gara con materiali da gestire.</div>'; return; }
+  let id = localStorage.getItem('ev_mat') || localStorage.getItem('ev'); if (!evs.some((e) => e.id === id)) id = (evs.find((e) => e.attivo) || evs[0]).id;
+  const D = await api(`/eventi/${id}/materiali`).catch((e) => ({ errore: e.message }));
+  if (D.errore) { $('#app').innerHTML = `<div class="card err">${esc(D.errore)}</div>`; return; }
+  const gestore = D.ruolo === 'gestore';
+  const riga = (m) => `<div class="mat" data-id="${m.id}" style="display:grid;grid-template-columns:34px 1fr 76px ${gestore ? '1fr 40px' : '1fr'};gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eceef1">
+      <input type="checkbox" class="m_p" ${m.pronto ? 'checked' : ''} aria-label="Pronto" style="width:24px;height:24px">
+      ${gestore ? `<input class="m_n" value="${esc(m.nome)}"><input class="m_q num" type="number" min="1" value="${m.quantita}"><input class="m_t" placeholder="nota" value="${esc(m.nota || '')}"><button class="x p m_d" title="Elimina" aria-label="Elimina">×</button>`
+        : `<b>${esc(m.nome)}</b><span>× ${m.quantita}</span><small>${esc(m.nota || '')}</small>`}</div>`;
+  const nuovo = (sid) => gestore ? `<div class="mat-n" data-s="${sid || ''}" style="display:grid;grid-template-columns:1fr 76px 1fr auto;gap:8px;margin-top:8px"><input class="n_n" placeholder="Nuovo materiale"><input class="n_q num" type="number" min="1" value="1"><input class="n_t" placeholder="nota"><button class="b p n_ok">Aggiungi</button></div>` : '';
+  const blocco = (tit, lista, sid, nota) => `<div class="card"><h3>${tit}</h3>${nota ? `<p class="nota">${nota}</p>` : ''}${lista.length ? lista.map(riga).join('') : '<p class="nota"><em>Nessun materiale.</em></p>'}${nuovo(sid)}</div>`;
+  $('#app').innerHTML = `<div class="card"><h3>Materiali</h3><label>Gara</label><select id="m_ev">${evs.map((e) => `<option value="${e.id}" ${e.id === id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select>
+      <p class="nota">${gestore ? 'Scrivi cosa serve in ogni scena. La logistica vede questo elenco e segna ciò che è pronto; non vede le schede di valutazione.' : 'Segna con la spunta ciò che è pronto.'}</p></div>
+    <div class="card"><h3>Totale da preparare</h3>${D.totali.length ? `<table>${D.totali.map((t) => `<tr><td>${esc(t.nome)}</td><td>× ${t.quantita}</td><td><small>${t.pronti}/${t.righe} pronti</small></td></tr>`).join('')}</table>` : '<p class="nota"><em>Ancora nessun materiale.</em></p>'}</div>
+    ${blocco('Generici della gara', D.generici, null, 'Valgono per tutta la gara: per esempio i gazebo dell\'attesa davanti alle scene.')}
+    ${D.scene.map((sc) => blocco(`Scena ${esc(sc.codice)} · ${esc(sc.titolo)}`, sc.materiali, sc.id)).join('')}`;
+  $('#m_ev').onchange = () => { localStorage.setItem('ev_mat', $('#m_ev').value); vistaMateriali(); };
+  const salva = (el, body) => api(`/materiali/${el.closest('.mat').dataset.id}`, { method: 'PATCH', body }).catch((e) => alert(e.message));
+  document.querySelectorAll('.m_p').forEach((c) => { c.onchange = async () => { await salva(c, { pronto: c.checked }); vistaMateriali(); }; });
+  document.querySelectorAll('.m_n').forEach((i) => { i.onchange = () => salva(i, { nome: i.value }); });
+  document.querySelectorAll('.m_q').forEach((i) => { i.onchange = async () => { await salva(i, { quantita: i.value }); vistaMateriali(); }; });
+  document.querySelectorAll('.m_t').forEach((i) => { i.onchange = () => salva(i, { nota: i.value }); });
+  document.querySelectorAll('.m_d').forEach((b) => { b.onclick = async () => { if (!confirm('Eliminare questo materiale?')) return; await api(`/materiali/${b.closest('.mat').dataset.id}`, { method: 'DELETE' }).catch((e) => alert(e.message)); vistaMateriali(); }; });
+  document.querySelectorAll('.n_ok').forEach((b) => { b.onclick = async () => { const r = b.closest('.mat-n'), nome = r.querySelector('.n_n').value.trim(); if (!nome) return r.querySelector('.n_n').focus();
+    await api(`/eventi/${id}/materiali`, { body: { scena_id: r.dataset.s || null, nome, quantita: r.querySelector('.n_q').value, nota: r.querySelector('.n_t').value } }).catch((e) => alert(e.message)); vistaMateriali(); }; });
+}
 async function route() {
   await OFFP;
   if (OFF) {
@@ -853,6 +886,7 @@ async function route() {
     if (v === 'documenti') return await vistaDocumenti();
     if (v === 'storico') return await vistaStorico();
     if (v === 'inviti') return await vistaInviti();
+    if (v === 'materiali') return await vistaMateriali();
     return await vistaHome();
   } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }

@@ -26,6 +26,7 @@ before(async () => {
   const rep = await inTransazione(pool, (db) => importaExcel(db, fileURLToPath(new URL('./fixtures/scena-alfa.xlsx', import.meta.url)),
     { eventoCodice: 'T-1', nomeEvento: 'Test', titoloStampa: 'Gara Test', luogo: 'Piacenza', data: '2026-04-18' }));
   ev = rep.eventoId;
+  await pool.query('update evento set attivo=true where id=$1', [ev]);   // gara aperta: i giudici vedono le schede (la riservatezza prima dell'apertura ha il suo test)
   for (const [email, ruolo, admin] of [['org@t', 'organizzazione', false], ['giu@t', 'giudice', false], ['adm@t', 'organizzazione', true]])
     await pool.query('insert into utente (email, nome, ruolo, admin, password_hash) values ($1,$2,$3,$4,$5)', [email, email, ruolo, admin, hashPassword('pw')]);
   app = buildApp(pool);
@@ -181,6 +182,7 @@ test('squadre: il numero non viene mai riusato; un solo evento attivo', async ()
   const { rows: [e2] } = await pool.query(`select id from evento where codice='T-2'`);
   await chiama('POST', `/api/eventi/${e2.id}/attiva`, { token: tok['org@t'] });
   assert.equal((await pool.query('select count(*)::int n from evento where attivo')).rows[0].n, 1);
+  await chiama('POST', `/api/eventi/${ev}/attiva`, { token: tok['org@t'] });   // la gara di prova torna aperta
 });
 
 test('libreria: stessa voce con punteggi diversi in due patologie; la scena è uno snapshot', async () => {
@@ -2279,4 +2281,34 @@ test('SCA-2: sostituisci una scala sposta le voci della libreria, poi si può el
   assert.equal((await chiama('DELETE', '/api/libreria/scale/Scala%20A', { token: O })).statusCode, 200);
   await pool.query("delete from patologia_voce where ordine=998 and sezione='x'");
   assert.equal((await chiama('DELETE', '/api/libreria/scale/Scala%20B', { token: O })).statusCode, 200);
+});
+
+test('MAT-1: materiali delle scene (gestore scrive, logistica legge e segna pronto) e schede riservate finché la gara non è aperta', async () => {
+  const O = tok['org@t'];
+  const lid = await nuovoUtente('log@t', 'partecipante');
+  const { rows: [sc] } = await pool.query('select id from scena where evento_id=$1 order by ordine limit 1', [ev]);
+  const m1 = json(await chiama('POST', `/api/eventi/${ev}/materiali`, { token: O, body: { scena_id: sc.id, nome: 'Barella', quantita: 2 } }));
+  const m2 = json(await chiama('POST', `/api/eventi/${ev}/materiali`, { token: O, body: { nome: 'Gazebo attesa', quantita: 4 } }));   // generico
+  assert.equal((await chiama('GET', `/api/eventi/${ev}/materiali`, { token: lid && tok['log@t'] })).statusCode, 403);   // non è in logistica
+  assert.equal((await chiama('PUT', `/api/eventi/${ev}/staff`, { token: O, body: { direzione: [], logistica: [lid] } })).statusCode, 200);
+  const rL = await chiama('GET', `/api/eventi/${ev}/materiali`, { token: tok['log@t'] }); assert.equal(rL.statusCode, 200, rL.body); const L = json(rL);
+  assert.equal(L.ruolo, 'logistica'); assert.equal(L.generici.length, 1); assert.equal(L.scene.find((s) => s.id === sc.id).materiali.length, 1); assert.ok(L.totali.some((t) => t.nome === 'Barella' && t.quantita === 2));
+  assert.equal((await chiama('POST', `/api/eventi/${ev}/materiali`, { token: tok['log@t'], body: { nome: 'x' } })).statusCode, 403);
+  assert.equal((await chiama('PATCH', `/api/materiali/${m1.id}`, { token: tok['log@t'], body: { nome: 'Altro' } })).statusCode, 403);
+  assert.equal(json(await chiama('PATCH', `/api/materiali/${m1.id}`, { token: tok['log@t'], body: { pronto: true } })).pronto, true);
+  // la logistica non vede le schede
+  const { rows: [sk] } = await pool.query('select id from scena_scheda where scena_id=$1 limit 1', [sc.id]);
+  assert.equal((await chiama('GET', `/api/schede/${sk.id}`, { token: tok['log@t'] })).statusCode, 403);
+  // gara non aperta: nemmeno il giudice assegnato vede la scheda; la direzione sì
+  const gid = (await pool.query("select id from utente where email='giu@t'")).rows[0].id;
+  await pool.query('insert into assegnazione (scheda_id, utente_id) values ($1,$2) on conflict do nothing', [sk.id, gid]);
+  assert.equal((await chiama('GET', `/api/schede/${sk.id}`, { token: tok['giu@t'] })).statusCode, 200);
+  await pool.query('update evento set attivo=false where id=$1', [ev]);
+  assert.equal((await chiama('GET', `/api/schede/${sk.id}`, { token: tok['giu@t'] })).statusCode, 403);
+  assert.equal(json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: tok['giu@t'] })).every((s) => !s.schede), true);
+  assert.equal((await chiama('GET', `/api/schede/${sk.id}`, { token: O })).statusCode, 200);
+  await pool.query('update evento set attivo=true where id=$1', [ev]);
+  assert.equal((await chiama('DELETE', `/api/materiali/${m2.id}`, { token: O })).statusCode, 200);
+  await chiama('PUT', `/api/eventi/${ev}/staff`, { token: O, body: { direzione: [], logistica: [] } });
+  await pool.query('delete from assegnazione where scheda_id=$1 and utente_id=$2', [sk.id, gid]);
 });
