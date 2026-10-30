@@ -373,7 +373,7 @@ async function vistaHome() {
   // due mondi: chi ha accesso a entrambi sceglie all'ingresso; ciascuno vede solo le proprie cose
   const haForm = org() && (me.admin || aree.some((a) => ['esami', 'formazione_esame'].includes(a))), haGara = !soloFormazione;
   const haComune = org() && (me.admin || aree.includes('anagrafiche'));
-  const tileComune = haComune ? tileF('/admin.html#hub:comune', 'documenti', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli') : '';
+  const tileComune = haComune ? tileF('/admin.html#hub:comune', 'documenti', 'Gestione comune', 'Persone e accessi, comitati, ruoli e permessi') : '';
   let mondo = haGara && haForm ? localStorage.getItem('mondo') : (haForm ? 'formazione' : 'gara');
   const cambia = '';   // l'area si cambia dal menu in alto
   if (org() && (haForm || haComune) && ['gara', 'formazione'].includes(mondo) && window.Barra) $('#titolo').textContent = Barra.titolo(mondo);

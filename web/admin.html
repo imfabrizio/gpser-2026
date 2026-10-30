@@ -46,6 +46,7 @@ body.corsi .csep{display:none}
   .scena { border-left:6px solid var(--rosso); padding:0; overflow:hidden } .scena.sosta { border-left-color:#7a8cab }
   .pers-l { margin-top:10px; border:1px solid #e3e5ea; border-radius:12px; overflow:hidden } .pers { border-top:1px solid #eceef2 } .pers:first-child { border-top:0 } .pers.ap { background:#f8f9fb }
   .pers-r { display:grid; grid-template-columns:36px minmax(160px,1.4fr) 1fr minmax(120px,1fr); align-items:center; gap:10px; padding:8px 12px } .pers-r .pt { width:30px; height:30px; padding:0; border:0; background:none; font-size:14px; cursor:pointer } .pers-r .pn { font-size:16px } .pers-r .pc { color:#555 } .muto { color:#888 }
+  .acc-box { background:#f6f7f9; border-radius:10px; padding:10px 12px; margin:8px 0; display:flex; flex-wrap:wrap; gap:8px; align-items:center } .acc-box small { flex-basis:100%; color:#555; font-weight:600 } .acc-box select { max-width:220px }
   .pers-d { padding:2px 16px 14px 58px } .pers-g { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:10px 24px; margin-bottom:8px } .pers-g > div { min-width:0; overflow-wrap:anywhere } .pers-q { margin:6px 0 } .pers-d .sez-a { margin-top:8px }
   @media (max-width:700px) { .pers-r { grid-template-columns:30px 1fr } .pers-r .pc, .pers-r .pa { grid-column:2 } .pers-d { padding-left:16px } }
   .sez-c { padding:10px 14px; border-top:1px solid #e3e5ea } .sez-t { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px } .sez-r { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 0; border-top:1px solid #f0f1f4 } .sez-a { display:flex; gap:8px; justify-content:flex-end; align-items:center }
@@ -68,7 +69,7 @@ body.corsi .csep{display:none}
   .navbar .val { background:var(--rosso); color:#fff; border-color:var(--rosso); }
   small, .nota { color:#666; font-size:12px; }
   .hub { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
-  .hubb { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:6px; background:#fff; border:2px solid var(--bordo); border-radius:18px; padding:26px 14px; cursor:pointer; font-family:inherit; min-height:190px; }
+  .hubb { display:flex; flex-direction:column; align-items:center; justify-content:flex-start; text-align:center; gap:6px; background:#fff; border:2px solid var(--bordo); border-radius:18px; padding:26px 14px; cursor:pointer; font-family:inherit; min-height:190px; }
   .hubb .ico { width:72px; height:72px; color:var(--rosso); background:#fdecee; border-radius:50%; display:flex; align-items:center; justify-content:center; }
   .aree { display:flex; flex-wrap:wrap; gap:6px 18px; margin:8px 0; } .ar { font-size:15px; color:inherit; display:flex; align-items:center; gap:6px; }
   .contatore { display:flex; align-items:center; gap:18px; flex-wrap:wrap; } .contatore .grande { font-size:38px; color:var(--rosso); } .barra { flex:1; min-width:140px; height:12px; background:#eee; border-radius:6px; overflow:hidden; } .barra i { display:block; height:100%; background:#2E7D32; }
@@ -167,17 +168,17 @@ window.chiudi = chiudi;
 
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
-const TABS = [['menu', 'Portale'], ['valutazione', 'Valutazione'], ['hub', 'Menu'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['discenti', 'Discenti'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['offline', 'Offline'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
+const TABS = [['menu', 'Portale'], ['valutazione', 'Valutazione'], ['hub', 'Menu'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['discenti', 'Discenti'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['offline', 'Offline'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Persone'], ['comitati', 'Comitati'], ['importa', 'Importa'],
   ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['statistiche', 'Statistiche corso'], ['storico', 'Esiti e storico'], ['backup', 'Backup'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
 const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', offline: 'scene', segreteria: 'segreteria', valutazione: 'valutazione', evento: 'gara', discenti: ['esami', 'gara'], scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: ['stampa', 'esami'], statistiche: ['esami', 'classifiche'], storico: ['esami', 'classifiche'], importa: 'importa' };
 const DESC = { valutazione: 'Inizia a valutare: scegli scena, scheda e squadra', discenti: 'Chi frequenta il corso: con loro si compongono gli equipaggi dei Mega Code', corsi: 'Corsi, Mega Code ed esami', evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', offline: 'Scene senza copertura: codici dei giudici, tablet e dispositivi', squadre: 'Squadre, comitato e componenti',
-  segreteria: 'Registra gli arrivi e stampa i badge', persone: 'Persone e requisiti', comitati: 'Elenco dei comitati, unità territoriali e nomi da correggere', importa: 'Carica le scene dai vecchi file Excel', libreria: 'Crea e modifica le schede, anche dei comitati', punteggi: 'Valore di MB, BE, SU, IN, NE per ogni scala',
+  segreteria: 'Registra gli arrivi e stampa i badge', persone: 'Anagrafica, qualifiche, accesso al sito e ruoli di ogni persona', comitati: 'Elenco dei comitati, unità territoriali e nomi da correggere', importa: 'Carica le scene dai vecchi file Excel', libreria: 'Crea e modifica le schede, anche dei comitati', punteggi: 'Valore di MB, BE, SU, IN, NE per ogni scala',
   classifiche: 'Generale, SEP, BLSD, Master, DIU', monitor: 'Avanzamento delle schede', stampa: 'Schede vuote o compilate, per scena o squadra', news: 'Avvisi per i partecipanti e notizie pubbliche', documenti: 'Regolamento, comunicazioni e manuali',
   richieste: 'Chi ha chiesto l\'accesso: approva e assegna il ruolo', ruoli: 'Crea ruoli e scegli a quali aree possono accedere', backup: 'Copia di sicurezza di database e sito, ogni 6 ore e quando vuoi', utenti: 'Accessi, ruoli e gara assegnata' };
 // tre mondi separati: si sceglie all'ingresso e dentro si vede solo ciò che li riguarda (il motore è lo stesso)
 const GRUPPI = [['gara', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede, squadre e classifiche', 'evento', ['valutazione', 'evento', 'scene', 'risorse', 'offline', 'squadre', 'segreteria', 'libreria', 'punteggi', 'classifiche', 'monitor', 'stampa', 'importa', 'news', 'documenti']],
   ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['valutazione', 'corsi', 'evento', 'discenti', 'scene', 'libreria', 'risorse', 'squadre', 'stampa', 'statistiche', 'storico', 'news']],
-  ['comune', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli', 'persone', ['persone', 'comitati', 'richieste', 'ruoli', 'utenti', 'backup']]];
+  ['comune', 'Gestione comune', 'Persone e accessi, comitati, ruoli e permessi', 'persone', ['persone', 'comitati', 'richieste', 'ruoli', 'backup']]];
 const DESC_CORSI = { stampa: 'Stampa di tutti i Mega Code del corso, vuoti o compilati con le X', statistiche: 'Dove i discenti sbagliano di più: voci e skill', storico: 'Esiti di ogni equipaggio; pubblicali ai discenti quando hai chiuso', evento: 'Periodo, luogo e dati del corso', risorse: 'Valutatori e simulatori delle scene dei Mega Code' };
 const SOLO_ADMIN = ['utenti', 'richieste', 'ruoli', 'backup'];
 const admin = () => me.ruolo === 'admin';
@@ -364,7 +365,7 @@ function tMenu() {
 function tHub() {
   const g = mondoCorrente() || mondiVisibili()[0]; if (!g) { $('#app').innerHTML = '<div class="card">Nessuna area disponibile per il tuo ruolo.</div>'; return; }
   const v = figliVisibili(g);
-  $('#app').innerHTML = `<h2 style="margin:4px 0 12px">${esc(g[1])}</h2><div class="griglia hub">${v.map((k) => `<button class="hubb" data-t="${k}"><i class="ico">${ICONE[k] || iconaMondo(g)}</i><b>${esc(nomeTab(k))}</b><span>${esc((g[0] === 'corsi' && DESC_CORSI[k]) || DESC[k] || '')}</span></button>`).join('')}</div>`;
+  $('#app').innerHTML = `<h2 style="margin:4px auto 12px">${esc(g[1])}</h2><div class="griglia hub">${v.map((k) => `<button class="hubb" data-t="${k}"><i class="ico">${ICONE[k] || iconaMondo(g)}</i><b>${esc(nomeTab(k))}</b><span>${esc((g[0] === 'corsi' && DESC_CORSI[k]) || DESC[k] || '')}</span></button>`).join('')}</div>`;
   document.querySelectorAll('.hubb').forEach((b) => { b.onclick = () => vai(b.dataset.t); });
   if (g[0] === 'comune' || g[0] === 'gara') if (me.ruolo === 'admin') api('/richieste/conteggio').then((c) => { const b = document.querySelector('.hubb[data-t=richieste]'); if (b && c.n) b.insertAdjacentHTML('afterbegin', `<em class="badge">${c.n}</em>`); }).catch(() => {});
 }
@@ -747,9 +748,11 @@ async function tPersone() {
   const q = (cache.qPersone || '').trim();
   const [lista, ruoliR, quals] = await Promise.all([api('/persone' + (q ? '?q=' + encodeURIComponent(q) : '')), admin() ? api('/ruoli') : Promise.resolve({ ruoli: [] }), api('/qualifiche')]);
   const ruoli = ruoliR.ruoli; QUALIFICHE = Object.fromEntries(quals.map((q) => [q.codice, q.nome]));
-  $('#app').innerHTML = `<div class="card"><h3>Anagrafica persone (${lista.length}${lista.length === 500 ? '+' : ''})</h3>
+  const vista = cache.soloAccesso ? lista.filter((p) => p.utente_id) : lista;
+  $('#app').innerHTML = `<div class="card"><h3>Persone (${vista.length}${lista.length === 500 ? '+' : ''})</h3>
     <div class="riga"><input id="pq" placeholder="Cerca per cognome, nome, comitato, codice fiscale" value="${esc(q)}"><div class="stretto"><button class="s" id="pqc">Cerca</button> <button class="b" id="pn">Nuova persona</button></div></div>
-    <div class="pers-l">${lista.map((p) => {
+    ${admin() ? `<label class="ar" style="margin:6px 0"><input type="checkbox" id="p_acc" ${cache.soloAccesso ? 'checked' : ''}> Solo chi ha un accesso al sito</label>` : ''}
+    <div class="pers-l">${vista.map((p) => {
       const aperta = pAperte.has(p.id), nomeRuolo = (c) => (ruoli.find((r) => r.codice === c) || {}).nome || c;
       const accesso = p.utente_id ? `<span class="tag ok">${esc(nomeRuolo(p.ruolo_codice) !== p.ruolo_codice ? nomeRuolo(p.ruolo_codice) : (p.ruolo_utente || 'Accesso'))}</span>${p.admin_utente ? '<span class="tag">admin</span>' : ''}` : '<small class="muto">senza accesso</small>';
       const dato = (et, v) => (v ? `<div><small>${et}</small><br>${esc(v)}</div>` : '');
@@ -758,9 +761,17 @@ async function tPersone() {
         ${aperta ? `<div class="pers-d"><div class="pers-g">${dato('Data di nascita', dataIt(p.data_nascita))}${dato('Provincia', p.provincia)}${dato('Email', p.email)}${dato('Codice fiscale', p.codice_fiscale || (p.ha_cf ? 'registrato' : ''))}${dato('Ruolo in gara', p.ruolo_gara ? (RUOLI_GARA[p.ruolo_gara] || p.ruolo_gara) : '')}${dato('Squadre', p.squadre ? String(p.squadre) : '')}</div>
           ${(p.qualifiche || []).length ? `<p class="pers-q"><small>Qualifiche</small><br>${p.qualifiche.map((q) => `<span class="tag">${esc(QUALIFICHE[q] || q)}</span>`).join('')}</p>` : ''}
           ${p.utente_id && (p.ruoli_extra || []).length ? `<p class="pers-q"><small>Ruoli aggiuntivi</small><br>${p.ruoli_extra.map((c) => `<span class="tag">${esc(nomeRuolo(c))}</span>`).join('')}</p>` : ''}
-          <div class="sez-a">${admin() ? `<button class="s p pr" data-id="${p.id}">Ruoli…</button>` : ''}<button class="s p pe" data-id="${p.id}">Modifica</button><button class="x p pd" data-id="${p.id}">Elimina</button></div></div>` : ''}</div>`; }).join('') || '<p><em>Nessuna persona.</em></p>'}</div>
+          ${admin() ? `<div class="acc-box"><small>Accesso al sito</small><br>${p.utente_id ? `<span class="tag ${p.accesso_attivo ? 'ok' : 'no'}">${p.accesso_attivo ? 'attivo' : 'disattivato'}</span> <span class="tag ${p.accesso_mfa ? 'ok' : ''}">MFA ${p.accesso_mfa ? 'sì' : 'no'}</span>
+            <button class="s p pw2" data-u="${p.utente_id}">Password</button> ${p.accesso_mfa ? `<button class="x p mfr2" data-u="${p.utente_id}">Reset MFA</button> ` : ''}<button class="s p at2" data-u="${p.utente_id}" data-a="${p.accesso_attivo}">${p.accesso_attivo ? 'Disattiva' : 'Riattiva'}</button>
+            <select class="ug2" data-u="${p.utente_id}" title="Gara a cui è legato (vuoto: la gara attiva)"><option value="">gara attiva</option>${eventi.map((e) => `<option value="${e.id}" ${e.id === p.accesso_evento ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select>` : '<em>nessun accesso</em> (serve l\'email in anagrafica)'}</div>` : ''}
+          <div class="sez-a">${admin() ? `<button class="s p pr" data-id="${p.id}">${p.utente_id ? 'Ruoli…' : 'Dai accesso…'}</button>` : ''}<button class="s p pe" data-id="${p.id}">Modifica</button><button class="x p pd" data-id="${p.id}">Elimina</button></div></div>` : ''}</div>`; }).join('') || '<p><em>Nessuna persona.</em></p>'}</div>
     <p class="nota">Dati personali: visibili solo a organizzazione e admin. Codice fiscale, email e data di nascita sono facoltativi.</p></div>`;
   const cerca = () => { cache.qPersone = $('#pq').value; render(); };
+  if ($('#p_acc')) $('#p_acc').onchange = () => { cache.soloAccesso = $('#p_acc').checked; render(); };
+  document.querySelectorAll('.pw2').forEach((b) => { b.onclick = () => { const x = prompt('Nuova password (min. 8 caratteri):'); if (x) fai(() => api(`/utenti/${b.dataset.u}`, { method: 'PATCH', body: { password: x } }), 'Password cambiata'); }; });
+  document.querySelectorAll('.mfr2').forEach((b) => { b.onclick = () => { if (confirm('Azzerare la MFA? Al prossimo accesso dovrà rifare la configurazione.')) fai(() => api(`/utenti/${b.dataset.u}/mfa-reset`, { body: {} }), 'MFA azzerata'); }; });
+  document.querySelectorAll('.at2').forEach((b) => { b.onclick = () => fai(() => api(`/utenti/${b.dataset.u}`, { method: 'PATCH', body: { attivo: b.dataset.a !== 'true' } }), 'Accesso aggiornato'); });
+  document.querySelectorAll('.ug2').forEach((c) => { c.onchange = () => fai(() => api(`/utenti/${c.dataset.u}`, { method: 'PATCH', body: { evento_id: c.value || null } }), 'Gara assegnata'); });
   $('#pqc').onclick = cerca; $('#pq').onkeydown = (e) => { if (e.key === 'Enter') cerca(); };
   $('#pn').onclick = () => formPersona(null);
   document.querySelectorAll('.pers-r').forEach((r) => { r.style.cursor = 'pointer'; r.onclick = (e) => { if (e.target.closest('.pr,.pe,.pd')) return; const id = r.closest('.pers').dataset.id; pAperte.has(id) ? pAperte.delete(id) : pAperte.add(id); tPersone(); }; });
