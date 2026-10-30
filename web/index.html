@@ -359,7 +359,8 @@ function menuGare(eventi, corrente) {
   const gruppi = [['In corso', eventi.filter((e) => statoGara(e) === 'in corso')], ['Prossime', eventi.filter((e) => statoGara(e) === 'prossima')], ['Passate', eventi.filter((e) => statoGara(e) === 'passata')]];
   return `<select id="selgara">${gruppi.filter(([, l]) => l.length).map(([n, l]) => `<optgroup label="${n}">${l.map((e) => `<option value="${e.id}" ${corrente && e.id === corrente.id ? 'selected' : ''}>${esc(e.nome)} · ${esc(e.luogo || '')} ${esc(e.data || '')}</option>`).join('')}</optgroup>`).join('')}</select>`;
 }
-async function vistaHome() {
+async function vistaHome() { await vistaHome0(); window.Barra && Barra.disegna('index'); window.Layout && Layout.disegna(); }
+async function vistaHome0() {
   $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'CRI Eventi';
   const aree = me.aree || [];
   const soloFormazione = org() && !me.admin && aree.every((a) => ['esami', 'formazione_esame', 'valutazione'].includes(a)) && !aree.includes('valutazione');   // es. istruttore con solo Esami
@@ -404,7 +405,7 @@ async function vistaHome() {
     + (gestioneGara && aree.includes('classifiche') ? tileF('#monitor', 'monitor', 'Monitor', 'Avanzamento delle schede') : '');
   $('#app').innerHTML = `${cambia}<div class="banner"><small>${tipoGara} ${statoGara(ev)}</small><h2>${esc(ev.nome)}</h2>
     <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
-    ${org() ? `<label>Cambia gara</label>${menuGare(eventi, ev)}` : ''}</div>
+    ${org() && eventi.length > 1 ? '<div style="margin-top:8px"><a href="#valutazione" style="color:#fff;font-weight:600">Cambia gara</a></div>' : ''}</div>
     ${tileGara.trim() ? `<div class="sezione-home"><h3>Gara</h3><div class="tiles">${tileGara}</div></div>` : ''}
     ${mappaHtml(ev, scene)}
     ${widgetHome}`;

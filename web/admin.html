@@ -223,7 +223,7 @@ async function aggiornaSx() {
   const t = $('#tabs'); if (!t.classList.contains('strumenti')) return;
   const att = (eventi.length ? eventi : await api('/eventi').catch(() => [])).find((e) => e.attivo);
   if (!t.classList.contains('strumenti')) return;
-  t.innerHTML = `${tab === 'menu' ? '' : bandaSez()}<div class="w"><h4>Gara attiva</h4>${att ? `<b class="n">${esc(att.nome)}</b><small>${esc([dataIt(att.data), att.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small>` : '<small>Nessuna gara attiva</small>'}</div>
+  t.innerHTML = `${tab === 'menu' ? '' : bandaSez()}${fam !== 'gara' ? '' : `<div class="w"><h4>Gara attiva</h4>${att ? `<b class="n">${esc(att.nome)}</b><small>${esc([dataIt(att.data), att.luogo].filter(Boolean).join(' · ') || 'data e luogo da indicare')}</small>` : '<small>Nessuna gara attiva</small>'}</div>`}
     <div class="w" id="sx_ri" hidden><h4>Da approvare</h4><b class="n"></b><a href="#" data-v="richieste">Apri le richieste</a></div><div class="w" id="cal_sx"></div>`;
   if (window.Widget) Widget.calendario($('#cal_sx'));
   t.querySelectorAll('[data-v]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); vai(a.dataset.v); }; });
