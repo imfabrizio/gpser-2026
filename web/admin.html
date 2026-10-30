@@ -40,7 +40,7 @@ body.corsi .csep{display:none}
   table.punteggi { table-layout:fixed; }
   table.punteggi th, table.punteggi td { text-align:center; padding:6px 2px; }
   table.punteggi th:first-child, table.punteggi td:first-child { text-align:left; }
-  table.punteggi td.uso { color:#555; font-size:13px } table.punteggi td.az { text-align:right; white-space:nowrap } table.punteggi td.az button { margin-left:4px; min-width:78px } table.punteggi td.az button[disabled] { opacity:.4; cursor:not-allowed }
+  table.punteggi td.uso { color:#555; font-size:12px; line-height:1.2 } table.punteggi td:first-child { overflow-wrap:anywhere; font-size:14px } table.punteggi td.az { text-align:center; padding:6px 4px } table.punteggi td.az button { display:block; width:100%; margin:3px 0; padding:6px 4px; font-size:13px } table.punteggi td.az button[disabled] { opacity:.4; cursor:not-allowed }
   table.punteggi .num { width:100% !important; max-width:56px; margin:0 auto; display:block; }
   table.punteggi input[type=checkbox] { display:block; margin:0 auto; }
   .griglia { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; }
@@ -1074,11 +1074,11 @@ async function tPunteggi() {
   const scale = await api('/libreria/scale');
   $('#app').innerHTML = `<div class="card"><h3>Punteggi</h3>
     <p><small>Ogni scala dà un punteggio a ciascun livello di valutazione: <b>MB</b> molto bene, <b>BE</b> bene, <b>SU</b> sufficiente, <b>IN</b> insufficiente, <b>NE</b> non eseguito. Ogni voce di una scheda usa una scala (es. Standard, 3 Voci, PesoDoppio). Lascia vuoto un livello per non consentirlo (cella nera).</small></p>
-    <table class="punteggi"><colgroup><col><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:84px"><col style="width:300px"></colgroup><tr><th>Scala</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th>Usata in</th><th></th></tr>
+    <table class="punteggi"><colgroup><col><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:72px"><col style="width:118px"></colgroup><tr><th>Scala</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th>Usata in</th><th></th></tr>
     ${scale.map((s) => `<tr data-c="${esc(s.codice)}"><td>${esc(s.codice)}</td>${LIV.map((l) => `<td><input class="num" data-l="${l}" value="${s[l] ?? ''}"></td>`).join('')}<td class="uso">${s.uso} ${s.uso === 1 ? 'voce' : 'voci'}</td>
       <td class="az"><button class="b p ss">Salva</button><button class="s p ssx" ${s.uso ? '' : 'disabled'} title="${s.uso ? 'Sposta le voci su un\'altra scala' : 'Nessuna voce da spostare'}">Sostituisci…</button><button class="x p sd" ${s.uso || s.codice === 'Standard' ? 'disabled' : ''} title="${s.codice === 'Standard' ? 'Serve al sito: non si elimina' : s.uso ? 'Usata da ' + s.uso + ' voci: sostituiscila prima' : 'Elimina la scala'}">Elimina</button></td></tr>`).join('')}
     <tr id="nsc"><td><input id="nsc_c" placeholder="nuova scala"></td>${LIV.map((l) => `<td><input class="num" data-l="${l}"></td>`).join('')}<td></td><td class="az"><button class="b p" id="nsc_ok">Crea</button></td></tr></table>
-    <p class="nota">Una modifica vale per le schede della libreria e le scene create da ora in poi: le scene già composte conservano i punteggi con cui sono state create. Elimina compare solo per le scale che nessuna scheda della libreria usa; per le altre, a destra vedi da quante voci sono usate.</p></div>`;
+    <p class="nota">Una modifica vale per le schede della libreria e le scene create da ora in poi: le scene già composte conservano i punteggi con cui sono state create. Elimina è attivo solo per le scale che nessuna scheda della libreria usa; per le altre usa Sostituisci…, che sposta le voci su un'altra scala.</p></div>`;
   document.querySelectorAll('.ss').forEach((b) => { b.onclick = () => { const tr = b.closest('tr'); const body = { codice: tr.dataset.c };
     tr.querySelectorAll('[data-l]').forEach((i) => { body[i.dataset.l] = i.value.trim() === '' ? null : Number(i.value); });
     fai(() => api('/libreria/scale', { body }), 'Scala salvata'); }; });
