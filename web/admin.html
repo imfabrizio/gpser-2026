@@ -1506,6 +1506,7 @@ async function tOffline() {
   document.querySelectorAll('.of_on').forEach((b) => { b.onclick = () => { if (confirm('Rimetti online il tablet? Fallo solo dopo aver sincronizzato i suoi dati.')) fai(() => api(`/dispositivi/${b.dataset.id}/online`, { method: 'POST', body: {} }).then(tOffline), 'Tablet di nuovo online'); }; });
   let codici = [];
   const mostra = async (rigenera) => { codici = await api(`/eventi/${ev.id}/offline/codici`, { method: 'POST', body: { rigenera } });
+    if (!codici.length) { $('#of_l').innerHTML = '<p class="err">Nessun codice: nelle scene offline non c\'è ancora nessun giudice. Assegna i giudici alle schede (o il giudice master alla scena) nel tab Risorse, poi riprova.</p>'; $('#of_stampa').hidden = true; return; }
     $('#of_l').innerHTML = `<table><tr><th>Persona</th><th>Scene</th><th>Codice</th></tr>${codici.map((c) => `<tr><td>${esc(c.nome)}${c.master ? ' <span class="tag">master</span>' : ''}</td><td>${esc((c.scene || []).join(', '))}</td><td><b style="font-family:monospace;font-size:18px;letter-spacing:2px">${esc(c.codice)}</b></td></tr>`).join('')}</table>`; $('#of_stampa').hidden = !codici.length; };
   if ($('#of_cod')) {
     $('#of_cod').onclick = () => fai(() => mostra(false));
