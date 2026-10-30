@@ -904,20 +904,29 @@ async function vistaMateriali() {
   const D = await api(`/eventi/${id}/materiali`).catch((e) => ({ errore: e.message }));
   if (D.errore) { $('#app').innerHTML = `<div class="card err">${esc(D.errore)}</div>`; return; }
   const gestore = D.ruolo === 'gestore';
-  const riga = (m) => `<div class="mat" data-id="${m.id}" style="display:grid;grid-template-columns:34px 1fr 76px ${gestore ? '1fr 40px' : '1fr'};gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eceef1">
-      <input type="checkbox" class="m_p" ${m.pronto ? 'checked' : ''} aria-label="Pronto" style="width:24px;height:24px">
+  const PASSI = [['pronto', 'Preparato'], ['caricato', 'Caricato'], ['montato', 'Montato'], ['ritirato', 'Ritirato']];
+  const colonne = `repeat(4,52px) 1fr 76px ${gestore ? '1fr 40px' : '1fr'}`;
+  const riga = (m) => `<div class="mat" data-id="${m.id}" style="display:grid;grid-template-columns:${colonne};gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eceef1">
+      ${PASSI.map(([k, t]) => `<input type="checkbox" class="m_c" data-k="${k}" ${m[k] ? 'checked' : ''} aria-label="${t}" title="${t}" style="width:24px;height:24px;justify-self:center">`).join('')}
       ${gestore ? `<input class="m_n" value="${esc(m.nome)}"><input class="m_q num" type="number" min="1" value="${m.quantita}"><input class="m_t" placeholder="nota" value="${esc(m.nota || '')}"><button class="x p m_d" title="Elimina" aria-label="Elimina">×</button>`
         : `<b>${esc(m.nome)}</b><span>× ${m.quantita}</span><small>${esc(m.nota || '')}</small>`}</div>`;
+  const testata = `<div style="display:grid;grid-template-columns:${colonne};gap:8px;font-size:12px;color:#555;text-align:center">${PASSI.map(([, t]) => `<span>${t}</span>`).join('')}<span></span></div>`;
   const nuovo = (sid) => gestore ? `<div class="mat-n" data-s="${sid || ''}" style="display:grid;grid-template-columns:1fr 76px 1fr auto;gap:8px;margin-top:8px"><input class="n_n" placeholder="Nuovo materiale"><input class="n_q num" type="number" min="1" value="1"><input class="n_t" placeholder="nota"><button class="b p n_ok">Aggiungi</button></div>` : '';
-  const blocco = (tit, lista, sid, nota) => `<div class="card"><h3>${tit}</h3>${nota ? `<p class="nota">${nota}</p>` : ''}${lista.length ? lista.map(riga).join('') : '<p class="nota"><em>Nessun materiale.</em></p>'}${nuovo(sid)}</div>`;
+  const blocco = (tit, lista, sid, nota) => `<div class="card"><h3>${tit}</h3>${nota ? `<p class="nota">${nota}</p>` : ''}${lista.length ? testata + lista.map(riga).join('') : '<p class="nota"><em>Nessun materiale.</em></p>'}${nuovo(sid)}</div>`;
   $('#app').innerHTML = `<div class="card"><h3>Materiali</h3><label>Gara</label><select id="m_ev">${evs.map((e) => `<option value="${e.id}" ${e.id === id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select>
-      <p class="nota">${gestore ? 'Scrivi cosa serve in ogni scena. La logistica vede questo elenco e segna ciò che è pronto; non vede le schede di valutazione.' : 'Segna con la spunta ciò che è pronto.'}</p></div>
-    <div class="card"><h3>Totale da preparare</h3>${D.totali.length ? `<table>${D.totali.map((t) => `<tr><td>${esc(t.nome)}</td><td>× ${t.quantita}</td><td><small>${t.pronti}/${t.righe} pronti</small></td></tr>`).join('')}</table>` : '<p class="nota"><em>Ancora nessun materiale.</em></p>'}</div>
+      <p class="nota">${gestore ? 'Scrivi cosa serve in ogni scena. La logistica vede questo elenco e spunta i passaggi: preparato, caricato, montato, ritirato; non vede le schede di valutazione.' : 'Spunta i passaggi: preparato, caricato, montato in scena, ritirato a fine gara.'}</p><button class="btn sec" id="m_stp">Stampa la lista</button></div>
+    <div class="card"><h3>Totale da preparare</h3>${D.totali.length ? `<table>${D.totali.map((t) => `<tr><td>${esc(t.nome)}</td><td>× ${t.quantita}</td><td><small>preparati ${t.pronti} · caricati ${t.caricati} · montati ${t.montati} · ritirati ${t.ritirati} (su ${t.righe})</small></td></tr>`).join('')}</table>` : '<p class="nota"><em>Ancora nessun materiale.</em></p>'}</div>
     ${blocco('Generici della gara', D.generici, null, 'Valgono per tutta la gara: per esempio i gazebo dell\'attesa davanti alle scene.')}
     ${D.scene.map((sc) => blocco(`Scena ${esc(sc.codice)} · ${esc(sc.titolo)}`, sc.materiali, sc.id)).join('')}`;
   $('#m_ev').onchange = () => { localStorage.setItem('ev_mat', $('#m_ev').value); vistaMateriali(); };
   const salva = (el, body) => api(`/materiali/${el.closest('.mat').dataset.id}`, { method: 'PATCH', body }).catch((e) => alert(e.message));
-  document.querySelectorAll('.m_p').forEach((c) => { c.onchange = async () => { await salva(c, { pronto: c.checked }); vistaMateriali(); }; });
+  document.querySelectorAll('.m_c').forEach((c) => { c.onchange = async () => { await salva(c, { [c.dataset.k]: c.checked }); vistaMateriali(); }; });
+  $('#m_stp').onclick = () => {
+    const nomeG = evs.find((e) => e.id === id)?.nome || '', tab = (tit, l) => l.length ? `<h3>${tit}</h3><table class="stp-t"><tr><th>Nome</th><th>Qtà</th><th>Nota</th>${PASSI.map(([, t]) => `<th>${t}</th>`).join('')}</tr>${l.map((m) => `<tr><td>${esc(m.nome)}</td><td>${m.quantita}</td><td>${esc(m.nota || '')}</td>${PASSI.map(([k]) => `<td class="c">${m[k] ? '☑' : '☐'}</td>`).join('')}</tr>`).join('')}</table>` : '';
+    const d = document.createElement('div'); d.id = 'stp'; d.innerHTML = `<h2>Materiali · ${esc(nomeG)}</h2>${tab('Generici della gara', D.generici)}${D.scene.map((sc) => tab(`Scena ${esc(sc.codice)} · ${esc(sc.titolo)}`, sc.materiali)).join('')}`;
+    const st = document.createElement('style'); st.textContent = '#stp{display:none}@media print{body>*:not(#stp){display:none!important}#stp{display:block!important;color:#000;font:13px sans-serif}.stp-t{border-collapse:collapse;width:100%;margin-bottom:12px}.stp-t td,.stp-t th{border:1px solid #888;padding:5px 7px;text-align:left}.stp-t .c{text-align:center;font-size:18px}}';
+    document.body.append(st, d); window.print(); setTimeout(() => { d.remove(); st.remove(); }, 1000);
+  };
   document.querySelectorAll('.m_n').forEach((i) => { i.onchange = () => salva(i, { nome: i.value }); });
   document.querySelectorAll('.m_q').forEach((i) => { i.onchange = async () => { await salva(i, { quantita: i.value }); vistaMateriali(); }; });
   document.querySelectorAll('.m_t').forEach((i) => { i.onchange = () => salva(i, { nota: i.value }); });

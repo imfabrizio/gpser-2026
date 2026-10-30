@@ -2296,6 +2296,7 @@ test('MAT-1: materiali delle scene (gestore scrive, logistica legge e segna pron
   assert.equal((await chiama('POST', `/api/eventi/${ev}/materiali`, { token: tok['log@t'], body: { nome: 'x' } })).statusCode, 403);
   assert.equal((await chiama('PATCH', `/api/materiali/${m1.id}`, { token: tok['log@t'], body: { nome: 'Altro' } })).statusCode, 403);
   assert.equal(json(await chiama('PATCH', `/api/materiali/${m1.id}`, { token: tok['log@t'], body: { pronto: true } })).pronto, true);
+  assert.equal(json(await chiama('PATCH', `/api/materiali/${m1.id}`, { token: tok['log@t'], body: { caricato: true, montato: true } })).montato, true);
   // la logistica non vede le schede
   const { rows: [sk] } = await pool.query('select id from scena_scheda where scena_id=$1 limit 1', [sc.id]);
   assert.equal((await chiama('GET', `/api/schede/${sk.id}`, { token: tok['log@t'] })).statusCode, 403);

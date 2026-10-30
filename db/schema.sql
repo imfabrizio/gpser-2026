@@ -2936,7 +2936,7 @@ create table if not exists sessione_esame_invito (
   primary key (sessione_id, utente_id)
 );
 create index if not exists sessione_esame_invito_utente_idx on sessione_esame_invito (utente_id);
-insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql'), ('055-preferenze-utente.sql'), ('056-istruttore-du-apre-corsi.sql'), ('057-esiti-pubblicati.sql'), ('058-trainer-del-corso.sql'), ('059-backup-log.sql'), ('060-direzione-gara.sql'), ('061-offline.sql'), ('062-gruppi-logistica.sql'), ('063-materiali-scena.sql'), ('064-sopralluogo.sql') on conflict do nothing;
+insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql'), ('055-preferenze-utente.sql'), ('056-istruttore-du-apre-corsi.sql'), ('057-esiti-pubblicati.sql'), ('058-trainer-del-corso.sql'), ('059-backup-log.sql'), ('060-direzione-gara.sql'), ('061-offline.sql'), ('062-gruppi-logistica.sql'), ('063-materiali-scena.sql'), ('064-sopralluogo.sql'), ('065-materiali-passaggi.sql') on conflict do nothing;
 
 -- 046-skill-fasce-scoop
 -- Skill: fasce di giudizio automatiche (75/80/85/95%, calcolate sul numero di voci) e Barella Scoop in due schede (trasporto, semi-verticalizzazione).
@@ -3647,3 +3647,9 @@ create index if not exists scena_materiale_evento_idx on scena_materiale (evento
 -- 064-sopralluogo
 -- Sopralluogo: percorso registrato (elenco di punti) della gara; le posizioni delle scene stanno già in scena.lat/lng
 alter table evento add column if not exists percorso jsonb;
+
+-- 065-materiali-passaggi
+-- Materiali: oltre a "pronto" (preparato) si segnano caricato, montato in scena e ritirato a fine gara
+alter table scena_materiale add column if not exists caricato boolean not null default false;
+alter table scena_materiale add column if not exists montato  boolean not null default false;
+alter table scena_materiale add column if not exists ritirato boolean not null default false;

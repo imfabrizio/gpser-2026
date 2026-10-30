@@ -416,8 +416,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/eventi/:id/materiali', async (req) => {
     const ruolo = await ruoloMateriali(pool, req.utente, req.params.id);
     const scene = (await pool.query('select id, codice, titolo from scena where evento_id=$1 order by ordine, codice', [req.params.id])).rows;
-    const m = (await pool.query('select id, scena_id, nome, quantita, nota, pronto from scena_materiale where evento_id=$1 order by ordine, created_at', [req.params.id])).rows;
-    const totali = (await pool.query(`select min(nome) as nome, sum(quantita)::int as quantita, count(*) filter (where pronto)::int as pronti, count(*)::int as righe from scena_materiale where evento_id=$1 group by lower(trim(nome)) order by min(nome)`, [req.params.id])).rows;
+    const m = (await pool.query('select id, scena_id, nome, quantita, nota, pronto, caricato, montato, ritirato from scena_materiale where evento_id=$1 order by ordine, created_at', [req.params.id])).rows;
+    const totali = (await pool.query(`select min(nome) as nome, sum(quantita)::int as quantita, count(*) filter (where pronto)::int as pronti, count(*) filter (where caricato)::int as caricati, count(*) filter (where montato)::int as montati, count(*) filter (where ritirato)::int as ritirati, count(*)::int as righe from scena_materiale where evento_id=$1 group by lower(trim(nome)) order by min(nome)`, [req.params.id])).rows;
     return { ruolo, scene: scene.map((s) => ({ ...s, materiali: m.filter((x) => x.scena_id === s.id) })), generici: m.filter((x) => !x.scena_id), totali };
   });
   app.post('/api/eventi/:id/materiali', async (req) => {
@@ -454,9 +454,9 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.patch('/api/materiali/:id', async (req) => {
     const { rows: [m] } = await pool.query('select * from scena_materiale where id=$1', [req.params.id]); if (!m) throw httpErr(404, 'materiale inesistente');
     const ruolo = await ruoloMateriali(pool, req.utente, m.evento_id), b = req.body || {};
-    if (ruolo === 'logistica' && Object.keys(b).some((k) => k !== 'pronto')) throw httpErr(403, 'la logistica può solo segnare i materiali pronti');
+    if (ruolo === 'logistica' && Object.keys(b).some((k) => !['pronto', 'caricato', 'montato', 'ritirato'].includes(k))) throw httpErr(403, 'la logistica può solo spuntare i passaggi dei materiali');
     const nome = b.nome === undefined ? m.nome : (String(b.nome).trim().slice(0, 120) || m.nome), q = b.quantita === undefined ? m.quantita : Math.max(1, Math.min(9999, Number(b.quantita) || m.quantita));
-    return (await pool.query('update scena_materiale set nome=$2, quantita=$3, nota=$4, pronto=$5 where id=$1 returning id, scena_id, nome, quantita, nota, pronto', [m.id, nome, q, b.nota === undefined ? m.nota : (b.nota ? String(b.nota).slice(0, 300) : null), b.pronto === undefined ? m.pronto : !!b.pronto])).rows[0];
+    return (await pool.query('update scena_materiale set nome=$2, quantita=$3, nota=$4, pronto=$5, caricato=$6, montato=$7, ritirato=$8 where id=$1 returning id, scena_id, nome, quantita, nota, pronto, caricato, montato, ritirato', [m.id, nome, q, b.nota === undefined ? m.nota : (b.nota ? String(b.nota).slice(0, 300) : null), ...['pronto', 'caricato', 'montato', 'ritirato'].map((k) => (b[k] === undefined ? m[k] : !!b[k]))])).rows[0];
   });
   app.delete('/api/materiali/:id', async (req) => {
     const { rows: [m] } = await pool.query('select evento_id from scena_materiale where id=$1', [req.params.id]); if (!m) throw httpErr(404, 'materiale inesistente');
