@@ -46,6 +46,9 @@ body.corsi .csep{display:none}
   .scena { border-left:6px solid var(--rosso); padding:0; overflow:hidden } .scena.sosta { border-left-color:#7a8cab }
   .pers-l { margin-top:10px; border:1px solid #e3e5ea; border-radius:12px; overflow:hidden } .pers { border-top:1px solid #eceef2 } .pers:first-child { border-top:0 } .pers.ap { background:#f8f9fb }
   .pers-r { display:grid; grid-template-columns:36px minmax(160px,1.4fr) 1fr minmax(120px,1fr); align-items:center; gap:10px; padding:8px 12px } .pers-r .pt { width:30px; height:30px; padding:0; border:0; background:none; font-size:14px; cursor:pointer } .pers-r .pn { font-size:16px } .pers-r .pc { color:#555 } .muto { color:#888 }
+  .matrice { overflow-x:auto; border:1px solid var(--bordo); border-radius:10px } .matrice table { border-collapse:separate; border-spacing:0; width:100%; font-size:14px } .matrice th, .matrice td { padding:6px 4px; text-align:center; border-bottom:1px solid #eceef1 } .matrice th.mr { position:sticky; left:0; background:#fff; text-align:left; min-width:150px; padding:8px 12px; z-index:1; border-right:1px solid var(--bordo) }
+  .matrice th.mc { height:150px; vertical-align:bottom; font-weight:600; font-size:13px; background:#f6f7f9 } .matrice th.mc span { writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; display:inline-block } .matrice thead th.mr { background:#f6f7f9 }
+  .matrice td input { width:22px; height:22px; accent-color:var(--rosso) } .matrice tr:hover td, .matrice tr:hover th.mr { background:#fdf3f4 } .matrice td.ma { padding:6px 10px; min-width:96px } .matrice td.ma button { display:block; width:100%; margin:3px 0 }
   .acc-box { background:#f6f7f9; border-radius:10px; padding:10px 12px; margin:8px 0; display:flex; flex-wrap:wrap; gap:8px; align-items:center } .acc-box small { flex-basis:100%; color:#555; font-weight:600 } .acc-box select { max-width:220px }
   .pers-d { padding:2px 16px 14px 58px } .pers-g { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:10px 24px; margin-bottom:8px } .pers-g > div { min-width:0; overflow-wrap:anywhere } .pers-q { margin:6px 0 } .pers-d .sez-a { margin-top:8px }
   @media (max-width:700px) { .pers-r { grid-template-columns:30px 1fr } .pers-r .pc, .pers-r .pa { grid-column:2 } .pers-d { padding-left:16px } }
@@ -1651,14 +1654,18 @@ async function tUtenti() {
 async function tRuoli() {
   const [{ ruoli, aree }, quals] = await Promise.all([api('/ruoli'), api('/qualifiche')]);
   const casella = (r, k) => `<label class="ar"><input type="checkbox" data-k="${k}" ${r.aree.includes(k) ? 'checked' : ''} ${r.sistema && r.codice !== 'organizzazione' ? 'disabled' : ''}> ${esc(aree[k])}</label>`;
+  const chiavi = Object.keys(aree), soloApp = (r) => r.sistema && r.codice !== 'organizzazione';
+  const gestori = ruoli.filter((r) => !soloApp(r)), base = ruoli.filter(soloApp);
   $('#app').innerHTML = `<div class="card"><h3>Ruoli e permessi</h3>
-    <p><small>Ogni persona ha un ruolo. Spunta le aree di Gestione a cui il ruolo può accedere: chi non ne ha nessuna usa solo l'app (giudice, giudice master) o la Home. Utenti, Ruoli e Richieste sono riservati agli admin (spunta "Admin" sull'utente).</small></p>
-    ${ruoli.map((r) => `<div class="card" style="margin:8px 0" data-c="${r.codice}"><b>${esc(r.nome)}</b> ${r.sistema ? '<span class="tag">di base</span>' : ''} <small>${r.utenti} utenti</small>
-      <div class="aree">${Object.keys(aree).map((k) => casella(r, k)).join('')}</div>
-      ${r.sistema && r.codice !== 'organizzazione' ? '<small>Nessun accesso alla Gestione: ruolo di base.</small>' : `<button class="b p rs">Salva</button>`} ${r.sistema ? '' : '<button class="x p rd">Elimina</button>'}</div>`).join('')}
+    <p class="nota">Ogni riga è un ruolo, ogni colonna un'area di Gestione: spunta dove il ruolo può entrare e premi <b>Salva</b> sulla riga. Utenti, Ruoli e Richieste sono solo per gli admin.</p>
+    <div class="matrice"><table><thead><tr><th class="mr">Ruolo</th>${chiavi.map((k) => `<th class="mc"><span>${esc(aree[k])}</span></th>`).join('')}<th></th></tr></thead>
+    <tbody>${gestori.map((r) => `<tr data-c="${r.codice}"><th class="mr"><b>${esc(r.nome)}</b><br><small>${r.utenti} person${r.utenti === 1 ? 'a' : 'e'}${r.sistema ? ' · di base' : ''}</small></th>
+      ${chiavi.map((k) => `<td><input type="checkbox" data-k="${k}" aria-label="${esc(r.nome)}: ${esc(aree[k])}" ${r.aree.includes(k) ? 'checked' : ''}></td>`).join('')}
+      <td class="ma"><button class="b p rs">Salva</button>${r.sistema ? '' : '<button class="x p rd">Elimina</button>'}</td></tr>`).join('')}</tbody></table></div>
+    ${base.length ? `<p class="nota" style="margin-top:12px"><b>Ruoli di sola app</b> (nessun accesso alla Gestione, usano l'app o la Home): ${base.map((r) => `${esc(r.nome)} <small>(${r.utenti})</small>`).join(', ')}.</p>` : ''}
   </div>
   <div class="card"><h3>Nuovo ruolo</h3><div class="riga"><div><label>Nome (es. Segreteria, Gestore news)</label><input id="nr_n"></div></div>
-    <div class="aree">${Object.keys(aree).map((k) => casella({ aree: [], sistema: false }, k)).join('')}</div><p><button class="b" id="nr_ok">Crea ruolo</button></p></div>
+    <div class="aree">${chiavi.map((k) => casella({ aree: [], sistema: false }, k)).join('')}</div><p><button class="b" id="nr_ok">Crea ruolo</button></p></div>
   <div class="card"><h3>Qualifiche</h3><p><small>Titoli permanenti della persona (si assegnano dall'anagrafica). Da sole non danno accesso: l'accesso arriva dall'assegnazione a un evento. Locale = opera nel proprio comitato, nazionale = in tutta Italia.</small></p>
     <table>${quals.map((q) => `<tr><td>${esc(q.nome)}${q.ambito ? ` <span class="tag">${q.ambito}</span>` : ''}${q.sistema ? ' <span class="tag">di base</span>' : ''}</td><td><small>${q.persone} persone</small></td><td>${q.sistema ? '' : `<button class="x p qd" data-c="${q.codice}">Elimina</button>`}</td></tr>`).join('')}</table>
     <div class="riga"><div><label>Nuova qualifica</label><input id="nq_n"></div><div><label>Ambito</label><select id="nq_a"><option value="">nessuno</option><option value="locale">locale</option><option value="nazionale">nazionale</option></select></div><div class="stretto"><button class="b" id="nq_ok">Aggiungi</button></div></div></div>`;
