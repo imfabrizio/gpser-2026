@@ -3,6 +3,7 @@
 <title>Classifica · GareCRI</title>
 <link rel="stylesheet" href="stile.css"><link rel="stylesheet" href="mobile.css"><script src="mobile.js"></script>
 <style>
+  body.laterale main > *, body.laterale footer { max-width:none !important; margin-left:0 !important; margin-right:0 !important } body.laterale footer { margin-left:210px !important } @media (min-width:1100px) { body.laterale footer, body.laterale main { margin-right:210px !important } } body.laterale.schermo #lat, body.laterale.schermo #rail { display:none !important } body.laterale.schermo main, body.laterale.schermo footer { margin:0 !important }
   :root { --rosso:#C8102E; --scuro:#1b0f12; --oro:#F2C94C; --argento:#C9CED6; --bronzo:#D9985F; }
   * { box-sizing:border-box; } html,body { margin:0; height:100%; }
   body { font-family:var(--corpo); background:#F5F6F8; color:var(--inchiostro); display:flex; flex-direction:column; overflow:hidden; }
@@ -27,6 +28,7 @@
   <div id="ctrl"><span id="tipi"></span><button id="pt">Punti: sì</button><button id="fs">Schermo intero</button><a id="pdf" href="#">PDF</a><a href="/admin.html#classifiche">Chiudi</a></div></header>
 <main id="m"><div class="msg">Caricamento…</div></main>
 <footer><span id="ag"></span><span>Si aggiorna da solo ogni 20 secondi</span></footer>
+<script src="barra.js"></script><script src="widget.js"></script><script src="layout.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -66,6 +68,8 @@ async function carica() {
   }
 }
 $('#pt').onclick = () => { punti = !punti; disegnaTipi(); carica(); };
+document.addEventListener('fullscreenchange', () => document.body.classList.toggle('schermo', !!document.fullscreenElement));   // a schermo intero (proiettore) le barre laterali spariscono
+window.addEventListener('load', () => { window.Barra && Barra.disegna('classifica'); window.Layout && Layout.disegna(); });
 $('#fs').onclick = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); };
 $('#pdf').onclick = async (ev) => {
   ev.preventDefault();
