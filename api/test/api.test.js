@@ -2291,6 +2291,7 @@ test('MAT-1: materiali delle scene (gestore scrive, logistica legge e segna pron
   const m2 = json(await chiama('POST', `/api/eventi/${ev}/materiali`, { token: O, body: { nome: 'Gazebo attesa', quantita: 4 } }));   // generico
   assert.equal((await chiama('GET', `/api/eventi/${ev}/materiali`, { token: lid && tok['log@t'] })).statusCode, 403);   // non è in logistica
   assert.equal((await chiama('PUT', `/api/eventi/${ev}/staff`, { token: O, body: { direzione: [], logistica: [lid] } })).statusCode, 200);
+  assert.ok(Array.isArray(json(await chiama('GET', `/api/eventi/${ev}/staff`, { token: O })).gruppi));
   const rL = await chiama('GET', `/api/eventi/${ev}/materiali`, { token: tok['log@t'] }); assert.equal(rL.statusCode, 200, rL.body); const L = json(rL);
   assert.equal(L.ruolo, 'logistica'); assert.equal(L.generici.length, 1); assert.equal(L.scene.find((s) => s.id === sc.id).materiali.length, 1); assert.ok(L.totali.some((t) => t.nome === 'Barella' && t.quantita === 2));
   assert.equal((await chiama('POST', `/api/eventi/${ev}/materiali`, { token: tok['log@t'], body: { nome: 'x' } })).statusCode, 403);

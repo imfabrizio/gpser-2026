@@ -266,6 +266,7 @@ async function cardDirezione(ev) {   // «Staff della gara»: direzione gara e l
   const D = await api(`/eventi/${ev.id}/staff`).catch(() => null); if (!D) return;
   const sel = { direzione: new Set(D.direzione.map((x) => x.utente_id)), logistica: new Set(D.logistica.map((x) => x.utente_id)) };
   const blocco = (k, titolo, nota) => `<div class="stf"><h4>${titolo}</h4><p class="nota">${nota}</p>
+    ${D.gruppi?.some((g) => g.membri.length) ? `<select class="stf_g" data-k="${k}"><option value="">Aggiungi un gruppo intero…</option>${D.gruppi.filter((g) => g.membri.length).map((g) => `<option value="${esc(g.codice)}">${esc(g.nome)} (${g.membri.length})</option>`).join('')}</select>` : ''}
     <input class="stf_q" data-k="${k}" placeholder="Cerca per nome o email" autocomplete="off">
     <div class="stf_l" data-k="${k}" style="max-height:220px;overflow:auto;margin:8px 0">${D.persone.map((g) => `<label class="ck-t" data-q="${esc((g.nome + ' ' + g.email).toLowerCase())}" style="display:flex;gap:8px;align-items:center"><input type="checkbox" value="${g.id}" ${sel[k].has(g.id) ? 'checked' : ''}> ${esc(g.nome)} <small>${esc(g.email)}</small></label>`).join('')}</div>
     <small class="stf_n" data-k="${k}"></small></div>`;
@@ -276,6 +277,7 @@ async function cardDirezione(ev) {   // «Staff della gara»: direzione gara e l
     <p><button class="b" id="dz_ok">Salva lo staff</button></p></div>`);
   const conta = () => ['direzione', 'logistica'].forEach((k) => { document.querySelector(`.stf_n[data-k=${k}]`).textContent = document.querySelectorAll(`.stf_l[data-k=${k}] input:checked`).length + ' persone'; });
   conta(); document.querySelectorAll('.stf_l').forEach((l) => { l.onchange = conta; });
+  document.querySelectorAll('.stf_g').forEach((s) => { s.onchange = () => { const g = D.gruppi.find((x) => x.codice === s.value); if (g) { const m = new Set(g.membri); document.querySelectorAll(`.stf_l[data-k=${s.dataset.k}] input`).forEach((c) => { if (m.has(c.value)) c.checked = true; }); conta(); } s.value = ''; }; });
   document.querySelectorAll('.stf_q').forEach((i) => { i.oninput = () => { const q = i.value.trim().toLowerCase(); document.querySelectorAll(`.stf_l[data-k=${i.dataset.k}] .ck-t`).forEach((l) => { l.style.display = !q || l.dataset.q.includes(q) ? 'flex' : 'none'; }); }; });
   const prendi = (k) => [...document.querySelectorAll(`.stf_l[data-k=${k}] input:checked`)].map((i) => i.value);
   $('#dz_ok').onclick = () => fai(() => api(`/eventi/${ev.id}/staff`, { method: 'PUT', body: { direzione: prendi('direzione'), logistica: prendi('logistica') } }), 'Staff della gara salvato');

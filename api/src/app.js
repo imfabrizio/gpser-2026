@@ -390,7 +390,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     await verificaAccessoEvento(pool, req.utente, req.params.id);
     const q = (t) => pool.query(`select x.utente_id, u.nome, u.email from ${t} x join utente u on u.id=x.utente_id where x.evento_id=$1 order by u.nome`, [req.params.id]);
     const [dir, log, persone] = await Promise.all([q('evento_direzione'), q('evento_logistica'), pool.query('select id, nome, email from utente where attivo order by nome')]);
-    return { direzione: dir.rows, logistica: log.rows, persone: persone.rows };
+    const gruppi = (await pool.query(`select g.codice, g.nome, coalesce(json_agg(ug.utente_id) filter (where ug.utente_id is not null), '[]') as membri from gruppo g left join utente_gruppo ug on ug.gruppo=g.codice group by g.codice, g.nome order by g.nome`)).rows;
+    return { direzione: dir.rows, logistica: log.rows, persone: persone.rows, gruppi };
   });
   app.put('/api/eventi/:id/staff', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     await verificaAccessoEvento(db, req.utente, req.params.id);
