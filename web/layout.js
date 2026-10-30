@@ -34,7 +34,13 @@
       const voci = sez === 'formazione' ? [
         org && ['/admin.html#hub:corsi', 'Gestione'], (org || ha('valutazione')) && ['#valutazione', 'Valutazioni'], ha('esami') && ['/esami.html', 'Esami'],
         ha('formazione_esame') && ['/admin.html#corsi.libreria', 'Schede d\'esame'], ['#documenti', 'Documentazione']]
-        : sez === 'gara' ? [(org || ha('valutazione')) && ['#valutazione', 'Valutazione'], org && ['/admin.html#hub:gara', 'Gestione'], ha('classifiche') && ['/#monitor', 'Monitor'], ['#documenti', 'Documentazione']] : [];
+        : (sez === 'gara' || (!sez && !neutra && !part)) ? [
+          (org || ha('valutazione')) && ['#valutazione', 'Valutazione'],
+          (ha('accompagnatore') || org || me.ruolo === 'giudice_master') && ['#accompagnatore', 'Accompagnatore'],
+          (org || (me.logistica || []).length) && ['#materiali', 'Materiali'],
+          (org || ha('valutazione')) && ['#offline', 'Offline'],
+          org && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame'].includes(a)) && ['/admin.html#hub:gara', 'Gestione'],
+          ha('classifiche') && ['#monitor', 'Monitor'], ['#documenti', 'Documentazione']] : [];
       const menu = voci.filter(Boolean).length ? `<div class="mn">${voci.filter(Boolean).map(([h, t]) => `<a href="${h}" class="${h === hh || h === location.pathname ? 'on' : ''}">${esc(t)}</a>`).join('')}</div>` : '';
       lat.innerHTML = (sez ? Barra.banda(sez) : '') + menu + (sez === 'gara' ? '<div class="w" id="r_ev"><h4>Gara attiva</h4><small>Carico…</small></div>' : '') + '<div class="w" id="r_nt" hidden><h4>Notifiche</h4></div><div class="w" id="r_cal"></div>';
       rail.innerHTML = '<img class="logo-r" src="/logo-cri.jpg" alt=""><div id="r_w"></div>';

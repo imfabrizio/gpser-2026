@@ -403,9 +403,7 @@ async function vistaHome0() {
     + (org() || aree.includes('valutazione') ? tileF('#offline', 'monitor', 'Offline', 'Prepara un tablet per le scene senza rete e sincronizza') : '')
     + (gestioneGara ? tileF('/admin.html#hub:gara', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '')
     + (gestioneGara && aree.includes('classifiche') ? tileF('#monitor', 'monitor', 'Monitor', 'Avanzamento delle schede') : '');
-  $('#app').innerHTML = `${cambia}<div class="banner"><small>${tipoGara} ${statoGara(ev)}</small><h2>${esc(ev.nome)}</h2>
-    <div>${esc(ev.luogo || '')} ${esc(ev.data || '')}</div>
-    ${org() && eventi.length > 1 ? '<div style="margin-top:8px"><a href="#valutazione" style="color:#fff;font-weight:600">Cambia gara</a></div>' : ''}</div>
+  $('#app').innerHTML = `${cambia}<h3 style="margin:14px 0 4px">${esc(ev.nome)} <small style="font-weight:400;color:#555">${tipoGara} ${statoGara(ev)} · ${esc([ev.luogo, ev.data].filter(Boolean).join(' · '))}</small></h3>
     ${tileGara.trim() ? `<div class="sezione-home"><h3>Gara</h3><div class="tiles">${tileGara}</div></div>` : ''}
     ${mappaHtml(ev, scene)}
     ${widgetHome}`;

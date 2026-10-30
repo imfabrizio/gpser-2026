@@ -204,8 +204,8 @@ const vai = (t, daHash) => { if (t === 'monitor') { location.href = '/#monitor';
   tab = t; if (!daHash) history.replaceState(null, '', t === 'menu' ? location.pathname : t === 'hub' ? '#hub:' + fam : (fam === 'corsi' ? '#corsi.' : '#') + t); disegnaTabs(); render(); };
 function disegnaTabs() {
   if (!TABS.some(([k]) => k === tab)) tab = 'menu';
-  const g = tab === 'menu' ? null : mondoCorrente(), hubForm = tab === 'hub' && fam === 'corsi', vis = g && (tab !== 'hub' || hubForm) ? figliVisibili(g) : [];
-  const inizio = tab === 'menu' || (tab === 'hub' && !hubForm);
+  const g = tab === 'menu' ? null : mondoCorrente(), hubForm = tab === 'hub' && fam === 'corsi', vis = g ? figliVisibili(g) : [];
+  const inizio = tab === 'menu';
   // menu a sinistra solo dentro una sezione (è il menu di quell'area); nel portale e nei riquadri a sinistra ci sono strumenti. Nella classifica servono le linguette in alto e tutta la larghezza.
   const laterale = true;                                                // le due colonne ci sono in tutte le pagine, classifiche comprese
   $('#tabs').hidden = false;
