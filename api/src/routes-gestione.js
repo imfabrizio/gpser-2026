@@ -504,6 +504,15 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     await pool.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'scala_eliminata','scala',$2,$3)`, [req.utente.id, s.id, JSON.stringify({ codice: s.codice })]);
     return { ok: true };
   });
+  // sposta tutte le voci delle schede in libreria da una scala a un'altra (poi la vecchia si può eliminare). Le scene già composte non cambiano
+  app.post('/api/libreria/scale/:codice/sostituisci', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    const { rows: [a] } = await db.query('select id, codice from scala_punteggio where codice=$1', [req.params.codice]);
+    const { rows: [b] } = await db.query('select id, codice from scala_punteggio where codice=$1', [String(req.body?.con || '')]);
+    if (!a || !b) throw httpErr(404, 'scala inesistente'); if (a.id === b.id) throw httpErr(400, 'scegli una scala diversa');
+    const { rowCount } = await db.query('update patologia_voce set scala_id=$2 where scala_id=$1', [a.id, b.id]);
+    await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'scala_sostituita','scala',$2,$3)`, [req.utente.id, a.id, JSON.stringify({ da: a.codice, a: b.codice, voci: rowCount })]);
+    return { ok: true, voci: rowCount };
+  }));
   app.put('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const b = req.body || {};
     await controllaScheda(pool, req.utente, req.params.id, { modifica: true });

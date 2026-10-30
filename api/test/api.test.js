@@ -2267,3 +2267,16 @@ test('SCA-1: una scala si elimina solo se inutilizzata; le scene già composte n
   await pool.query('delete from patologia_voce where scala_id=$1', [nuova.id]);
   assert.equal((await chiama('DELETE', '/api/libreria/scale/Scala%20di%20prova', { token: O })).statusCode, 200);
 });
+
+test('SCA-2: sostituisci una scala sposta le voci della libreria, poi si può eliminare', async () => {
+  const O = tok['org@t'];
+  const a = json(await chiama('POST', '/api/libreria/scale', { token: O, body: { codice: 'Scala A', mb: 4, be: 2, su: 1, in: 0, ne: 0 } }));
+  await chiama('POST', '/api/libreria/scale', { token: O, body: { codice: 'Scala B', mb: 4, be: 2, su: 1, in: 0, ne: 0 } });
+  const { rows: [pat] } = await pool.query('select id from patologia limit 1'); const { rows: [vo] } = await pool.query('select id from voce limit 1');
+  await pool.query("insert into patologia_voce (patologia_id, ordine, sezione, voce_id, scala_id) values ($1, 998, 'x', $2, $3)", [pat.id, vo.id, a.id]);
+  assert.equal((await chiama('POST', '/api/libreria/scale/Scala%20A/sostituisci', { token: O, body: { con: 'Scala A' } })).statusCode, 400);
+  const r = json(await chiama('POST', '/api/libreria/scale/Scala%20A/sostituisci', { token: O, body: { con: 'Scala B' } })); assert.equal(r.voci, 1);
+  assert.equal((await chiama('DELETE', '/api/libreria/scale/Scala%20A', { token: O })).statusCode, 200);
+  await pool.query("delete from patologia_voce where ordine=998 and sezione='x'");
+  assert.equal((await chiama('DELETE', '/api/libreria/scale/Scala%20B', { token: O })).statusCode, 200);
+});
