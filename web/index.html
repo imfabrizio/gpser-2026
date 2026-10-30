@@ -369,7 +369,6 @@ async function vistaHome() {
       ${org() ? tileF('#valutazione', 'valutazione', 'Valutazioni', 'Inizia la valutazione di un Mega Code o di un corso') : ''}
       ${aree.includes('esami') ? tileF('/esami.html', 'esami', 'Esami', 'Sessioni d\'esame e valutazioni') : ''}
       ${aree.includes('formazione_esame') ? tileF('/admin.html#corsi.libreria', 'libreria', 'Schede d\'esame', 'Skill e schede dei Mega Code') : ''}
-      ${org() || aree.includes('valutazione') ? tileF('#offline', 'monitor', 'Offline', 'Prepara un tablet per le scene senza rete e sincronizza') : ''}
       ${tileF('#documenti', 'documenti', 'Documentazione', 'Regolamento, comunicazioni, manuali')}</div></div>`;
   // due mondi: chi ha accesso a entrambi sceglie all'ingresso; ciascuno vede solo le proprie cose
   const haForm = org() && (me.admin || aree.some((a) => ['esami', 'formazione_esame'].includes(a))), haGara = !soloFormazione;
@@ -399,6 +398,7 @@ async function vistaHome() {
   const gestioneGara = org() && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame'].includes(a));
   const tileGara = (aree.includes('valutazione') ? tileF('#valutazione', 'valutazione', 'Valutazione', esc(ev.nome)) : '')
     + (aree.includes('accompagnatore') || org() || master() ? tileF('#accompagnatore', 'monitor', 'Accompagnatore', 'Segna le squadre in attesa davanti alle scene') : '')
+    + (org() || aree.includes('valutazione') ? tileF('#offline', 'monitor', 'Offline', 'Prepara un tablet per le scene senza rete e sincronizza') : '')
     + (gestioneGara ? tileF('/admin.html#hub:gara', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '')
     + (gestioneGara && aree.includes('classifiche') ? tileF('#monitor', 'monitor', 'Monitor', 'Avanzamento delle schede') : '');
   $('#app').innerHTML = `${cambia}<div class="banner"><small>${tipoGara} ${statoGara(ev)}</small><h2>${esc(ev.nome)}</h2>
