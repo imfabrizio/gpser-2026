@@ -20,7 +20,7 @@ const ORG = ['admin', 'organizzazione'];
  *  - scheda e squadra devono appartenere allo stesso evento, squadra attiva, evento non archiviato
  *  - ogni modifica di organizzazione/admin su una scheda già completata o verificata finisce in audit_log
  */
-export async function sincronizza(db, utente, payload) {
+export async function sincronizza(db, utente, payload, opzioni = {}) {
   if (!payload || typeof payload !== 'object') throw httpErr(400, 'payload non valido');
   const { id, scheda_id, squadra_id, giudice } = payload;
   const origine = payload.origine ?? 'tablet_online';
@@ -33,7 +33,7 @@ export async function sincronizza(db, utente, payload) {
   const isMasterRuolo = utente.ruolo === 'giudice_master';
 
   const { rows: [ctx] } = await db.query(
-    `select s.id as scheda, sc.evento_id as ev_scheda, sq.evento_id as ev_squadra, sq.attiva, e.archiviato, e.modalita, sc.id as scena_id
+    `select s.id as scheda, sc.evento_id as ev_scheda, sq.evento_id as ev_squadra, sq.attiva, e.archiviato, e.modalita, sc.id as scena_id, sc.offline
        from scena_scheda s join scena sc on sc.id = s.scena_id
        join squadra sq on sq.id = $2
        join evento e on e.id = sc.evento_id
@@ -44,6 +44,12 @@ export async function sincronizza(db, utente, payload) {
   if (ctx.ev_scheda !== ctx.ev_squadra) throw httpErr(400, 'scheda e squadra appartengono a eventi diversi');
   if (!ctx.attiva) throw httpErr(409, 'squadra disattivata');
   if (ctx.archiviato) throw httpErr(409, 'evento archiviato');
+  // scena offline: si valuta solo dai tablet preparati; la direzione gara può sbloccarla dal sito con una conferma esplicita (resta nel registro)
+  if (ctx.offline && !opzioni.offline) {
+    if (!isOrg) throw httpErr(409, 'scena offline: si valuta solo dal tablet preparato, in modalità offline');
+    if (payload.sblocco !== true) throw httpErr(409, 'scena offline: serve lo sblocco della direzione gara (conferma l\'avviso)');
+    await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'sblocco_scena_offline','scena',$2,$3)`, [utente.id, ctx.scena_id, JSON.stringify({ scheda_id, squadra_id })]);
+  }
   let isMasterScena = false;   // giudice master della scena a cui appartiene la scheda
   if (!isOrg) {
     isMasterScena = isMasterRuolo && (await db.query(
@@ -57,7 +63,7 @@ export async function sincronizza(db, utente, payload) {
     }
   }
   // gara online: il giudice compila solo se il master ha aperto la scena per quella squadra
-  if (ctx.modalita === 'online' && !isOrg && !isMasterScena) {
+  if (ctx.modalita === 'online' && !isOrg && !isMasterScena && !opzioni.offline) {
     const { rowCount } = await db.query(`select 1 from scena_turno where scena_id=$1 and squadra_id=$2 and stato='aperta'`, [ctx.scena_id, squadra_id]);
     if (!rowCount) throw httpErr(409, 'la scena non è aperta per questa squadra: attendi il giudice master');
   }

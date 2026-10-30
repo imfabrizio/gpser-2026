@@ -27,6 +27,7 @@ import { ruoloEffettivo, areeRichieste } from './permessi.js';
 import { registraRichieste } from './routes-richieste.js';
 import { registraNotifiche } from './notifiche.js';
 import { registraBackup } from './routes-backup.js';
+import { registraOffline, INTERNO } from './offline.js';
 import { leggiCoordinate } from './geo.js';
 import { regioni as regioniComuni, province as provinceComuni, cerca as cercaComuni, comunePerIstat, comuneDaLuogo, etichettaLuogo } from './comuni.js';
 import { registraSegreteria } from './routes-segreteria.js';
@@ -901,7 +902,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       try {
         return await inTransazione(pool, async (db) => {
           const esiti = new Array(lista.length);
-          for (const i of ordine) esiti[i] = await sincronizza(db, req.utente, lista[i]);
+          for (const i of ordine) esiti[i] = await sincronizza(db, req.utente, lista[i], { offline: req.headers['x-offline-interno'] === INTERNO });
           return esiti;
         });
       } catch (e) { if (e.code === '40P01' && tentativo < 4) continue; throw e; }
@@ -1018,6 +1019,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   registraRichieste(app, pool, { soloAdmin, fetchImpl });
   registraNotifiche(app, pool);
   registraBackup(app, pool, { soloAdmin });
+  registraOffline(app, pool, { soloOrg });
   registraSegreteria(app, pool, { soloOrg });
   registraRisorse(app, pool, { inTransazione, soloOrg });
   registraDocumenti(app, pool, { soloOrg });

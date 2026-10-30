@@ -2184,3 +2184,49 @@ test('DIR-1: direzione gara assegnata gara per gara — riapre, compila al posto
   assert.equal((await chiama('PUT', `/api/eventi/${ev}/direzione`, { token: O, body: { utenti: [] } })).statusCode, 200);   // tolto: torna giudice semplice
   assert.equal((await chiama('POST', '/api/sync', { token: tok['dir@t'], body })).statusCode, 403);
 });
+
+test('OFF-1: scena offline — blocco online, codici, pacchetto cifrato, dispositivi e sincronizzazione al rientro', async () => {
+  const { aprBlob, INTERNO } = await import('../src/offline.js');
+  void INTERNO;
+  const O = tok['org@t'];
+  const scene = json(await chiama('GET', `/api/eventi/${ev}/scene`, { token: O }));
+  const scena = scene[0], scheda = scena.schede[0].id;
+  const giuId = (await pool.query(`select id from utente where email='giu@t'`)).rows[0].id;
+  await pool.query('delete from assegnazione where scheda_id=$1', [scheda]); await pool.query('insert into assegnazione values ($1,$2)', [scheda, giuId]);
+  const sq = json(await chiama('POST', `/api/eventi/${ev}/squadre`, { token: O, body: { nome: 'Squadra offline', comitato: 'Parma' } }));
+  const voce = json(await chiama('GET', `/api/schede/${scheda}`, { token: O })).voci.find((v) => v.scala === 'Standard');
+  assert.equal((await chiama('PUT', `/api/scene/${scena.id}/offline`, { token: tok['giu@t'], body: { offline: true } })).statusCode, 403);
+  assert.equal((await chiama('PUT', `/api/scene/${scena.id}/offline`, { token: O, body: { offline: true } })).statusCode, 200);
+  // online la scena offline non si valuta: il giudice no, l'organizzazione solo con lo sblocco
+  const corpo = (extra = {}) => ({ id: randomUUID(), scheda_id: scheda, squadra_id: sq.id, risposte: [{ voce_id: voce.id, livello: 'BE' }], ...extra });
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body: corpo() })).statusCode, 409);
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body: corpo({ origine: 'tablet_offline' }) })).statusCode, 409);   // dichiararsi offline non basta
+  assert.equal((await chiama('POST', '/api/sync', { token: O, body: corpo() })).statusCode, 409);
+  assert.equal((await chiama('POST', '/api/sync', { token: O, body: corpo({ sblocco: true }) })).statusCode, 200);
+  assert.ok((await pool.query(`select 1 from audit_log where azione='sblocco_scena_offline'`)).rowCount >= 1);
+  await pool.query('delete from compilazione where scheda_id=$1 and squadra_id=$2', [scheda, sq.id]);
+  // codici: solo organizzazione; ristampabili; rigenerabili
+  assert.equal((await chiama('POST', `/api/eventi/${ev}/offline/codici`, { token: tok['giu@t'], body: {} })).statusCode, 403);
+  const cod = json(await chiama('POST', `/api/eventi/${ev}/offline/codici`, { token: O, body: {} }));
+  const mio = cod.find((c) => c.utente_id === giuId); assert.match(mio.codice, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+  assert.deepEqual(json(await chiama('POST', `/api/eventi/${ev}/offline/codici`, { token: O, body: {} })).find((c) => c.utente_id === giuId).codice, mio.codice);
+  // pacchetto: chi non è direzione/organizzazione non lo scarica; il dispositivo si registra e passa offline
+  const dev = randomUUID();
+  assert.equal((await chiama('POST', '/api/dispositivi/registra', { token: tok['giu@t'], body: { id: dev } })).statusCode, 200);
+  assert.equal((await chiama('POST', `/api/eventi/${ev}/offline/pacchetto`, { token: tok['giu@t'], body: { dispositivo_id: dev } })).statusCode, 403);
+  const pk = json(await chiama('POST', `/api/eventi/${ev}/offline/pacchetto`, { token: O, body: { dispositivo_id: dev } }));
+  const blob = pk.giudici.find((g) => g.utente_id === giuId);
+  assert.throws(() => aprBlob('SBAGLIATO', blob));                                      // senza il codice giusto non si apre
+  const dati = JSON.parse(aprBlob(mio.codice.replace('-', ''), blob));
+  assert.ok(dati.schede[scheda] && dati.squadre.some((q) => q.id === sq.id));
+  assert.ok(!JSON.stringify(pk).includes(mio.codice.replace('-', '')));                // il codice non viaggia nel pacchetto
+  assert.equal(json(await chiama('GET', '/api/dispositivi', { token: O })).find((d) => d.id === dev).modalita, 'offline');
+  // rientro online: i dati entrano come inviati dal giudice
+  const sync = json(await chiama('POST', '/api/offline/sync', { token: O, body: { evento_id: ev, dispositivo_id: dev, invii: [{ utente_id: giuId, payload: corpo({ stato: 'completata' }) }] } }));
+  assert.equal(sync.errori, 0, JSON.stringify(sync));
+  const { rows: [c] } = await pool.query('select giudice_id, origine, stato from compilazione where scheda_id=$1 and squadra_id=$2', [scheda, sq.id]);
+  assert.equal(c.giudice_id, giuId); assert.equal(c.origine, 'tablet_offline'); assert.equal(c.stato, 'verificata');
+  assert.equal(json(await chiama('GET', '/api/dispositivi', { token: O })).find((d) => d.id === dev).modalita, 'online');
+  assert.equal(json(await chiama('POST', '/api/offline/sync', { token: O, body: { evento_id: ev, invii: [{ utente_id: giuId, payload: { ...corpo(), scheda_id: randomUUID() } }] } })).errori, 1);
+  await chiama('PUT', `/api/scene/${scena.id}/offline`, { token: O, body: { offline: false } });
+});
