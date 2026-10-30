@@ -555,7 +555,14 @@ async function preparaCoda() {
   if (!me) return null;
   const { creaCoda } = await import('/coda.js');
   coda = creaCoda({ storage: localStorage, chiave: 'coda_v2_' + me.id,      // una coda per utente
-    invia: (payload) => api('/sync', { body: { ...payload, origine: 'tablet_online' } }) });
+    invia: async (payload) => {
+      const manda = () => api('/sync', { body: { ...payload, origine: 'tablet_online', ...(window.__sbloccoOff ? { sblocco: true } : {}) } });
+      try { return await manda(); }
+      catch (e) {   // scena segnata offline: solo la direzione gara può valutarla online, dopo aver confermato l'avviso
+        if (!/scena offline/.test(e.message) || !org()) throw e;
+        if (!confirm('Questa scena è segnata come OFFLINE: le valutazioni devono arrivare dai tablet preparati.\n\nVuoi valutarla comunque da qui, come direzione gara?')) throw e;
+        window.__sbloccoOff = true; return manda();
+      } } });
   return coda;
 }
 addEventListener('online', () => coda && coda.svuota());
