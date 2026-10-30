@@ -255,6 +255,21 @@ async function caricaRotazione() {
     $('#r_auto').onclick = async () => { try { await api(`/eventi/${ev.id}/rotazione`, { method: 'PUT', body: { auto: true } }); flash('Squadre assegnate in ordine'); caricaRotazione(); } catch (e) { flash(e.message, false); } };
   } catch (e) { box.innerHTML = `<h3>Svolgimento della gara</h3><p>${esc(e.message)}</p>`; }
 }
+// direzione gara: le persone (3-4) che in questa gara riaprono le schede chiuse e compilano al posto dei giudici
+async function cardDirezione(ev) {
+  const [elenco, scelti] = await Promise.all([api('/giudici'), api(`/eventi/${ev.id}/direzione`)]).catch(() => [null, null]);
+  if (!elenco) return;
+  const sel = new Set(scelti.map((x) => x.utente_id));
+  $('#app').insertAdjacentHTML('beforeend', `<div class="card" id="dz"><h3>Direzione gara</h3>
+    <p class="nota">Le persone che, solo in questa gara, possono riaprire le schede chiuse e compilarle al posto dei giudici. Il giudice master consulta le schede degli altri e può solo riaprirle al giudice; il giudice da solo non può riaprire una scheda chiusa.</p>
+    <input id="dz_q" placeholder="Cerca per nome" autocomplete="off">
+    <div id="dz_l" style="max-height:240px;overflow:auto;margin:8px 0">${elenco.map((g) => `<label class="ck-t" data-q="${esc((g.nome + ' ' + g.email).toLowerCase())}" style="display:flex;gap:8px;align-items:center"><input type="checkbox" value="${g.id}" ${sel.has(g.id) ? 'checked' : ''}> ${esc(g.nome)} <small>${esc(g.email)}</small></label>`).join('')}</div>
+    <p><button class="b" id="dz_ok">Salva la direzione gara</button> <small id="dz_n"></small></p></div>`);
+  const conta = () => { $('#dz_n').textContent = document.querySelectorAll('#dz_l input:checked').length + ' persone'; };
+  conta(); $('#dz_l').onchange = conta;
+  $('#dz_q').oninput = () => { const q = $('#dz_q').value.trim().toLowerCase(); document.querySelectorAll('#dz_l .ck-t').forEach((l) => { l.style.display = !q || l.dataset.q.includes(q) ? 'flex' : 'none'; }); };
+  $('#dz_ok').onclick = () => fai(() => api(`/eventi/${ev.id}/direzione`, { method: 'PUT', body: { utenti: [...document.querySelectorAll('#dz_l input:checked')].map((i) => i.value) } }), 'Direzione gara salvata');
+}
 async function tEvento() {
   const regioni = me.ruolo === 'admin' ? await api('/regioni').catch(() => []) : [];
   $('#app').innerHTML = selettoreEvento() + (ev ? `
@@ -312,6 +327,7 @@ async function tEvento() {
       $('#ci_ok').onclick = () => fai(async () => { inv = await api(`/eventi/${ev.id}/comitati-invitati`, { method: 'PUT', body: { comitati: inv } }); disegnaInv(); }, 'Inviti salvati'); }
   }
   if (ev) {
+    if (fam !== 'corsi') cardDirezione(ev);
     if (ev.comitato) COMITATI_OK.add(ev.comitato); cercaComitato('e_comp');
     attivaComune('lc', { istat: ev.comune_istat, regione: ev.luogo_regione, provincia: ev.luogo_provincia }).catch((e) => flash(e.message, false));
     $('#e_salva').onclick = () => fai(async () => { if ($('#e_comp') && !comitatoValido($('#e_comp').value.trim())) throw new Error('Scegli il comitato dall\'elenco'); await api(`/eventi/${ev.id}`, { method: 'PATCH', body: { codice: $('#e_cod').value.trim(), nome: $('#e_nome').value, titolo_stampa: $('#e_tit').value,

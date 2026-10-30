@@ -29,7 +29,7 @@ export async function sincronizza(db, utente, payload) {
   if (!ORIGINI.includes(origine)) throw httpErr(400, 'origine non valida');
   if (!Array.isArray(risposte) || risposte.length > 500) throw httpErr(400, 'risposte: elenco (max 500)');
   if (payload.stato && !(payload.stato in RANGO)) throw httpErr(400, 'stato non valido');
-  const isOrg = ORG.includes(utente.ruolo);
+  let isOrg = ORG.includes(utente.ruolo);
   const isMasterRuolo = utente.ruolo === 'giudice_master';
 
   const { rows: [ctx] } = await db.query(
@@ -40,6 +40,7 @@ export async function sincronizza(db, utente, payload) {
       where s.id = $1`, [scheda_id, squadra_id]);
   if (!ctx) throw httpErr(404, 'scheda o squadra inesistente');
   await verificaAccessoEvento(db, utente, ctx.ev_scheda);
+  if (!isOrg && await inDirezione(db, utente, ctx.ev_scheda)) isOrg = true;   // direzione gara: stessi poteri dell'organizzazione, ma solo in questa gara
   if (ctx.ev_scheda !== ctx.ev_squadra) throw httpErr(400, 'scheda e squadra appartengono a eventi diversi');
   if (!ctx.attiva) throw httpErr(409, 'squadra disattivata');
   if (ctx.archiviato) throw httpErr(409, 'evento archiviato');
@@ -49,6 +50,11 @@ export async function sincronizza(db, utente, payload) {
       `select 1 from scena_master m join scena_scheda s on s.scena_id = m.scena_id where s.id=$1 and m.utente_id=$2`, [scheda_id, utente.id])).rowCount > 0;
     const { rowCount } = await db.query('select 1 from assegnazione where scheda_id=$1 and utente_id=$2', [scheda_id, utente.id]);
     if (!rowCount && !isMasterScena) throw httpErr(403, 'scheda non assegnata a questo giudice');
+    // il giudice master sulle schede degli altri giudici consulta soltanto: scrive solo sulla scheda Master o su quelle che gli sono assegnate
+    if (isMasterScena && !rowCount) {
+      const { rows: [sk] } = await db.query('select is_master from scena_scheda where id=$1', [scheda_id]);
+      if (!sk?.is_master) throw httpErr(403, 'il giudice master consulta soltanto le schede degli altri giudici: per correggere riapri la scheda al giudice');
+    }
   }
   // gara online: il giudice compila solo se il master ha aperto la scena per quella squadra
   if (ctx.modalita === 'online' && !isOrg && !isMasterScena) {
@@ -65,7 +71,7 @@ export async function sincronizza(db, utente, payload) {
     `select * from compilazione where scheda_id=$1 and squadra_id=$2 for update`, [scheda_id, squadra_id]);
   if (!c) throw httpErr(409, 'id compilazione già usato per un\'altra scheda: genera un nuovo UUID');
   // scheda chiusa: dopo la conferma del giudice la modifica spetta solo a organizzazione, admin e giudice master della scena
-  if (c.stato !== 'bozza' && !isOrg && !isMasterScena) throw httpErr(409, 'scheda chiusa: solo il giudice master o l\'organizzazione possono modificarla');
+  if (c.stato !== 'bozza' && !isOrg) throw httpErr(409, 'scheda chiusa: la riapre il giudice master (al giudice) oppure la direzione gara');
 
   let scritte = 0, scartate = 0;
   const correzioni = [];   // solo per il master: cosa ha cambiato nelle schede compilate da altri
@@ -117,6 +123,11 @@ export async function sincronizza(db, utente, payload) {
   return { compilazione_id: c.id, stato, scritte, scartate };
 }
 
+// direzione gara: persone indicate per quella gara (anche se il loro ruolo di sistema è giudice o giudice master)
+export async function inDirezione(db, utente, eventoId) {
+  return (await db.query('select 1 from evento_direzione where evento_id=$1 and utente_id=$2', [eventoId, utente.id])).rowCount > 0;
+}
+
 export async function riapri(db, utente, compilazioneId) {
   if (!UUID.test(compilazioneId || '')) throw httpErr(400, 'id non valido');
   if (utente.ruolo === 'organizzazione') {
@@ -124,11 +135,13 @@ export async function riapri(db, utente, compilazioneId) {
     if (!c) throw httpErr(404, 'compilazione inesistente');
     await verificaAccessoEvento(db, utente, c.evento_id);
   }
-  if (!ORG.includes(utente.ruolo)) {       // il giudice master può riaprire solo le schede della propria scena
+  const { rows: [ev] } = await db.query('select sc.evento_id from compilazione c join scena_scheda s on s.id=c.scheda_id join scena sc on sc.id=s.scena_id where c.id=$1', [compilazioneId]);
+  if (!ORG.includes(utente.ruolo) && !(ev && await inDirezione(db, utente, ev.evento_id))) {       // il giudice master può riaprire (al giudice) solo le schede della propria scena
     const ok = utente.ruolo === 'giudice_master' && (await db.query(
       `select 1 from compilazione c join scena_scheda s on s.id = c.scheda_id join scena_master m on m.scena_id = s.scena_id
         where c.id=$1 and m.utente_id=$2`, [compilazioneId, utente.id])).rowCount > 0;
-    if (!ok) throw httpErr(403, 'solo organizzazione, admin o giudice master della scena');
+    if (ok && (await db.query('select 1 from compilazione where id=$1 and giudice_id=$2', [compilazioneId, utente.id])).rowCount) throw httpErr(403, 'il giudice master non riapre le proprie schede: lo fa la direzione gara');
+    if (!ok) throw httpErr(403, 'solo direzione gara, organizzazione o giudice master della scena');
   }
   const { rowCount } = await db.query(
     `update compilazione set stato='bozza', verificata_at=null, verificata_da=null, updated_at=now() where id=$1`, [compilazioneId]);

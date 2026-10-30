@@ -452,14 +452,14 @@ async function vistaSelezione() {
   $('#sc').onchange = () => { aggSchede(); salvaSel(); }; $('#sk').onchange = salvaSel; $('#sq').onchange = salvaSel;
   $('#avvia').onclick = async () => {
     salvaSel(); const vai = () => { location.hash = `#valuta/${$('#sk').value}/${$('#sq').value}/${ev.id}`; };
-    let c = null; try { c = (await api(`/compilazioni?scheda=${$('#sk').value}&squadra=${$('#sq').value}`)).compilazione; } catch { /* offline: si prosegue */ }
+    let c = null; try { const r = await api(`/compilazioni?scheda=${$('#sk').value}&squadra=${$('#sq').value}`); c = r.compilazione && { ...r.compilazione, puo_riaprire: r.puo_riaprire, ruolo_qui: r.ruolo_qui }; } catch { /* offline: si prosegue */ }
     if (!c || !['completata', 'verificata'].includes(c.stato)) return vai();
-    const puoModificare = org() || master();
+    const puoModificare = c.puo_riaprire ?? (org() || master());
     $('#gia')?.remove();
     $('#avvia').closest('.card').insertAdjacentHTML('beforeend', `<div class="avviso" id="gia"><strong>Già valutato</strong><br><small>${esc($('#sk').selectedOptions[0]?.textContent || '')} · squadra ${esc($('#sq').selectedOptions[0]?.textContent || '')}${c.giudice ? ' · da ' + esc(c.giudice) : ''}${c.completata_at ? ' · ' + new Date(c.completata_at).toLocaleDateString('it-IT') : ''}</small><br>
-      <button class="btn" id="gia_c" type="button">Consulta</button> ${puoModificare ? '<button class="btn sec" id="gia_m" type="button">Modifica</button>' : '<small>Solo il giudice master o l\'organizzazione possono modificarla.</small>'}</div>`);
+      <button class="btn" id="gia_c" type="button">Consulta</button> ${puoModificare ? `<button class="btn sec" id="gia_m" type="button">${c.ruolo_qui === 'master' ? 'Riapri al giudice' : 'Modifica'}</button>` : '<small>Per correggerla la riapre il giudice master o la direzione gara.</small>'}</div>`);
     $('#gia_c').onclick = vai;
-    if ($('#gia_m')) $('#gia_m').onclick = async () => { try { await api(`/compilazioni/${c.id}/riapri`, { body: {} }); vai(); } catch (e) { alert(e.message); } };
+    if ($('#gia_m')) $('#gia_m').onclick = async () => { try { await api(`/compilazioni/${c.id}/riapri`, { body: {} }); if (c.ruolo_qui === 'master') { $('#gia')?.remove(); alert('Scheda riaperta: ora il giudice può correggerla.'); } else vai(); } catch (e) { alert(e.message); } };
   };
   if (ev.modalita === 'online') selezioneOnline(ev, scAvail, squadre.filter((x) => x.attiva));
 }
@@ -563,8 +563,9 @@ async function vistaValuta(schedaId, squadraId) {
   const nomeSq = (squadreEv.find((x) => x.id === squadraId)?.nome || '').toUpperCase();
   const stato = cur.compilazione?.stato || 'bozza';
   const chiusa = stato !== 'bozza';                           // conferma del giudice = scheda chiusa
-  const puoChiudere = org() || master();                       // organizzazione e giudice master verificano/chiudono
-  const soloLettura = chiusa && !puoChiudere;                         // scheda chiusa: il giudice non può più modificarla (il master la riapre)
+  // chi può fare cosa lo decide il server: il giudice non riapre da solo; il master consulta e riapre al giudice; la direzione gara riapre e compila
+  const puoMod = cur.puo_modificare ?? (!chiusa || org() || master()), puoRiaprire = cur.puo_riaprire ?? (chiusa && (org() || master()));
+  const soloLettura = !puoMod;
   const chiave = `${schedaId}|${squadraId}`;
   const meta = { id: cur.compilazione?.id || coda.idPer(chiave) || crypto.randomUUID(), scheda_id: schedaId, squadra_id: squadraId };
   const ris = new Map(cur.risposte.map(r => [r.voce_id, r.livello]));
@@ -594,14 +595,14 @@ async function vistaValuta(schedaId, squadraId) {
   $('#titolo').textContent = scheda.titolo;
   const chi = cur.compilazione?.giudice ? ` · compilata da ${esc(cur.compilazione.giudice)}` : '';
   const sq = nomeSq ? `${esc(nomeSq)} – ` : '';
-  const banner = chiusa ? `<div class="avviso"><strong>${sq}Scheda chiusa.</strong>${chi} ${soloLettura ? 'Solo il giudice master o l\'organizzazione possono riaprirla.' : ''}</div>`
-    : (master() && cur.compilazione ? `<div class="avviso"><strong>${sq}In compilazione</strong>${chi}.</div>` : (nomeSq ? `<div class="avviso"><strong>${esc(nomeSq)}</strong></div>` : ''));
+  const banner = chiusa ? `<div class="avviso"><strong>${sq}Scheda chiusa.</strong>${chi} ${puoRiaprire ? '' : 'Per correggerla la riapre il giudice master o la direzione gara.'}</div>`
+    : (soloLettura ? `<div class="avviso"><strong>${sq}Sola consultazione.</strong>${chi} Il giudice master consulta le schede degli altri giudici: per correggere la riapre al giudice.</div>` : master() && cur.compilazione ? `<div class="avviso"><strong>${sq}In compilazione</strong>${chi}.</div>` : (nomeSq ? `<div class="avviso"><strong>${esc(nomeSq)}</strong></div>` : ''));
   $('#app').innerHTML = banner + (pv ? '<div class="esito" id="esito"></div>' : '') + html + `<div class="barra"><span class="stato" id="st"></span>
     <button class="btn sec" id="indietro">Indietro</button>
     ${pv ? '<button class="btn sec" id="pdfesito">PDF esito</button>' : ''}
     ${org() && cur.compilazione ? '<button class="btn sec" id="elimina">Elimina valutazione</button>' : ''}
-    ${chiusa ? (puoChiudere && cur.compilazione ? '<button class="btn" id="riapri">Riapri scheda</button>' : '')
-      : `<button class="btn" id="verif">Conferma e chiudi</button>`}</div>`;
+    ${chiusa ? (puoRiaprire && cur.compilazione ? `<button class="btn" id="riapri">${cur.ruolo_qui === 'master' ? 'Riapri al giudice' : 'Riapri scheda'}</button>` : '')
+      : (soloLettura ? '' : `<button class="btn" id="verif">Conferma e chiudi</button>`)}</div>`;
   if (soloLettura) $('#app').classList.add('sola-lettura');
   else $('#app').classList.remove('sola-lettura');
   const tot = proprie.length;

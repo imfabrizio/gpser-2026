@@ -135,7 +135,9 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const { rowCount } = await pool.query(
       `select 1 from assegnazione where scheda_id=$1 and utente_id=$2
        union all select 1 from scena_master m join scena_scheda s on s.scena_id = m.scena_id
-        where s.id=$1 and m.utente_id=$2 and $3::text = 'giudice_master'`, [schedaId, utente.id, utente.ruolo]);
+        where s.id=$1 and m.utente_id=$2 and $3::text = 'giudice_master'
+       union all select 1 from scena_scheda s join scena sc on sc.id = s.scena_id join evento_direzione d on d.evento_id = sc.evento_id
+        where s.id=$1 and d.utente_id=$2`, [schedaId, utente.id, utente.ruolo]);
     if (!rowCount) throw httpErr(403, 'scheda non assegnata');
   };
 
@@ -356,11 +358,25 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
               and ($2::text in ('admin','organizzazione') or exists
                    (select 1 from assegnazione a where a.scheda_id = s.id and a.utente_id = $3::uuid)
                   or ($2::text = 'giudice_master' and exists
-                   (select 1 from scena_master m where m.scena_id = sc.id and m.utente_id = $3::uuid)))) as schede
+                   (select 1 from scena_master m where m.scena_id = sc.id and m.utente_id = $3::uuid))
+                  or exists (select 1 from evento_direzione d where d.evento_id = sc.evento_id and d.utente_id = $3::uuid))) as schede
        from scena sc where sc.evento_id=$1 order by sc.ordine, sc.codice`,
       [req.params.id, req.utente.ruolo, req.utente.id]);
     return rows;
   });
+  // ── direzione gara: per ogni gara 3-4 persone che possono riaprire le schede chiuse e compilare al posto dei giudici ──
+  app.get('/api/eventi/:id/direzione', { preHandler: soloOrg }, async (req) =>
+    (await pool.query('select d.utente_id, u.nome, u.email from evento_direzione d join utente u on u.id=d.utente_id where d.evento_id=$1 order by u.nome', [req.params.id])).rows);
+  app.put('/api/eventi/:id/direzione', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    const ids = req.body?.utenti || []; if (!Array.isArray(ids) || ids.length > 12) throw httpErr(400, 'utenti: elenco di id (max 12)');
+    await verificaAccessoEvento(db, req.utente, req.params.id);
+    const { rows: ok } = await db.query('select id from utente where id = any($1::uuid[]) and attivo', [ids]);
+    if (ok.length !== new Set(ids).size) throw httpErr(400, 'solo utenti attivi');
+    await db.query('delete from evento_direzione where evento_id=$1', [req.params.id]);
+    for (const u of new Set(ids)) await db.query('insert into evento_direzione (evento_id, utente_id, aggiunto_da) values ($1,$2,$3)', [req.params.id, u, req.utente.id]);
+    await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'direzione_gara','evento',$2,$3)`, [req.utente.id, req.params.id, JSON.stringify({ utenti: ids })]);
+    return { ok: true, direzione: ids.length };
+  }));
   // ── allenamento del comitato: comitati invitati (consultano l'allenamento, non lo modificano) ──
   const soloAllenamento = async (id) => { const { rows: [e] } = await pool.query('select id, tipo from evento where id=$1', [id]); if (!e) throw httpErr(404, 'evento inesistente'); if (e.tipo !== 'allenamento') throw httpErr(400, 'solo gli allenamenti si aprono ad altri comitati'); };
   app.get('/api/eventi/:id/comitati-invitati', { preHandler: soloOrg }, async (req) => (await pool.query('select comitato from evento_comitato_invitato where evento_id=$1 order by comitato', [req.params.id])).rows.map((r) => r.comitato));
@@ -862,7 +878,17 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     await accessoScheda(req.utente, scheda);
     const { rows: [c] } = await pool.query('select * from compilazione where scheda_id=$1 and squadra_id=$2', [scheda, squadra]);
     const risposte = c ? (await pool.query('select voce_id, livello, updated_at from risposta where compilazione_id=$1 and livello is not null', [c.id])).rows : [];
-    return { compilazione: c ?? null, risposte };
+    // cosa può fare chi guarda: la scheda chiusa la riaprono il master (al giudice) e la direzione gara; il giudice da solo no
+    const u = req.utente; const { rows: [k] } = await pool.query(
+      `select sc.evento_id, s.is_master, exists (select 1 from assegnazione a where a.scheda_id=s.id and a.utente_id=$2) as assegnata,
+              exists (select 1 from scena_master m where m.scena_id=sc.id and m.utente_id=$2) as master_scena,
+              exists (select 1 from evento_direzione d where d.evento_id=sc.evento_id and d.utente_id=$2) as direzione
+         from scena_scheda s join scena sc on sc.id=s.scena_id where s.id=$1`, [scheda, u.id]);
+    const potere = RUOLI_ORG.includes(u.ruolo) || !!k?.direzione, master = u.ruolo === 'giudice_master' && !!k?.master_scena;
+    const mia = !!k && (k.assegnata || (master && k.is_master));
+    const chiusa = !!c && c.stato !== 'bozza';
+    return { compilazione: c ?? null, risposte, ruolo_qui: potere ? 'direzione' : master ? 'master' : 'giudice',
+      puo_modificare: potere || (mia && !chiusa), puo_riaprire: !!c && chiusa && (potere || (master && c.giudice_id !== u.id)) };
   });
   app.post('/api/sync', async (req) => {
     // accetta un oggetto o un array di compilazioni (batch dal tablet / trascrizione massiva dalla carta)

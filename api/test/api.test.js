@@ -508,20 +508,21 @@ test('M-2 giudice master: vede e corregge tutte le schede della sua scena, verif
   const base = { id: idc, scheda_id: scheda, squadra_id: sq.id };
   const w = async (t, livello, extra = {}) => json(await chiama('POST', '/api/sync', { token: tok[t], body: { ...base, risposte: [{ voce_id: std.id, livello }], ...extra } }));
   assert.equal((await w('giu@t', 'IN'))[0].stato, 'bozza');
-  const corr = await w('mas@t', 'MB');
-  assert.equal(corr[0].scritte, 1);
-  assert.equal((await w('giu@t', 'NE'))[0].scartate, 1);                              // il giudice non scavalca il master
-  const { rows: [a] } = await pool.query(`select dettaglio from audit_log where azione='correzione_master' order by id desc limit 1`);
-  assert.equal(a.dettaglio.correzioni[0].prima, 'IN'); assert.equal(a.dettaglio.correzioni[0].dopo, 'MB');
-  // il giudice conferma: la scheda si chiude da sola
+  // il master sulla scheda degli altri giudici consulta soltanto
+  const stdB = json(await chiama('GET', `/api/schede/${schedaB}`, { token: tok['org@t'] })).voci.find((v) => v.scala === 'Standard');
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['mas@t'], body: { id: randomUUID(), scheda_id: schedaB, squadra_id: sq.id, risposte: [{ voce_id: stdB.id, livello: 'MB' }] } })).statusCode, 403);
+  assert.equal(json(await chiama('GET', `/api/compilazioni?scheda=${schedaB}&squadra=${sq.id}`, { token: tok['mas@t'] })).puo_modificare, false);
+  // il giudice conferma: la scheda si chiude da sola e nessuno dei due può più scriverla
   assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, stato: 'completata', risposte: [] } })).statusCode, 200);
-  assert.equal((await w('mas@t', 'MB'))[0].stato, 'verificata');   // il master può ancora correggerla
   assert.equal((await chiama('POST', '/api/sync', { token: tok['giu@t'], body: { ...base, risposte: [{ voce_id: std.id, livello: 'BE' }] } })).statusCode, 409);
-  // riapertura: il master della scena sì, un altro master no
   const { rows: [c] } = await pool.query('select id from compilazione where scheda_id=$1 and squadra_id=$2', [scheda, sq.id]);
-  assert.equal((await chiama('POST', `/api/compilazioni/${c.id}/riapri`, { token: tok['mas2@t'] })).statusCode, 403);
-  assert.equal((await chiama('POST', `/api/compilazioni/${c.id}/riapri`, { token: tok['mas@t'] })).statusCode, 200);
+  assert.equal((await chiama('POST', `/api/compilazioni/${c.id}/riapri`, { token: tok['giu@t'] })).statusCode, 403);    // il giudice non si riapre la scheda
+  assert.equal((await chiama('POST', `/api/compilazioni/${c.id}/riapri`, { token: tok['mas2@t'] })).statusCode, 403);   // un altro master no
+  const ch = json(await chiama('GET', `/api/compilazioni?scheda=${scheda}&squadra=${sq.id}`, { token: tok['mas@t'] }));
+  assert.equal(ch.puo_riaprire, true); assert.equal(ch.puo_modificare, false);
+  assert.equal((await chiama('POST', `/api/compilazioni/${c.id}/riapri`, { token: tok['mas@t'] })).statusCode, 200);       // il master la riapre al giudice
   assert.equal((await pool.query('select stato from compilazione where id=$1', [c.id])).rows[0].stato, 'bozza');
+  assert.equal((await w('giu@t', 'BE'))[0].stato, 'bozza');                           // e il giudice la corregge
   void altroId;
 });
 
@@ -2159,4 +2160,27 @@ test('CAN-4: canovaccio di gara da modulo — pazienti in ordine di gravità, tr
   assert.equal((await chiama('PUT', `/api/canovacci/${r.id}`, { token: O, body: { ...body, titolo: 'Incidente 2', dati: { sottotitolo: 'x' } } })).statusCode, 200);
   c = json(await chiama('GET', `/api/canovacci/${r.id}`, { token: O })); assert.equal(c.titolo, 'Incidente 2'); assert.equal(c.dati.pazienti.length, 2, 'senza elenco i pazienti restano');
   assert.equal((await chiama('GET', `/api/canovacci/${r.id}/canovaccio.pdf`, { token: O })).statusCode, 200);
+});
+
+test('DIR-1: direzione gara assegnata gara per gara — riapre, compila al posto del giudice, solo in quella gara', async () => {
+  const O = tok['org@t'];
+  const dirId = await nuovoUtente('dir@t', 'giudice');
+  const { rows: [sc] } = await pool.query('select s.id as scheda_id, sc.id as scena_id from scena_scheda s join scena sc on sc.id=s.scena_id where sc.evento_id=$1 limit 1', [ev]);
+  const sq = json(await chiama('POST', `/api/eventi/${ev}/squadre`, { token: O, body: { nome: 'Squadra direzione', comitato: 'Modena' } }));
+  const voce = json(await chiama('GET', `/api/schede/${sc.scheda_id}`, { token: O })).voci.find((v) => v.scala === 'Standard');
+  const body = { id: randomUUID(), scheda_id: sc.scheda_id, squadra_id: sq.id, risposte: [{ voce_id: voce.id, livello: 'BE' }], stato: 'completata' };
+  // senza direzione: nessun accesso
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['dir@t'], body })).statusCode, 403);
+  assert.equal((await chiama('PUT', `/api/eventi/${ev}/direzione`, { token: tok['giu@t'], body: { utenti: [dirId] } })).statusCode, 403);
+  assert.equal((await chiama('PUT', `/api/eventi/${ev}/direzione`, { token: O, body: { utenti: [dirId] } })).statusCode, 200);
+  assert.equal(json(await chiama('GET', `/api/eventi/${ev}/direzione`, { token: O })).length, 1);
+  // ora compila al posto del giudice, e può riaprire la scheda chiusa
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['dir@t'], body })).statusCode, 200);
+  const { rows: [c] } = await pool.query('select id, stato from compilazione where scheda_id=$1 and squadra_id=$2', [sc.scheda_id, sq.id]);
+  assert.equal(c.stato, 'verificata');
+  const v = json(await chiama('GET', `/api/compilazioni?scheda=${sc.scheda_id}&squadra=${sq.id}`, { token: tok['dir@t'] })); assert.equal(v.ruolo_qui, 'direzione'); assert.equal(v.puo_riaprire, true);
+  assert.equal((await chiama('POST', `/api/compilazioni/${c.id}/riapri`, { token: tok['dir@t'] })).statusCode, 200);
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['dir@t'], body: { ...body, risposte: [{ voce_id: voce.id, livello: 'MB' }] } })).statusCode, 200);
+  assert.equal((await chiama('PUT', `/api/eventi/${ev}/direzione`, { token: O, body: { utenti: [] } })).statusCode, 200);   // tolto: torna giudice semplice
+  assert.equal((await chiama('POST', '/api/sync', { token: tok['dir@t'], body })).statusCode, 403);
 });

@@ -2936,7 +2936,7 @@ create table if not exists sessione_esame_invito (
   primary key (sessione_id, utente_id)
 );
 create index if not exists sessione_esame_invito_utente_idx on sessione_esame_invito (utente_id);
-insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql'), ('055-preferenze-utente.sql'), ('056-istruttore-du-apre-corsi.sql'), ('057-esiti-pubblicati.sql'), ('058-trainer-del-corso.sql'), ('059-backup-log.sql') on conflict do nothing;
+insert into schema_migrazioni (nome) values ('045-esami-accesso-locale.sql'), ('046-skill-fasce-scoop.sql'), ('047-errori-gravi-skill.sql'), ('048-schede-composte.sql'), ('049-canovacci-megacode.sql'), ('050-skill-solo-formazione.sql'), ('051-istruttori-valutano.sql'), ('052-ruoli-come-qualifiche.sql'), ('053-via-istruttore-generico.sql'), ('054-skill-scenari-megacode.sql'), ('055-preferenze-utente.sql'), ('056-istruttore-du-apre-corsi.sql'), ('057-esiti-pubblicati.sql'), ('058-trainer-del-corso.sql'), ('059-backup-log.sql'), ('060-direzione-gara.sql') on conflict do nothing;
 
 -- 046-skill-fasce-scoop
 -- Skill: fasce di giudizio automatiche (75/80/85/95%, calcolate sul numero di voci) e Barella Scoop in due schede (trasporto, semi-verticalizzazione).
@@ -3565,3 +3565,13 @@ create table if not exists backup_log (
   eseguito_da uuid references utente(id) on delete set null
 );
 create index if not exists backup_log_data_idx on backup_log (creato_il desc);
+
+-- 060-direzione-gara
+-- Direzione gara: le persone (3-4) che per una gara possono riaprire le schede chiuse e compilare al posto dei giudici
+create table if not exists evento_direzione (
+  evento_id  uuid not null references evento(id) on delete cascade,
+  utente_id  uuid not null references utente(id) on delete cascade,
+  aggiunto_da uuid references utente(id) on delete set null,
+  created_at timestamptz not null default now(),
+  primary key (evento_id, utente_id)
+);
