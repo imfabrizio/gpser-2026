@@ -821,7 +821,11 @@ async function route() {
   if (OFF) {
     const v0 = location.hash.slice(1).split('/')[0];
     if (OFF.sessioneAttiva()) { if (v0 === 'valuta') { const [, a, b] = location.hash.slice(1).split('/'); $('#app').classList.add('largo'); try { return await vistaValuta(a, b); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } } return vistaOffline(); }
-    if (v0 === 'offline' || (!navigator.onLine && await OFF.pacchetto())) return vistaOffline();
+    if (v0 === 'offline') return vistaOffline();
+    if (await OFF.pacchetto()) {   // tablet preparato: se il sito non risponde (anche con il wifi acceso ma senza internet) si apre la pagina offline
+      let su = navigator.onLine; if (su) { try { const c = new AbortController(), t = setTimeout(() => c.abort(), 3000); const r = await fetch('/salute', { cache: 'no-store', signal: c.signal }); clearTimeout(t); su = r.ok; } catch { su = false; } }
+      if (!su) return vistaOffline();
+    }
   }
   if (location.hash.startsWith('#sso=')) {           // ritorno da Google/Microsoft: il ticket monouso diventa la sessione
     const t = location.hash.slice(5); history.replaceState(null, '', location.pathname);
