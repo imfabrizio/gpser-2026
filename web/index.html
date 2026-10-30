@@ -782,9 +782,9 @@ async function vistaOffline() {
   const ds = pk ? await OFF.daInviare() : { schede: 0, voci: 0, chiuse: 0 };
   let h = '';
   if (!pk) {
-    let ev = []; if (token) { try { ev = (await api('/eventi')).filter((e) => !e.archiviato && ['gara', 'olimpiadi', 'allenamento'].includes(e.tipo)); } catch { /* senza rete */ } }
+    let ev = []; if (token) { try { ev = await api('/eventi'); } catch { /* senza rete */ } }
     h = token ? `<div class="card"><h3>Prepara questo tablet</h3><p class="nota">Scarica le schede delle scene offline. Serve la rete e l'accesso di direzione gara o organizzazione. Prima segna le scene come offline e stampa i codici dal pannello di gestione (scheda Offline).</p>
-        <label>Gara</label><select id="of_ev">${ev.map((e) => `<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select>
+        <label>Gara</label><select id="of_ev">${ev.map((e) => `<option value="${e.id}" ${e.id === (localStorage.getItem('ev') || '') ? 'selected' : ''}>${esc(e.nome)} (${esc(TIPO_EV[e.tipo] || e.tipo)}${e.archiviato ? ', archiviata' : ''})</option>`).join('')}</select>
         <p><button class="btn" id="of_prep" ${navigator.onLine ? '' : 'disabled'}>Prepara questo tablet</button></p><p class="err" id="of_e" hidden></p></div>`
       : '<div class="card"><h3>Questo tablet non è preparato</h3><p>Per usarlo senza rete va prima preparato, con la rete, da un account di direzione gara o organizzazione.</p><p><a class="btn" href="#login">Accedi</a></p></div>';
   } else if (!sess) {
