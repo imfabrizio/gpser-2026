@@ -2255,3 +2255,15 @@ test('GRP-1: ruoli senza principale, gruppi di ruoli e staff della gara (direzio
   await chiama('PUT', `/api/eventi/${ev}/staff`, { token: O, body: { direzione: [], logistica: [] } });
   await chiama('DELETE', '/api/gruppi/staff_tecnico', { token: A });
 });
+
+test('SCA-1: una scala si elimina solo se inutilizzata; le scene già composte non cambiano', async () => {
+  const O = tok['org@t'];
+  const nuova = json(await chiama('POST', '/api/libreria/scale', { token: O, body: { codice: 'Scala di prova', mb: 5, be: 3, su: 1, in: 0, ne: 0 } }));
+  assert.equal(json(await chiama('GET', '/api/libreria/scale', { token: O })).find((x) => x.codice === 'Scala di prova').uso, 0);
+  assert.equal((await chiama('DELETE', '/api/libreria/scale/Standard', { token: O })).statusCode, 400);
+  const { rows: [pat] } = await pool.query('select id from patologia limit 1'); const { rows: [vo] } = await pool.query('select id from voce limit 1');
+  await pool.query("insert into patologia_voce (patologia_id, ordine, sezione, voce_id, scala_id) values ($1, 999, 'x', $2, $3)", [pat.id, vo.id, nuova.id]);
+  assert.equal((await chiama('DELETE', '/api/libreria/scale/Scala%20di%20prova', { token: O })).statusCode, 409);   // usata: non si elimina
+  await pool.query('delete from patologia_voce where scala_id=$1', [nuova.id]);
+  assert.equal((await chiama('DELETE', '/api/libreria/scale/Scala%20di%20prova', { token: O })).statusCode, 200);
+});

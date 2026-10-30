@@ -791,7 +791,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   });
 
   // ── libreria ──
-  app.get('/api/libreria/scale', { preHandler: soloOrg }, async () => (await pool.query('select * from scala_punteggio order by codice')).rows);
+  app.get('/api/libreria/scale', { preHandler: soloOrg }, async () => (await pool.query('select s.*, (select count(*)::int from patologia_voce pv where pv.scala_id = s.id) as uso from scala_punteggio s order by s.codice')).rows);
   app.get('/api/libreria/voci', { preHandler: soloOrg }, async (req) => (await pool.query(
     `select * from voce where $1::text is null or testo ilike '%'||$1||'%' order by testo limit 200`, [req.query.q ?? null])).rows);
   app.get('/api/libreria/macro', { preHandler: soloOrg }, async () => (await pool.query('select * from macro_categoria order by priorita')).rows);

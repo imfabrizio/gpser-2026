@@ -494,6 +494,16 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
        on conflict (codice) do update set mb=excluded.mb, be=excluded.be, su=excluded.su, "in"=excluded."in", ne=excluded.ne
        returning *`, [b.codice, v(b.mb), v(b.be), v(b.su), v(b.in), v(b.ne)])).rows[0];
   });
+  // elimina una scala solo se nessuna scheda della libreria la usa; le scene già composte hanno i loro punteggi copiati e non cambiano
+  app.delete('/api/libreria/scale/:codice', { preHandler: soloOrg }, async (req) => {
+    const { rows: [s] } = await pool.query('select id, codice from scala_punteggio where codice=$1', [req.params.codice]); if (!s) throw httpErr(404, 'scala inesistente');
+    if (s.codice === 'Standard') throw httpErr(400, 'la scala Standard serve al sito e non si elimina');
+    const { rows: [{ n }] } = await pool.query('select count(*)::int n from patologia_voce where scala_id=$1', [s.id]);
+    if (n) throw httpErr(409, `la scala è usata da ${n} voci di schede in libreria: cambia prima la scala di quelle voci`);
+    await pool.query('delete from scala_punteggio where id=$1', [s.id]);
+    await pool.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'scala_eliminata','scala',$2,$3)`, [req.utente.id, s.id, JSON.stringify({ codice: s.codice })]);
+    return { ok: true };
+  });
   app.put('/api/libreria/patologie/:id', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
     const b = req.body || {};
     await controllaScheda(pool, req.utente, req.params.id, { modifica: true });
