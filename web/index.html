@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="it">
 <head>
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:,"><link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#C8102E"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CRI Eventi</title>
@@ -91,7 +91,9 @@ let token = localStorage.getItem('token'), me = JSON.parse(localStorage.getItem(
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const org = () => me && ['admin','organizzazione'].includes(me.ruolo);
 
+let OFF = null; const OFFP = import('/offline.js').then((m) => (OFF = m)).catch(() => null);   // modalità offline: pacchetto sul tablet, valutazioni in locale
 async function api(path, opt = {}) {
+  if (OFF && OFF.sessioneAttiva()) { const r = await OFF.apiOffline(path, opt); if (r !== undefined) return r; }   // tablet sbloccato col codice: tutto passa dal pacchetto locale
   const r = await fetch('/api' + path, { method: opt.method || (opt.body ? 'POST' : 'GET'),
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
     body: opt.body ? JSON.stringify(opt.body) : undefined });
@@ -367,6 +369,7 @@ async function vistaHome() {
       ${org() ? tileF('#valutazione', 'valutazione', 'Valutazioni', 'Inizia la valutazione di un Mega Code o di un corso') : ''}
       ${aree.includes('esami') ? tileF('/esami.html', 'esami', 'Esami', 'Sessioni d\'esame e valutazioni') : ''}
       ${aree.includes('formazione_esame') ? tileF('/admin.html#corsi.libreria', 'libreria', 'Schede d\'esame', 'Skill e schede dei Mega Code') : ''}
+      ${org() || aree.includes('valutazione') ? tileF('#offline', 'monitor', 'Offline', 'Prepara un tablet per le scene senza rete e sincronizza') : ''}
       ${tileF('#documenti', 'documenti', 'Documentazione', 'Regolamento, comunicazioni, manuali')}</div></div>`;
   // due mondi: chi ha accesso a entrambi sceglie all'ingresso; ciascuno vede solo le proprie cose
   const haForm = org() && (me.admin || aree.some((a) => ['esami', 'formazione_esame'].includes(a))), haGara = !soloFormazione;
@@ -763,14 +766,66 @@ async function vistaMonitor() {
   monTimer = setInterval(() => { if (location.hash.slice(1).split('/')[0] !== 'monitor') { clearInterval(monTimer); document.body.classList.remove('schermo'); return; } disegna().catch(() => {}); }, 10000);
 }
 
+// ── modalità offline: preparazione del tablet, sblocco col codice, scelta della scheda, invio al rientro ──
+let meOnline = null;
+const flash2 = (t) => { const d = document.createElement('div'); d.textContent = t; d.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1b1f27;color:#fff;padding:10px 16px;border-radius:999px;z-index:99;font:600 14px sans-serif'; document.body.append(d); setTimeout(() => d.remove(), 2200); };
+async function vistaOffline() {
+  $('#titolo').textContent = 'Modalità offline'; $('#app').classList.remove('largo', 'sola-lettura'); $('#esci').hidden = !token;
+  const pk = await OFF.pacchetto(), sess = OFF.sessioneAttiva(), quando = (t) => new Date(t).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const ds = pk ? await OFF.daInviare() : { schede: 0, voci: 0, chiuse: 0 };
+  let h = '';
+  if (!pk) {
+    let ev = []; if (token) { try { ev = (await api('/eventi')).filter((e) => !e.archiviato && ['gara', 'olimpiadi', 'allenamento'].includes(e.tipo)); } catch { /* senza rete */ } }
+    h = token ? `<div class="card"><h3>Prepara questo tablet</h3><p class="nota">Scarica le schede delle scene offline. Serve la rete e l'accesso di direzione gara o organizzazione. Prima segna le scene come offline e stampa i codici dal pannello di gestione (scheda Offline).</p>
+        <label>Gara</label><select id="of_ev">${ev.map((e) => `<option value="${e.id}">${esc(e.nome)}</option>`).join('')}</select>
+        <p><button class="btn" id="of_prep" ${navigator.onLine ? '' : 'disabled'}>Prepara questo tablet</button></p><p class="err" id="of_e" hidden></p></div>`
+      : '<div class="card"><h3>Questo tablet non è preparato</h3><p>Per usarlo senza rete va prima preparato, con la rete, da un account di direzione gara o organizzazione.</p><p><a class="btn" href="#login">Accedi</a></p></div>';
+  } else if (!sess) {
+    h = `<div class="card"><h3>${esc(pk.evento.nome)}</h3><p class="nota">Tablet preparato il ${quando(pk.creato_il)}. Si lavora in locale anche se la rete c'è.</p>
+      <label>Il tuo codice temporaneo</label><input id="of_cod" autocomplete="off" autocapitalize="characters" placeholder="XXXX-XXXX" style="text-transform:uppercase;letter-spacing:3px;font-size:20px">
+      <p><button class="btn" id="of_sbl">Sblocca le mie schede</button></p><p class="err" id="of_e" hidden></p></div>`;
+  } else {
+    const d = sess.dati;
+    h = `<div class="card"><h3>${esc(sess.utente.nome)}${sess.utente.master ? ' (master)' : ''}</h3><p class="nota">${esc(d.evento.nome)}. Ciò che compili resta su questo tablet e parte al rientro.</p>
+      <p><button class="btn sec" id="of_blocca">Blocca (cambia giudice)</button></p></div>` + (d.scene || []).map((sc) => (sc.schede || []).length ? `<div class="card"><h3>Scena ${esc(sc.codice)} · ${esc(sc.titolo || '')}</h3>${sc.schede.map((k) => `<p style="margin:10px 0 4px"><b>${esc(k.titolo)}</b></p>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${(d.squadre || []).map((q) => { const st = OFF.statoScheda(k.id, q.id); return `<a class="btn ${st === 'chiusa' ? 'sec' : ''}" href="#valuta/${k.id}/${q.id}" style="min-width:130px;text-align:left">${esc(q.numero ?? '')} ${esc(q.nome)}<br><small>${esc(st)}</small></a>`; }).join('') || '<small>Nessuna squadra.</small>'}</div>`).join('')}</div>` : '').join('');
+  }
+  if (pk) h += `<div class="card"><h3>Direzione gara</h3><p class="nota">Da inviare: ${ds.schede} schede (${ds.voci} voci, ${ds.chiuse} chiuse). Al rientro, con la rete, accedi come direzione gara e sincronizza.</p>
+    <p><button class="btn" id="of_sync" ${token && navigator.onLine ? '' : 'disabled'}>Sincronizza ora</button> <button class="btn sec" id="of_esp">Esporta in un file</button> <button class="btn sec" id="of_dim">Togli il pacchetto dal tablet</button></p>
+    ${token ? '' : '<p class="nota">Per sincronizzare devi prima <a href="#login">accedere</a>.</p>'}<p id="of_r"></p></div>`;
+  $('#app').innerHTML = h;
+  const err = (m) => { const e = $('#of_e'); if (e) { e.textContent = m; e.hidden = false; } };
+  if ($('#of_prep')) $('#of_prep').onclick = async () => { $('#of_prep').disabled = true; try { await OFF.prepara(api, $('#of_ev').value); flash2('Tablet preparato'); vistaOffline(); } catch (e) { $('#of_prep').disabled = false; err(e.message); } };
+  if ($('#of_sbl')) $('#of_sbl').onclick = async () => { $('#of_sbl').disabled = true; $('#of_sbl').textContent = 'Controllo il codice…';
+    try { const s = await OFF.sblocca($('#of_cod').value); meOnline = me; me = { id: s.utente.id, nome: s.utente.nome, ruolo: s.utente.master ? 'giudice_master' : 'giudice', aree: ['valutazione'] };
+      const { creaCoda } = await import('/coda.js'); coda = creaCoda({ storage: localStorage, chiave: 'coda_off_' + s.utente.id, invia: OFF.inviaLocale }); vistaOffline(); }
+    catch (e) { $('#of_sbl').disabled = false; $('#of_sbl').textContent = 'Sblocca le mie schede'; err(e.message); } };
+  if ($('#of_blocca')) $('#of_blocca').onclick = async () => { OFF.blocca(); me = meOnline || JSON.parse(localStorage.getItem('me') || 'null'); coda = null; vistaOffline(); };
+  if ($('#of_esp')) $('#of_esp').onclick = () => OFF.esporta();
+  if ($('#of_dim')) $('#of_dim').onclick = async () => { if (ds.schede && !confirm(`Ci sono ${ds.schede} schede non ancora inviate. Toglierle dal tablet?`)) return; if (!confirm('Togliere il pacchetto offline da questo tablet?')) return; OFF.blocca(); await OFF.dimentica(); vistaOffline(); };
+  if ($('#of_sync')) $('#of_sync').onclick = async () => { $('#of_sync').disabled = true; $('#of_r').textContent = 'Invio in corso…';
+    try { const r = await OFF.sincronizza(api);
+      $('#of_r').innerHTML = r.errori ? `<span class="err">${r.errori} invii non accettati (${r.ok} ok). I dati restano sul tablet.</span>` : `<b>Inviato: ${r.ok} schede.</b> I dati sono archiviati e il tablet è di nuovo online.`;
+      if (!r.errori) setTimeout(vistaOffline, 2500); else $('#of_sync').disabled = false; }
+    catch (e) { $('#of_r').innerHTML = `<span class="err">${esc(e.message)}</span>`; $('#of_sync').disabled = false; } };
+}
 async function route() {
+  await OFFP;
+  if (OFF) {
+    const v0 = location.hash.slice(1).split('/')[0];
+    if (OFF.sessioneAttiva()) { if (v0 === 'valuta') { const [, a, b] = location.hash.slice(1).split('/'); $('#app').classList.add('largo'); try { return await vistaValuta(a, b); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } } return vistaOffline(); }
+    if (v0 === 'offline' || (!navigator.onLine && await OFF.pacchetto())) return vistaOffline();
+  }
   if (location.hash.startsWith('#sso=')) {           // ritorno da Google/Microsoft: il ticket monouso diventa la sessione
     const t = location.hash.slice(5); history.replaceState(null, '', location.pathname);
     try { return await avviaSessione(await api('/auth/ticket', { body: { ticket: t } })); } catch (e) { return vistaLogin(e.message); }
   }
   if (location.hash.startsWith('#sso-errore=')) { const c = location.hash.slice(12); history.replaceState(null, '', location.pathname + '#login'); return vistaLogin(ERR_SSO[c] || 'Accesso non riuscito.'); }
   $('#hsic').hidden = !token || !!(me && me.in_attesa); if (me && me.nome) $('#hsic').textContent = me.nome;
-  if (!token) { return location.hash === '#login' ? vistaLogin() : location.hash === '#registrati' ? vistaRegistrati() : vistaPubblica(); }
+  if (!token) { await (location.hash === '#login' ? vistaLogin() : location.hash === '#registrati' ? vistaRegistrati() : vistaPubblica());
+    if (OFF && location.hash !== '#login' && await OFF.pacchetto()) $('#app').insertAdjacentHTML('afterbegin', '<div class="card"><b>Questo tablet è preparato per la modalità offline.</b> <a class="btn" href="#offline">Apri la modalità offline</a></div>');
+    return; }
+  if (OFF && !window.__devOk) { window.__devOk = true; OFF.registraDispositivo(api).catch(() => {}); }
   if (!window.__meOk) { window.__meOk = true; try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch { /* offline: resta il profilo salvato */ } }
   if (me.in_attesa) { try { return await vistaRegistrazione(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
   if (me.mfa_da_configurare) return vistaSicurezza();
@@ -792,6 +847,7 @@ async function route() {
 }
 const routeB = async () => { await route(); window.Barra && Barra.disegna('index'); window.Layout && Layout.disegna(); };
 addEventListener('hashchange', routeB); routeB();
+if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 </script>
 </body>
 </html>

@@ -1,0 +1,11 @@
+{
+  "name": "CRI Eventi",
+  "short_name": "CRI Eventi",
+  "description": "Gare, olimpiadi e formazione della Croce Rossa Italiana",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#C8102E",
+  "icons": [{ "src": "/logo-cri.jpg", "sizes": "any", "type": "image/jpeg", "purpose": "any" }]
+}

@@ -167,15 +167,15 @@ window.chiudi = chiudi;
 
 $('#esci').onclick = () => { localStorage.removeItem('token'); localStorage.removeItem('me'); location.href = '/'; };
 
-const TABS = [['menu', 'Portale'], ['valutazione', 'Valutazione'], ['hub', 'Menu'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['discenti', 'Discenti'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
+const TABS = [['menu', 'Portale'], ['valutazione', 'Valutazione'], ['hub', 'Menu'], ['corsi', 'Corsi'], ['evento', 'Dati della gara'], ['discenti', 'Discenti'], ['scene', 'Scene'], ['risorse', 'Risorse'], ['offline', 'Offline'], ['squadre', 'Squadre'], ['segreteria', 'Arrivi e badge'], ['persone', 'Anagrafiche'], ['comitati', 'Comitati'], ['importa', 'Importa'],
   ['libreria', 'Libreria'], ['punteggi', 'Punteggi'], ['classifiche', 'Classifiche'], ['monitor', 'Monitor'], ['stampa', 'Stampa'], ['statistiche', 'Statistiche corso'], ['storico', 'Esiti e storico'], ['backup', 'Backup'], ['news', 'Notizie'], ['documenti', 'Documentazione'], ['richieste', 'Richieste'], ['ruoli', 'Ruoli e permessi'], ['utenti', 'Utenti']];
-const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', segreteria: 'segreteria', valutazione: 'valutazione', evento: 'gara', discenti: ['esami', 'gara'], scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: ['stampa', 'esami'], statistiche: ['esami', 'classifiche'], storico: ['esami', 'classifiche'], importa: 'importa' };
-const DESC = { valutazione: 'Inizia a valutare: scegli scena, scheda e squadra', discenti: 'Chi frequenta il corso: con loro si compongono gli equipaggi dei Mega Code', corsi: 'Corsi, Mega Code ed esami', evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', squadre: 'Squadre, comitato e componenti',
+const AREA_TAB = { corsi: ['esami', 'gara'], risorse: 'scene', offline: 'scene', segreteria: 'segreteria', valutazione: 'valutazione', evento: 'gara', discenti: ['esami', 'gara'], scene: 'scene', libreria: ['schede', 'formazione_esame'], punteggi: 'schede', squadre: 'squadre', persone: 'anagrafiche', comitati: 'anagrafiche', news: 'notizie', documenti: 'documentazione', classifiche: 'classifiche', monitor: 'classifiche', stampa: ['stampa', 'esami'], statistiche: ['esami', 'classifiche'], storico: ['esami', 'classifiche'], importa: 'importa' };
+const DESC = { valutazione: 'Inizia a valutare: scegli scena, scheda e squadra', discenti: 'Chi frequenta il corso: con loro si compongono gli equipaggi dei Mega Code', corsi: 'Corsi, Mega Code ed esami', evento: 'Date, luogo, tipo ed eventuale soglia', scene: 'Una scena è un gruppo di schede', risorse: 'Giudici, simulatori e truccatori per scena', offline: 'Scene senza copertura: codici dei giudici, tablet e dispositivi', squadre: 'Squadre, comitato e componenti',
   segreteria: 'Registra gli arrivi e stampa i badge', persone: 'Persone e requisiti', comitati: 'Elenco dei comitati, unità territoriali e nomi da correggere', importa: 'Carica le scene dai vecchi file Excel', libreria: 'Crea e modifica le schede, anche dei comitati', punteggi: 'Valore di MB, BE, SU, IN, NE per ogni scala',
   classifiche: 'Generale, SEP, BLSD, Master, DIU', monitor: 'Avanzamento delle schede', stampa: 'Schede vuote o compilate, per scena o squadra', news: 'Avvisi per i partecipanti e notizie pubbliche', documenti: 'Regolamento, comunicazioni e manuali',
   richieste: 'Chi ha chiesto l\'accesso: approva e assegna il ruolo', ruoli: 'Crea ruoli e scegli a quali aree possono accedere', backup: 'Copia di sicurezza di database e sito, ogni 6 ore e quando vuoi', utenti: 'Accessi, ruoli e gara assegnata' };
 // tre mondi separati: si sceglie all'ingresso e dentro si vede solo ciò che li riguarda (il motore è lo stesso)
-const GRUPPI = [['gara', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede, squadre e classifiche', 'evento', ['valutazione', 'evento', 'scene', 'risorse', 'squadre', 'segreteria', 'libreria', 'punteggi', 'classifiche', 'monitor', 'stampa', 'importa', 'news', 'documenti']],
+const GRUPPI = [['gara', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede, squadre e classifiche', 'evento', ['valutazione', 'evento', 'scene', 'risorse', 'offline', 'squadre', 'segreteria', 'libreria', 'punteggi', 'classifiche', 'monitor', 'stampa', 'importa', 'news', 'documenti']],
   ['corsi', 'Formazione', 'Corsi, Mega Code ed esami', 'corsi', ['valutazione', 'corsi', 'evento', 'discenti', 'scene', 'libreria', 'risorse', 'squadre', 'stampa', 'statistiche', 'storico', 'news']],
   ['comune', 'Gestione comune', 'Anagrafiche, comitati, utenti e ruoli', 'persone', ['persone', 'comitati', 'richieste', 'ruoli', 'utenti', 'backup']]];
 const DESC_CORSI = { stampa: 'Stampa di tutti i Mega Code del corso, vuoti o compilati con le X', statistiche: 'Dove i discenti sbagliano di più: voci e skill', storico: 'Esiti di ogni equipaggio; pubblicali ai discenti quando hai chiuso', evento: 'Periodo, luogo e dati del corso', risorse: 'Valutatori e simulatori delle scene dei Mega Code' };
@@ -1476,6 +1476,44 @@ async function dialogGiudiciRisorse(R, schedaId, ass) {
   $('#gs_ok').onclick = () => { const ids = [...document.querySelectorAll('#dlg input:checked')].map((i) => i.value); chiudi();
     fai(() => api(`/schede/${schedaId}/assegnazioni`, { method: 'PUT', body: { utenti: ids } }), 'Giudici assegnati'); };
 }
+// gara offline: scene senza copertura, codici temporanei per i giudici (foglietti) e tablet preparati
+async function tOffline() {
+  if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima una gara.</div>'; legaSelettore(); return; }
+  const D = await api(`/eventi/${ev.id}/offline`);
+  const quando = (t) => (t ? new Date(t).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '–');
+  const nOff = D.scene.filter((x) => x.offline).length;
+  $('#app').innerHTML = selettoreEvento() + `<div class="card"><h3>Scene offline</h3>
+    <p class="nota">Una scena offline è in una zona senza copertura: si valuta solo dai tablet preparati. Online nessuno può valutarla, salvo lo sblocco della direzione gara con avviso.</p>
+    ${D.scene.length ? D.scene.map((x) => `<label style="display:flex;gap:10px;align-items:center;min-height:40px"><input type="checkbox" class="of_sc" data-id="${x.id}" ${x.offline ? 'checked' : ''}> <b>${esc(x.codice)}</b> ${esc(x.titolo)}</label>`).join('') : '<p><em>Nessuna scena: creale nel tab Scene.</em></p>'}</div>
+    <div class="card"><h3>Codici dei giudici</h3>
+    <p class="nota">Ogni giudice (e giudice master) delle scene offline ha un codice temporaneo che apre sul tablet solo le sue schede. Il codice del master serve anche a riaprire una scheda chiusa sul tablet di un giudice. Stampa i foglietti e consegnali; il tablet non riceve mai i codici.</p>
+    ${nOff ? `<p><button class="b" id="of_cod">Mostra i codici</button> <button class="s" id="of_rig">Rigenera tutti</button> <button class="s" id="of_stampa" hidden>Stampa i foglietti</button></p><div id="of_l"></div>
+    <p class="nota">Persone nelle scene offline: ${D.persone.length ? D.persone.map((p) => esc(p.nome) + (p.master ? ' (master)' : '')).join(', ') : 'nessuna: assegna i giudici nel tab Risorse'}.</p>` : '<p><em>Segna almeno una scena come offline.</em></p>'}</div>
+    <div class="card"><h3>Preparare un tablet</h3><ol class="nota" style="margin:0 0 0 18px;line-height:1.7">
+      <li>Sul tablet, con la rete, apri il sito e aggiungilo alla schermata Home (Safari: Condividi → Aggiungi a Home; Chrome: Installa app). Poi usa sempre l'icona.</li>
+      <li>Accedi con un account di direzione gara o organizzazione e apri <b>Offline</b> dalla Home.</li>
+      <li>Scegli la gara, dai un nome al tablet (es. «Tablet 3, scena Bravo») e premi <b>Prepara questo tablet</b>.</li>
+      <li>Da quel momento i giudici lo sbloccano con il loro codice, anche senza rete.</li>
+      <li>Al rientro, accedi con la direzione gara sullo stesso tablet e premi <b>Sincronizza</b>.</li></ol></div>
+    <div class="card"><h3>Dispositivi</h3>
+    ${D.dispositivi.length ? `<table><tr><th>Nome</th><th>Tipo</th><th>Stato</th><th>Ultimo utente</th><th>Preparato</th><th>Ultima sincronizzazione</th><th></th></tr>${D.dispositivi.map((d) => `<tr><td><input class="of_nome" data-id="${d.id}" value="${esc(d.nome || '')}" placeholder="dai un nome"></td>
+      <td>${esc(d.tipo)}<br><small>${esc(d.sistema || '')}</small></td><td>${d.modalita === 'offline' ? '<span class="tag no">offline</span>' : '<span class="tag ok">online</span>'}<br><small>visto ${quando(d.visto_il)}</small></td>
+      <td>${esc(d.ultimo_utente || '–')}</td><td>${quando(d.preparato_il)}</td><td>${quando(d.ultima_sync)}</td>
+      <td>${d.modalita === 'offline' ? `<button class="s p of_on" data-id="${d.id}" title="Solo se il tablet non ha dati da inviare">Rimetti online</button>` : ''}</td></tr>`).join('')}</table>` : '<p><em>Nessun dispositivo ancora registrato: compaiono quando qualcuno accede dal tablet.</em></p>'}</div>`;
+  legaSelettore();
+  document.querySelectorAll('.of_sc').forEach((c) => { c.onchange = () => fai(() => api(`/scene/${c.dataset.id}/offline`, { method: 'PUT', body: { offline: c.checked } }).then(tOffline), c.checked ? 'Scena offline' : 'Scena di nuovo online'); });
+  document.querySelectorAll('.of_nome').forEach((i) => { i.onchange = () => fai(() => api(`/dispositivi/${i.dataset.id}`, { method: 'PATCH', body: { nome: i.value } }), 'Nome salvato'); });
+  document.querySelectorAll('.of_on').forEach((b) => { b.onclick = () => { if (confirm('Rimetti online il tablet? Fallo solo dopo aver sincronizzato i suoi dati.')) fai(() => api(`/dispositivi/${b.dataset.id}/online`, { method: 'POST', body: {} }).then(tOffline), 'Tablet di nuovo online'); }; });
+  let codici = [];
+  const mostra = async (rigenera) => { codici = await api(`/eventi/${ev.id}/offline/codici`, { method: 'POST', body: { rigenera } });
+    $('#of_l').innerHTML = `<table><tr><th>Persona</th><th>Scene</th><th>Codice</th></tr>${codici.map((c) => `<tr><td>${esc(c.nome)}${c.master ? ' <span class="tag">master</span>' : ''}</td><td>${esc((c.scene || []).join(', '))}</td><td><b style="font-family:monospace;font-size:18px;letter-spacing:2px">${esc(c.codice)}</b></td></tr>`).join('')}</table>`; $('#of_stampa').hidden = !codici.length; };
+  if ($('#of_cod')) {
+    $('#of_cod').onclick = () => fai(() => mostra(false));
+    $('#of_rig').onclick = () => { if (confirm('Rigenerare tutti i codici? I foglietti già consegnati e i tablet già preparati non funzioneranno più: i tablet vanno preparati di nuovo.')) fai(() => mostra(true), 'Codici rigenerati'); };
+    $('#of_stampa').onclick = () => { const w = window.open('', '_blank'); if (!w) return flash('Consenti le finestre per stampare', false);
+      w.document.write(`<title>Codici offline</title><style>body{font-family:sans-serif;margin:12mm}.f{display:inline-block;width:88mm;border:1.5px dashed #555;padding:8mm;margin:0 4mm 6mm 0;vertical-align:top;page-break-inside:avoid}.f b.c{display:block;font:700 26px monospace;letter-spacing:3px;margin:6px 0}.f small{color:#444}</style>
+        ${codici.map((c) => `<div class="f"><small>${esc(ev.nome)}</small><div><b>${esc(c.nome)}</b>${c.master ? ' (giudice master)' : ''}</div><small>Scene: ${esc((c.scene || []).join(', '))}</small><b class="c">${esc(c.codice)}</b><small>Codice temporaneo per sbloccare il tablet offline. Non condividerlo.${c.master ? ' Serve anche a riaprire una scheda chiusa.' : ''}</small></div>`).join('')}`); w.document.close(); w.print(); }; }
+}
 async function tRisorse() {
   if (!ev) { $('#app').innerHTML = selettoreEvento() + '<div class="card">Crea prima una gara.</div>'; legaSelettore(); return; }
   const R = await api(`/eventi/${ev.id}/risorse`);
@@ -1653,7 +1691,7 @@ async function render() {
   if (!consentito(tab)) tab = 'menu';
   try {
     if (tab === 'menu') tMenu(); else if (tab === 'hub') tHub(); else if (tab === 'corsi') await tCorsi(); else if (tab === 'news') await tNews(); else if (tab === 'classifiche') await tClassifiche(); else if (tab === 'stampa') await tStampa(); else if (tab === 'statistiche') await tStatistiche(); else if (tab === 'storico') await tStorico(); else if (tab === 'evento') await tEvento(); else if (tab === 'squadre') await tSquadre(); else if (tab === 'discenti') await tDiscenti(); else if (tab === 'scene') await tScene();
-    else if (tab === 'persone') await tPersone(); else if (tab === 'comitati') await tComitati(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'backup') await tBackup(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
+    else if (tab === 'offline') await tOffline(); else if (tab === 'persone') await tPersone(); else if (tab === 'comitati') await tComitati(); else if (tab === 'libreria') await tLibreria(); else if (tab === 'importa') await tImporta(); else if (tab === 'utenti') await tUtenti(); else if (tab === 'backup') await tBackup(); else if (tab === 'richieste') await tRichieste(); else if (tab === 'ruoli') await tRuoli(); else if (tab === 'punteggi') await tPunteggi(); else if (tab === 'segreteria') await tSegreteria(); else if (tab === 'risorse') await tRisorse(); else if (tab === 'documenti') await tDocumenti();
   } catch (e) { $('#app').innerHTML = `<div class="msg err">${esc(e.message)}</div>`; }
   const mo = mondoCorrente(), molti = mondiVisibili().length > 1;
   { const t = $('#tit'); if (t) t.textContent = window.Barra ? Barra.titolo(tab === 'menu' || !mo ? '' : (fam === 'corsi' ? 'formazione' : fam)) : 'CRI Eventi'; }
