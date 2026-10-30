@@ -17,7 +17,7 @@ h1,h2,h3,.tile b,.hubb b,.contatore .grande,.tile-ris b { font-family:var(--tito
 h2 { font-size:30px; line-height:1.1; } h3 { font-size:21px; line-height:1.15; }
 
 /* intestazione unica, come sul sito nazionale: bianca, filo rosso in alto, marchio a sinistra */
-header { background:#fff; color:var(--inchiostro); border-top:8px solid var(--rosso); border-bottom:1px solid var(--bordo); box-shadow:none; padding:10px 20px; position:static; gap:14px; }
+header { background:#fff; color:var(--inchiostro); border-top:8px solid var(--rosso); border-bottom:1px solid var(--bordo); box-shadow:none; padding:10px 20px; position:sticky; top:0; z-index:8; gap:14px; }
 header h1 { font-weight:700; font-size:24px; color:var(--inchiostro); }
 header .logo, header > img { height:56px; width:auto; border-radius:0; box-shadow:none; padding:0; background:none; }
 header a, header button, header #chi { color:var(--inchiostro); background:#fff; border:1.5px solid #8C94A3; font-weight:700; border-radius:999px; padding:8px 16px; font-family:var(--corpo); font-size:14px; text-decoration:none; cursor:pointer; }
