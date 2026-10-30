@@ -1074,6 +1074,7 @@ async function tPunteggi() {
   const scale = await api('/libreria/scale');
   $('#app').innerHTML = `<div class="card"><h3>Punteggi</h3>
     <p><small>Ogni scala dà un punteggio a ciascun livello di valutazione: <b>MB</b> molto bene, <b>BE</b> bene, <b>SU</b> sufficiente, <b>IN</b> insufficiente, <b>NE</b> non eseguito. Ogni voce di una scheda usa una scala (es. Standard, 3 Voci, PesoDoppio). Lascia vuoto un livello per non consentirlo (cella nera).</small></p>
+    <p><button class="s" id="pul">Pulizia guidata…</button></p>
     <table class="punteggi"><colgroup><col><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:62px"><col style="width:72px"><col style="width:118px"></colgroup><tr><th>Scala</th><th>MB</th><th>BE</th><th>SU</th><th>IN</th><th>NE</th><th>Usata in</th><th></th></tr>
     ${scale.map((s) => `<tr data-c="${esc(s.codice)}"><td>${esc(s.codice)}</td>${LIV.map((l) => `<td><input class="num" data-l="${l}" value="${s[l] ?? ''}"></td>`).join('')}<td class="uso">${s.uso} ${s.uso === 1 ? 'voce' : 'voci'}</td>
       <td class="az"><button class="b p ss">Salva</button><button class="s p ssx" ${s.uso ? '' : 'disabled'} title="${s.uso ? 'Sposta le voci su un\'altra scala' : 'Nessuna voce da spostare'}">Sostituisci…</button><button class="x p sd" ${s.uso || s.codice === 'Standard' ? 'disabled' : ''} title="${s.codice === 'Standard' ? 'Serve al sito: non si elimina' : s.uso ? 'Usata da ' + s.uso + ' voci: sostituiscila prima' : 'Elimina la scala'}">Elimina</button></td></tr>`).join('')}
@@ -1082,6 +1083,23 @@ async function tPunteggi() {
   document.querySelectorAll('.ss').forEach((b) => { b.onclick = () => { const tr = b.closest('tr'); const body = { codice: tr.dataset.c };
     tr.querySelectorAll('[data-l]').forEach((i) => { body[i.dataset.l] = i.value.trim() === '' ? null : Number(i.value); });
     fai(() => api('/libreria/scale', { body }), 'Scala salvata'); }; });
+  $('#pul').onclick = () => {
+    const neg = (x) => LIV.some((l) => x[l] != null && Number(x[l]) < 0), dist = (a, b) => LIV.reduce((t, l) => t + (a[l] == null && b[l] == null ? 0 : a[l] == null || b[l] == null ? 50 : Math.abs(a[l] - b[l])), 0);
+    dlg(`<h3>Pulizia delle scale</h3><p class="nota">Propone di togliere le scale usate da <b>meno voci</b> della soglia, tranne «Standard» e quelle con punteggi negativi. Le voci delle schede in libreria che le usano passano alla scala più simile (la «distanza» è la differenza totale dei punti): controlla ogni proposta. Le scene già composte e le schede compilate non cambiano.</p>
+      <label>Soglia: meno di <input id="pl_s" class="num" value="20" style="width:64px;display:inline-block"> voci</label><div id="pl_l" style="max-height:340px;overflow:auto;margin:10px 0"></div>
+      <p><button class="b" id="pl_ok">Applica le scelte</button> <button class="s" onclick="chiudi()">Annulla</button> <small id="pl_n"></small></p>`);
+    const disegna = () => { const soglia = Number($('#pl_s').value) || 0;
+      const tenute = scale.filter((x) => x.codice === 'Standard' || neg(x) || x.uso >= soglia), cand = scale.filter((x) => !tenute.includes(x));
+      $('#pl_l').innerHTML = cand.length ? `<table>${cand.map((x) => { const v = tenute.map((t) => ({ t, d: dist(x, t) })).sort((a, b) => a.d - b.d);
+        return `<tr data-c="${esc(x.codice)}"><td style="text-align:left"><label style="display:flex;gap:8px;align-items:center;margin:0"><input type="checkbox" class="pl_c" checked><span><b>${esc(x.codice)}</b> <small>· ${x.uso} ${x.uso === 1 ? 'voce' : 'voci'}</small></span></label></td>
+          <td>${x.uso ? `<select class="pl_a">${v.map(({ t, d }) => `<option value="${esc(t.codice)}">${esc(t.codice)} (distanza ${d})</option>`).join('')}</select>` : '<small>non usata: si elimina</small>'}</td></tr>`; }).join('')}</table>` : '<p><em>Nessuna scala sotto la soglia.</em></p>';
+      $('#pl_n').textContent = cand.length + ' scale proposte'; };
+    disegna(); $('#pl_s').oninput = disegna;
+    $('#pl_ok').onclick = async () => { const righe = [...document.querySelectorAll('#pl_l tr')].filter((r) => r.querySelector('.pl_c').checked); if (!righe.length) return chiudi();
+      if (!confirm(`Togliere ${righe.length} scale? Le voci delle schede in libreria passano alla scala scelta.`)) return;
+      try { for (const r of righe) { const c = r.dataset.c, a = r.querySelector('.pl_a'); if (a) await api(`/libreria/scale/${encodeURIComponent(c)}/sostituisci`, { body: { con: a.value } }); await api(`/libreria/scale/${encodeURIComponent(c)}`, { method: 'DELETE' }); } chiudi(); await render(); flash(`${righe.length} scale tolte`); }
+      catch (e) { flash(e.message, false); await render(); } };
+  };
   document.querySelectorAll('.ssx').forEach((b) => { b.onclick = () => { const da = b.closest('tr').dataset.c, altre = scale.filter((x) => x.codice !== da);
     dlg(`<h3>Sostituisci «${esc(da)}»</h3><p class="nota">Tutte le voci delle schede in libreria che usano «${esc(da)}» passano alla scala scelta. Le scene già composte e le schede compilate non cambiano. Poi puoi eliminare «${esc(da)}».</p>
       <label>Nuova scala</label><select id="sx_a">${altre.map((x) => `<option>${esc(x.codice)}</option>`).join('')}</select>
