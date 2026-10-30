@@ -1494,7 +1494,8 @@ async function tOffline() {
       <li>Accedi con un account di direzione gara o organizzazione e apri <b>Offline</b> dalla Home.</li>
       <li>Scegli la gara, dai un nome al tablet (es. «Tablet 3, scena Bravo») e premi <b>Prepara questo tablet</b>.</li>
       <li>Da quel momento i giudici lo sbloccano con il loro codice, anche senza rete.</li>
-      <li>Al rientro, accedi con la direzione gara sullo stesso tablet e premi <b>Sincronizza</b>.</li></ol></div>
+      <li>Al rientro, accedi con la direzione gara sullo stesso tablet e premi <b>Sincronizza</b>.</li></ol>
+      ${nOff ? `<p style="margin-top:12px"><button class="b" id="of_prep">Prepara QUESTO dispositivo per «${esc(ev.nome)}»</button></p><p class="nota" id="of_prep_r">Usalo sul tablet che deve funzionare senza rete, con la rete attiva.</p>` : ''}</div>
     <div class="card"><h3>Dispositivi</h3>
     ${D.dispositivi.length ? `<table><tr><th>Nome</th><th>Tipo</th><th>Stato</th><th>Ultimo utente</th><th>Preparato</th><th>Ultima sincronizzazione</th><th></th></tr>${D.dispositivi.map((d) => `<tr><td><input class="of_nome" data-id="${d.id}" value="${esc(d.nome || '')}" placeholder="dai un nome"></td>
       <td>${esc(d.tipo)}<br><small>${esc(d.sistema || '')}</small></td><td>${d.modalita === 'offline' ? '<span class="tag no">offline</span>' : '<span class="tag ok">online</span>'}<br><small>visto ${quando(d.visto_il)}</small></td>
@@ -1504,6 +1505,10 @@ async function tOffline() {
   document.querySelectorAll('.of_sc').forEach((c) => { c.onchange = () => fai(() => api(`/scene/${c.dataset.id}/offline`, { method: 'PUT', body: { offline: c.checked } }).then(tOffline), c.checked ? 'Scena offline' : 'Scena di nuovo online'); });
   document.querySelectorAll('.of_nome').forEach((i) => { i.onchange = () => fai(() => api(`/dispositivi/${i.dataset.id}`, { method: 'PATCH', body: { nome: i.value } }), 'Nome salvato'); });
   document.querySelectorAll('.of_on').forEach((b) => { b.onclick = () => { if (confirm('Rimetti online il tablet? Fallo solo dopo aver sincronizzato i suoi dati.')) fai(() => api(`/dispositivi/${b.dataset.id}/online`, { method: 'POST', body: {} }).then(tOffline), 'Tablet di nuovo online'); }; });
+  if ($('#of_prep')) $('#of_prep').onclick = async () => { const bt = $('#of_prep'); bt.disabled = true; $('#of_prep_r').textContent = 'Scarico le schede…';
+    try { const O = await import('/offline.js'); await O.registraDispositivo(api); const pk = await O.prepara(api, ev.id);
+      $('#of_prep_r').innerHTML = `<b>Fatto.</b> Questo dispositivo ha ${pk.scene.length} scena/e e ${pk.giudici.length} giudici. Ora i giudici lo sbloccano col loro codice dall'icona del sito.`; flash('Dispositivo preparato'); }
+    catch (e) { $('#of_prep_r').textContent = e.message; bt.disabled = false; flash(e.message, false); } };
   let codici = [];
   const mostra = async (rigenera) => { codici = await api(`/eventi/${ev.id}/offline/codici`, { method: 'POST', body: { rigenera } });
     if (!codici.length) { $('#of_l').innerHTML = '<p class="err">Nessun codice: nelle scene offline non c\'è ancora nessun giudice. Assegna i giudici alle schede (o il giudice master alla scena) nel tab Risorse, poi riprova.</p>'; $('#of_stampa').hidden = true; return; }
