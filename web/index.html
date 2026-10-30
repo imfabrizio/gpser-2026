@@ -397,14 +397,13 @@ async function vistaHome0() {
   const scene = await api(`/eventi/${ev.id}/scene`).catch(() => []);
   const tipoGara = TIPO_EV[ev.tipo] || 'Gara';
   const gestioneGara = org() && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame'].includes(a));
-  const tileGara = (aree.includes('valutazione') ? tileF('#valutazione', 'valutazione', 'Valutazione', esc(ev.nome)) : '')
+  const tileGara = (aree.includes('valutazione') ? tileF('#valutazione', 'valutazione', 'Valutazione', 'Inizia a valutare: scegli gara, scena e squadra') : '')
     + (aree.includes('accompagnatore') || org() || master() ? tileF('#accompagnatore', 'monitor', 'Accompagnatore', 'Segna le squadre in attesa davanti alle scene') : '')
     + (org() || (me.logistica || []).length ? tileF('#materiali', 'libreria', 'Materiali', 'Cosa serve in ogni scena e cosa è già pronto') : '')
     + (org() || aree.includes('valutazione') ? tileF('#offline', 'monitor', 'Offline', 'Prepara un tablet per le scene senza rete e sincronizza') : '')
     + (gestioneGara ? tileF('/admin.html#hub:gara', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '')
     + (gestioneGara && aree.includes('classifiche') ? tileF('#monitor', 'monitor', 'Monitor', 'Avanzamento delle schede') : '');
-  $('#app').innerHTML = `${cambia}<h3 style="margin:14px 0 4px">${esc(ev.nome)} <small style="font-weight:400;color:#555">${tipoGara} ${statoGara(ev)} · ${esc([ev.luogo, ev.data].filter(Boolean).join(' · '))}</small></h3>
-    ${tileGara.trim() ? `<div class="sezione-home"><h3>Gara</h3><div class="tiles">${tileGara}</div></div>` : ''}
+  $('#app').innerHTML = `${cambia}${tileGara.trim() ? `<div class="sezione-home"><h3>Gara</h3><div class="tiles">${tileGara}</div></div>` : ''}
     ${mappaHtml(ev, scene)}
     ${widgetHome}`;
   legaCambia(); Widget.disegna($('#widgets'), { mondo: 'gara' });
