@@ -13,16 +13,30 @@
   #lat .w small,#rail .w small{color:#555;display:block} #lat .w a,#rail .w a{display:block;padding:7px 0;color:var(--rosso,#C8102E);font-weight:600;text-decoration:none} #rail .logo-r{display:block;margin:4px auto 14px;width:84px;opacity:.9} #lat .av,#rail .av{padding:6px 0;border-top:1px solid #e3e5ea} #lat .av:first-of-type,#rail .av:first-of-type{border-top:0}`;
   document.head.append(st);
   st.textContent += `#lat .mn{display:flex;flex-direction:column;gap:2px;margin-bottom:12px}#lat .mn a{display:block;padding:10px 12px;border-radius:10px;color:#222;font-weight:600;text-decoration:none;font-size:15px}#lat .mn a:hover{background:#f0f1f4}#lat .mn a.on{background:var(--rosso,#C8102E);color:#fff}`;
+  st.textContent += `#menub{display:none}#mbk{display:none}
+  @media (max-width:899px){ body.laterale #menub{display:inline-flex;align-items:center;justify-content:center} }
+  html.tel body.laterale #menub{display:inline-flex;align-items:center;justify-content:center} html.pc #menub{display:none!important}
+  html.menu-on #lat{display:flex!important;flex-direction:column;position:fixed;left:0;top:51px;bottom:0;width:80vw;max-width:310px;z-index:60;background:#fff;padding:10px 8px;overflow-y:auto;box-shadow:4px 0 24px #0005}
+  html.menu-on #mbk{display:block;position:fixed;inset:51px 0 0 0;background:#0006;z-index:55}`;
   const lat = document.createElement('nav'); lat.id = 'lat'; lat.setAttribute('aria-label', 'Menu');
   const rail = document.createElement('aside'); rail.id = 'rail'; rail.setAttribute('aria-label', 'Riepilogo');
-  document.body.append(lat, rail);
+  const mbk = document.createElement('div'); mbk.id = 'mbk'; document.body.append(lat, rail, mbk);
+  const chiudiMenu = () => document.documentElement.classList.remove('menu-on');
+  mbk.onclick = chiudiMenu; lat.addEventListener('click', (e) => { if (e.target.closest('a')) chiudiMenu(); }); window.addEventListener('hashchange', chiudiMenu);
+  const bottone = () => {
+    const h = document.querySelector('header'); if (!h || document.getElementById('menub')) return;
+    const b = document.createElement('button'); b.id = 'menub'; b.type = 'button'; b.title = 'Menu'; b.setAttribute('aria-label', 'Menu'); b.style.cssText = 'padding:8px 12px;line-height:1';
+    b.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
+    b.onclick = () => document.documentElement.classList.toggle('menu-on');
+    const ref = h.querySelector('a.home') || h.querySelector('img'); (ref || h.firstChild).after(b);
+  };
   const api = async (p) => { const r = await fetch('/api' + p, { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } }); if (!r.ok) throw new Error(r.status); return r.json(); };
   let giro = 0;
   window.Layout = {
     async disegna() {
       const me = leggi('me'), v = location.hash.slice(1).split('/')[0], mio = ++giro;
       const senza = !me || !localStorage.getItem('token') || me.in_attesa || me.mfa_da_configurare ;
-      document.body.classList.toggle('laterale', !senza);
+      document.body.classList.toggle('laterale', !senza); bottone();
       { const h = document.getElementById('hhome'); if (h && !senza) h.hidden = true; }
       if (senza) { lat.innerHTML = ''; rail.innerHTML = ''; return; }
       const part = me.ruolo === 'partecipante';
