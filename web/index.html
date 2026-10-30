@@ -911,14 +911,29 @@ async function vistaMateriali() {
       ${gestore ? `<input class="m_n" value="${esc(m.nome)}"><input class="m_q num" type="number" min="1" value="${m.quantita}"><input class="m_t" placeholder="nota" value="${esc(m.nota || '')}"><button class="x p m_d" title="Elimina" aria-label="Elimina">×</button>`
         : `<b>${esc(m.nome)}</b><span>× ${m.quantita}</span><small>${esc(m.nota || '')}</small>`}</div>`;
   const testata = `<div style="display:grid;grid-template-columns:${colonne};gap:8px;font-size:12px;color:#555;text-align:center">${PASSI.map(([, t]) => `<span>${t}</span>`).join('')}<span></span></div>`;
-  const nuovo = (sid) => gestore ? `<div class="mat-n" data-s="${sid || ''}" style="display:grid;grid-template-columns:1fr 76px 1fr auto;gap:8px;margin-top:8px"><input class="n_n" placeholder="Nuovo materiale"><input class="n_q num" type="number" min="1" value="1"><input class="n_t" placeholder="nota"><button class="b p n_ok">Aggiungi</button></div>` : '';
+  const nuovo = (sid) => gestore ? `<div class="mat-n" data-s="${sid || ''}" style="display:grid;grid-template-columns:1fr 76px 1fr auto;gap:8px;margin-top:8px"><input class="n_n" list="m_nomi" placeholder="Nuovo materiale"><input class="n_q num" type="number" min="1" value="1"><input class="n_t" placeholder="nota"><button class="b p n_ok">Aggiungi</button></div>` : '';
   const blocco = (tit, lista, sid, nota) => `<div class="card"><h3>${tit}</h3>${nota ? `<p class="nota">${nota}</p>` : ''}${lista.length ? testata + lista.map(riga).join('') : '<p class="nota"><em>Nessun materiale.</em></p>'}${nuovo(sid)}</div>`;
   $('#app').innerHTML = `<div class="card"><h3>Materiali</h3><label>Gara</label><select id="m_ev">${evs.map((e) => `<option value="${e.id}" ${e.id === id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select>
-      <p class="nota">${gestore ? 'Scrivi cosa serve in ogni scena. La logistica vede questo elenco e spunta i passaggi: preparato, caricato, montato, ritirato; non vede le schede di valutazione.' : 'Spunta i passaggi: preparato, caricato, montato in scena, ritirato a fine gara.'}</p><button class="btn sec" id="m_stp">Stampa la lista</button></div>
+      <p class="nota">${gestore ? 'Scrivi cosa serve in ogni scena. La logistica vede questo elenco e spunta i passaggi: preparato, caricato, montato, ritirato; non vede le schede di valutazione.' : 'Spunta i passaggi: preparato, caricato, montato in scena, ritirato a fine gara.'}</p>${gestore ? '<button class="btn" id="m_multi">Aggiungi a più scene</button> ' : ''}<button class="btn sec" id="m_stp">Stampa la lista</button></div>
     <div class="card"><h3>Totale da preparare</h3>${D.totali.length ? `<table>${D.totali.map((t) => `<tr><td>${esc(t.nome)}</td><td>× ${t.quantita}</td><td><small>preparati ${t.pronti} · caricati ${t.caricati} · montati ${t.montati} · ritirati ${t.ritirati} (su ${t.righe})</small></td></tr>`).join('')}</table>` : '<p class="nota"><em>Ancora nessun materiale.</em></p>'}</div>
     ${blocco('Generici della gara', D.generici, null, 'Valgono per tutta la gara: per esempio i gazebo dell\'attesa davanti alle scene.')}
     ${D.scene.map((sc) => blocco(`Scena ${esc(sc.codice)} · ${esc(sc.titolo)}`, sc.materiali, sc.id)).join('')}`;
   $('#m_ev').onchange = () => { localStorage.setItem('ev_mat', $('#m_ev').value); vistaMateriali(); };
+  document.body.querySelector('#m_nomi')?.remove(); { const dl = document.createElement('datalist'); dl.id = 'm_nomi'; dl.innerHTML = D.totali.map((t) => `<option value="${esc(t.nome)}">`).join(''); $('#app').append(dl); }
+  if ($('#m_multi')) $('#m_multi').onclick = () => {
+    const d = document.createElement('dialog'); d.style.cssText = 'border:0;border-radius:14px;max-width:460px;width:92vw;padding:16px';
+    d.innerHTML = `<h3 style="margin-top:0">Materiale su più scene</h3><label>Nome</label><input id="mm_n" list="m_nomi" placeholder="per esempio Gazebo"><label>Quantità per ogni scena</label><input id="mm_q" class="num" type="number" min="1" value="1"><label>Nota</label><input id="mm_t" placeholder="nota">
+      <p style="margin:12px 0 4px"><b>Scene</b> <label style="font-weight:400"><input type="checkbox" id="mm_tutte"> tutte</label></p>${D.scene.map((s) => `<label style="display:block;font-weight:400;padding:4px 0"><input type="checkbox" class="mm_s" value="${s.id}"> Scena ${esc(s.codice)} · ${esc(s.titolo)}</label>`).join('')}
+      <p class="nota" id="mm_e" style="color:#C62828"></p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="mm_x">Annulla</button><button class="btn" id="mm_ok">Aggiungi</button></div>`;
+    document.body.append(d); d.showModal();
+    d.querySelector('#mm_tutte').onchange = (e) => d.querySelectorAll('.mm_s').forEach((c) => { c.checked = e.target.checked; });
+    d.querySelector('#mm_x').onclick = () => { d.close(); d.remove(); };
+    d.querySelector('#mm_ok').onclick = async () => {
+      const nome = d.querySelector('#mm_n').value.trim(), ids = [...d.querySelectorAll('.mm_s:checked')].map((c) => c.value);
+      if (!nome) { d.querySelector('#mm_e').textContent = 'Scrivi il nome del materiale.'; return; } if (!ids.length) { d.querySelector('#mm_e').textContent = 'Scegli almeno una scena.'; return; }
+      try { await api(`/eventi/${id}/materiali`, { body: { scena_ids: ids, nome, quantita: d.querySelector('#mm_q').value, nota: d.querySelector('#mm_t').value } }); d.close(); d.remove(); vistaMateriali(); } catch (e) { d.querySelector('#mm_e').textContent = e.message; }
+    };
+  };
   const salva = (el, body) => api(`/materiali/${el.closest('.mat').dataset.id}`, { method: 'PATCH', body }).catch((e) => alert(e.message));
   document.querySelectorAll('.m_c').forEach((c) => { c.onchange = async () => { await salva(c, { [c.dataset.k]: c.checked }); vistaMateriali(); }; });
   $('#m_stp').onclick = () => {

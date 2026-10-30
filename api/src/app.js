@@ -424,6 +424,12 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (await ruoloMateriali(pool, req.utente, req.params.id) !== 'gestore') throw httpErr(403, 'solo la direzione e l\'organizzazione modificano i materiali');
     const b = req.body || {}, nome = String(b.nome || '').trim().slice(0, 120); if (!nome) throw httpErr(400, 'scrivi il nome del materiale');
     const q = Math.max(1, Math.min(9999, Number(b.quantita) || 1)); let scena = null;
+    if (Array.isArray(b.scena_ids)) {   // lo stesso materiale su più scene: una riga per scena, la quantità vale per ciascuna
+      const ids = [...new Set(b.scena_ids)].slice(0, 100); if (!ids.length) throw httpErr(400, 'scegli almeno una scena');
+      const ok = (await pool.query('select id from scena where evento_id=$1 and id = any($2::uuid[]) order by ordine, codice', [req.params.id, ids])).rows;
+      if (ok.length !== ids.length) throw httpErr(400, 'scena non valida');
+      return inTransazione(pool, async (db) => { const out = []; for (const s of ok) out.push((await db.query('insert into scena_materiale (evento_id, scena_id, nome, quantita, nota, ordine) values ($1,$2,$3,$4,$5,(select coalesce(max(ordine),0)+1 from scena_materiale where evento_id=$1)) returning id, scena_id, nome, quantita, nota, pronto', [req.params.id, s.id, nome, q, b.nota ? String(b.nota).slice(0, 300) : null])).rows[0]); return out; });
+    }
     if (b.scena_id) { const { rows: [s] } = await pool.query('select id from scena where id=$1 and evento_id=$2', [b.scena_id, req.params.id]); if (!s) throw httpErr(400, 'scena non valida'); scena = s.id; }
     return (await pool.query('insert into scena_materiale (evento_id, scena_id, nome, quantita, nota, ordine) values ($1,$2,$3,$4,$5,(select coalesce(max(ordine),0)+1 from scena_materiale where evento_id=$1)) returning id, scena_id, nome, quantita, nota, pronto', [req.params.id, scena, nome, q, b.nota ? String(b.nota).slice(0, 300) : null])).rows[0];
   });
