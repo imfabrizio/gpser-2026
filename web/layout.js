@@ -54,7 +54,7 @@
           (org || (me.logistica || []).length) && ['#materiali', 'Materiali'],
           (org || (me.logistica || []).length) && ['#sopralluogo', 'Sopralluogo'],
           (org || ha('valutazione')) && ['#offline', 'Offline'],
-          org && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame'].includes(a)) && ['/admin.html#hub:gara', 'Gestione'],
+          org && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame', 'formazione_regione'].includes(a)) && ['/admin.html#hub:gara', 'Gestione'],
           ha('classifiche') && ['#monitor', 'Monitor'], ['#documenti', 'Documentazione']] : [];
       const menu = voci.filter(Boolean).length ? `<div class="mn">${voci.filter(Boolean).map(([h, t]) => `<a href="${h}" class="${h === hh || h === location.pathname ? 'on' : ''}">${esc(t)}</a>`).join('')}</div>` : '';
       lat.innerHTML = (sez ? Barra.banda(sez) : '') + menu + '' + '<div class="w" id="r_nt" hidden><h4>Notifiche</h4></div><div class="w" id="r_cal"></div>';

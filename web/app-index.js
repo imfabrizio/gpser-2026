@@ -292,7 +292,7 @@ async function vistaHome() { await vistaHome0(); window.Barra && Barra.disegna('
 async function vistaHome0() {
   $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'CRI Eventi';
   const aree = me.aree || [];
-  const soloFormazione = org() && !me.admin && aree.every((a) => ['esami', 'formazione_esame', 'valutazione'].includes(a)) && !aree.includes('valutazione');   // es. istruttore con solo Esami
+  const soloFormazione = org() && !me.admin && aree.every((a) => ['esami', 'formazione_esame', 'formazione_regione', 'valutazione'].includes(a)) && !aree.includes('valutazione');   // es. istruttore con solo Esami
   const widgetHome = '<div class="sezione-home solo-stretto"><h3>Per te</h3><div id="widgets"></div></div>';   // sui telefoni e schermi stretti non c'è la colonna di destra: i widget stanno qui
   const tileF = (href, ico, titolo, desc) => `<a class="tile" href="${href}"><i class="ico">${ICONE[ico]}</i><b>${titolo}</b><span>${desc}</span></a>`;
   const formazione = `<div class="sezione-home"><h3>Formazione</h3><div class="tiles">
@@ -301,7 +301,7 @@ async function vistaHome0() {
       ${aree.includes('formazione_esame') ? tileF('/admin.html#corsi.libreria', 'libreria', 'Schede d\'esame', 'Skill e schede dei Mega Code') : ''}
       ${tileF('#documenti', 'documenti', 'Documentazione', 'Regolamento, comunicazioni, manuali')}</div></div>`;
   // due mondi: chi ha accesso a entrambi sceglie all'ingresso; ciascuno vede solo le proprie cose
-  const haForm = org() && (me.admin || aree.some((a) => ['esami', 'formazione_esame'].includes(a))), haGara = !soloFormazione;
+  const haForm = org() && (me.admin || aree.some((a) => ['esami', 'formazione_esame', 'formazione_regione'].includes(a))), haGara = !soloFormazione;
   const haComune = org() && (me.admin || aree.includes('anagrafiche'));
   const tileComune = haComune ? tileF('/admin.html#hub:comune', 'documenti', 'Gestione comune', 'Persone e accessi, comitati, ruoli e permessi') : '';
   let mondo = haGara && haForm ? localStorage.getItem('mondo') : (haForm ? 'formazione' : 'gara');
@@ -325,7 +325,7 @@ async function vistaHome0() {
   if (!ev) { $('#app').innerHTML = '<div class="card">Nessuna gara.' + (org() ? ' <a class="btn" href="/admin.html#hub:gara">Vai a Gestione per crearne una</a>' : ' Chiedi all\'organizzazione di assegnartene una.') + '</div>' + cambia; legaCambia(); return; }
   const scene = await api(`/eventi/${ev.id}/scene`).catch(() => []);
   const tipoGara = TIPO_EV[ev.tipo] || 'Gara';
-  const gestioneGara = org() && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame'].includes(a));
+  const gestioneGara = org() && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame', 'formazione_regione'].includes(a));
   const tileGara = (aree.includes('valutazione') ? tileF('#valutazione', 'valutazione', 'Valutazione', 'Inizia a valutare: scegli gara, scena e squadra') : '')
     + (aree.includes('accompagnatore') || org() || master() ? tileF('#accompagnatore', 'monitor', 'Accompagnatore', 'Segna le squadre in attesa davanti alle scene') : '')
     + (org() || (me.logistica || []).length ? tileF('#materiali', 'libreria', 'Materiali', 'Cosa serve in ogni scena e cosa è già pronto') : '')
