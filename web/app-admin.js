@@ -391,20 +391,24 @@ async function tNuovoCorso() {
       <div style="flex:2"><label>Comitato organizzatore</label><input id="c_com" list="dl_comitati" placeholder="cerca il comitato (se vuoto, il tuo)" autocomplete="off"><datalist id="dl_comitati"></datalist></div></div>
     <p class="nota" style="margin:8px 0 0"><b>Luogo</b> (comune del corso)</p>${htmlComune('nc')}
     <p><button class="b" id="c_ok">Crea corso</button> <button class="s" id="c_no">Annulla</button></p>
-    <p class="nota">Il corso è del comitato che lo apre. I Mega Code e gli esami si creano poi dentro il corso, e restano suoi. Il tipo decide chi può insegnare e valutare: compaiono solo le persone con la qualifica prevista.</p></div>`;
+    <p class="nota">Il corso è del comitato che lo apre. I Mega Code e gli esami si creano poi dentro il corso, e restano suoi. Il tipo decide chi può insegnare e valutare: compaiono solo le persone con la qualifica prevista. Chi apre il corso ne è il direttore.<br>TSSA e manovre salvavita si aprono nel proprio comitato; per un altro comitato della tua regione parte una richiesta di delega alla formazione regionale, e il corso nasce quando viene approvata.</p></div>`;
   attivaComune('nc').catch((e) => flash(e.message, false)); cercaComitato('c_com');
   $('#c_no').onclick = () => { creaCorso = false; render(); };
   $('#c_ok').onclick = () => { const nome = $('#c_nome').value.trim(), g = $('#c_gaia').value.trim(); if (!nome) return flash('Scrivi il nome del corso', false);
     if (!comitatoValido($('#c_com').value.trim())) return flash('Scegli il comitato dall\'elenco che compare mentre scrivi', false);
     if ($('#c_data').value && $('#c_fine').value && $('#c_fine').value < $('#c_data').value) return flash('La fine del corso è prima dell\'inizio', false);
-    fai(async () => { const e = await api('/eventi', { body: { codice: ('CORSO-' + (g || nome)).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: 'corso', nome, titolo_stampa: nome, comune: $('#nc_com').value || undefined, data: $('#c_data').value || null, data_fine: $('#c_fine').value || null, codice_gaia: g, comitato: $('#c_com').value.trim() || undefined, tipo_corso: $('#c_tipo').value || undefined } });
-      creaCorso = false; await caricaEventi(); ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_corsi', ev.id); }, 'Corso creato'); };
+    (async () => { try { const e = await api('/eventi', { body: { codice: ('CORSO-' + (g || nome)).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, ''), tipo: 'corso', nome, titolo_stampa: nome, comune: $('#nc_com').value || undefined, data: $('#c_data').value || null, data_fine: $('#c_fine').value || null, codice_gaia: g, comitato: $('#c_com').value.trim() || undefined, tipo_corso: $('#c_tipo').value || undefined } });
+      creaCorso = false; await caricaEventi();
+      if (e.delega) { await render(); return flash(e.messaggio); }                  // corso per un altro comitato della regione: nasce quando la formazione regionale approva
+      ev = eventi.find((x) => x.id === e.id) || ev; localStorage.setItem('ev_corsi', ev.id); await render(); flash('Corso creato'); } catch (x) { flash(x.message, false); } })(); };
 }
 const cAperti = new Set();
 async function tCorsi() {
   if (creaCorso) return tNuovoCorso();
   const corsi = eventi.filter((e) => e.tipo === 'corso' && !e.archiviato);
   const sess = await api('/esami/sessioni').catch(() => []);
+  const del = await api('/deleghe-corso').catch(() => ({ mie: [], da_decidere: [] }));
+  const passaDir = (c) => admin() || me.id === c.direttore_id || (me.aree || []).includes('formazione_regione');   // chi può passare l'incarico di direttore
   const figli = (c) => eventi.filter((e) => e.corso_id === c.id && !e.archiviato);
   const extra = Object.fromEntries(await Promise.all(corsi.map(async (c) => [c.id, await Promise.all([api(`/eventi/${c.id}/inviti`).catch(() => []), api(`/eventi/${c.id}/invitabili`).catch(() => [])])])));
   const sezione = (titolo, azione, righe, vuoto) => `<div class="sez-c"><div class="sez-t"><b>${titolo}</b><span>${azione}</span></div>${righe.length ? righe.join('') : `<p class="nota" style="margin:4px 0 0">${vuoto}</p>`}</div>`;
@@ -419,7 +423,8 @@ async function tCorsi() {
       + sezione('Sessioni d\'esame', `<button class="b p" data-vai="/esami.html">Crea esame</button>`,
         es.map((x) => riga(esc(x.nome), `${x.prove} prove`, `<button class="s p" data-vai="/esami.html#s/${x.id}">Apri</button>`)), 'Nessuna sessione d\'esame.')
       + sezione('Trainer e formatori', `<small>${inv.filter((i) => i.stato === 'attivo').length} valutatori</small>`,
-        inv.map((i) => riga(`<b>${esc(i.nome)}</b> ${stato[i.stato] || ''}`, [i.comitato, i.qualifiche].filter(Boolean).map(esc).join(' · '), `<button class="x p dinv" data-e="${c.id}" data-u="${i.utente_id}">Togli</button>`)), 'Nessuno ancora.')
+        inv.map((i) => riga(`<b>${esc(i.nome)}</b> ${i.utente_id === c.direttore_id ? '<span class="tag ok">direttore del corso</span>' : ''} ${stato[i.stato] || ''}`, [i.comitato, i.qualifiche].filter(Boolean).map(esc).join(' · '),
+          `${i.stato === 'attivo' && i.utente_id !== c.direttore_id && passaDir(c) ? `<button class="s p dir" data-e="${c.id}" data-u="${i.utente_id}" data-n="${esc(i.nome)}">Rendi direttore</button> ` : ''}${i.utente_id === c.direttore_id ? '' : `<button class="x p dinv" data-e="${c.id}" data-u="${i.utente_id}">Togli</button>`}`)), 'Nessuno ancora.')
       + `<details class="aggiungi"><summary>Aggiungi trainer o formatori…</summary>
           <p class="nota">Spunta chi vuoi: i colleghi del comitato del corso diventano subito valutatori di tutti i Mega Code; per chi è di un altro comitato parte una richiesta, e lo diventa quando accetta.</p>
           <input class="cerca-t" placeholder="Cerca per nome o comitato" data-e="${c.id}">
@@ -428,9 +433,15 @@ async function tCorsi() {
           <p style="text-align:right"><button class="b add-t" data-e="${c.id}">Aggiungi i selezionati</button></p></details>`;
   };
   $('#app').innerHTML = `<div class="card"><div class="riga" style="align-items:center;justify-content:space-between"><h3 style="margin:0">Corsi attivi</h3><div class="stretto"><button class="b" id="c_nuovo">Crea nuovo corso</button></div></div></div>
+    ${del.da_decidere.length ? `<div class="card"><h3>Deleghe da approvare</h3><p class="nota">Richieste di aprire e dirigere un corso per un altro comitato della regione. Approvando, il corso viene creato e chi l'ha chiesto ne diventa il direttore.</p>
+      ${del.da_decidere.map((d) => riga(`<b>${esc(d.nome)}</b> <span class="tag">${esc(d.tipo_nome)}</span> per <b>${esc(d.comitato)}</b>`, `chiesto da ${esc(d.richiedente)}${d.richiedente_comitato ? ' (' + esc(d.richiedente_comitato) + ')' : ''} il ${new Date(d.created_at).toLocaleDateString('it-IT')}${d.data ? ' · inizio ' + dataIt(d.data) : ''}`,
+        `<button class="b p dl_ok" data-id="${d.id}">Approva</button> <button class="x p dl_no" data-id="${d.id}">Rifiuta</button>`)).join('')}</div>` : ''}
+    ${del.mie.length ? `<div class="card"><h3>Le tue richieste di delega</h3>
+      ${del.mie.map((d) => riga(`<b>${esc(d.nome)}</b> per ${esc(d.comitato)} ${d.stato === 'richiesta' ? '<span class="tag">in attesa della formazione regionale</span>' : d.stato === 'approvata' ? '<span class="tag ok">approvata: il corso è stato creato</span>' : '<span class="tag no">non approvata</span>'}`,
+        [`${esc(d.tipo_nome)} · chiesta il ${new Date(d.created_at).toLocaleDateString('it-IT')}`, d.nota ? esc(d.nota) : ''].filter(Boolean).join(' · '), d.stato === 'richiesta' ? `<button class="x p dl_del" data-id="${d.id}">Ritira</button>` : '')).join('')}</div>` : ''}
     ${corsi.map((c) => `<div class="scena corso" data-id="${c.id}"><div class="sc-testa"><button class="sc-t" data-id="${c.id}" aria-expanded="${cAperti.has(c.id)}">${cAperti.has(c.id) ? '▾' : '▸'}</button>
         <h3>${c.codice_gaia ? esc(c.codice_gaia) + ' · ' : ''}${esc(c.nome)}</h3>
-        <small class="sc-sint">${c.tipo_corso ? esc(nomeTipoCorso(c.tipo_corso) || c.tipo_corso) + ' · ' : ''}${esc(c.comitato || 'comitato non indicato')} · ${esc(periodo(c))}${cAperti.has(c.id) ? '' : ` · ${figli(c).filter((e) => e.tipo === 'megacode').length} Mega Code · ${extra[c.id][0].filter((i) => i.stato === 'attivo').length} valutatori`}</small></div>
+        <small class="sc-sint">${c.tipo_corso ? esc(nomeTipoCorso(c.tipo_corso) || c.tipo_corso) + ' · ' : ''}${esc(c.comitato || 'comitato non indicato')}${c.direttore ? ' · direttore ' + esc(c.direttore) : ''} · ${esc(periodo(c))}${cAperti.has(c.id) ? '' : ` · ${figli(c).filter((e) => e.tipo === 'megacode').length} Mega Code · ${extra[c.id][0].filter((i) => i.stato === 'attivo').length} valutatori`}</small></div>
       <div class="sc-corpo" ${cAperti.has(c.id) ? '' : 'hidden'}>${cAperti.has(c.id) ? corpo(c) : ''}
         <div class="sez-a" style="padding:10px 14px;border-top:1px solid #e3e5ea"><button class="s p apri" data-id="${c.id}">Dati del corso</button> <button class="s p dsc" data-id="${c.id}">Discenti</button></div></div></div>`).join('') || '<div class="card"><em>Nessun corso: creane uno con «Crea nuovo corso».</em></div>'}${cardArchiviati(['corso', 'megacode', 'esame'], 'Archiviati')}`;
   legaRiapri();
@@ -443,6 +454,10 @@ async function tCorsi() {
   document.querySelectorAll('.add-t').forEach((b) => { b.onclick = () => { const ids = [...b.closest('.aggiungi').querySelectorAll('input[type=checkbox]:checked')].map((c) => c.value); if (!ids.length) return flash('Spunta almeno una persona', false);
     fai(async () => { const r = await api(`/eventi/${b.dataset.e}/inviti`, { body: { partecipanti: ids } }); flash(`${r.attivi ? r.attivi + ' valutatori attivati' : ''}${r.attivi && r.richiesti ? ' · ' : ''}${r.richiesti ? r.richiesti + ' richieste inviate' : ''}`); }); }; });
   document.querySelectorAll('.dinv').forEach((a) => { a.onclick = (e) => { e.preventDefault(); fai(() => api(`/eventi/${a.dataset.e}/inviti/${a.dataset.u}`, { method: 'DELETE' }), 'Tolto dal corso'); }; });
+  document.querySelectorAll('.dir').forEach((b) => { b.onclick = () => { if (confirm(`Passare a ${b.dataset.n} l'incarico di direttore del corso?`)) fai(() => api(`/eventi/${b.dataset.e}/direttore`, { method: 'PUT', body: { utente_id: b.dataset.u } }).then(caricaEventi), 'Direttore del corso cambiato'); }; });
+  document.querySelectorAll('.dl_ok').forEach((b) => { b.onclick = () => fai(() => api(`/deleghe-corso/${b.dataset.id}/approva`, { body: {} }).then(caricaEventi), 'Delega approvata: il corso è stato creato'); });
+  document.querySelectorAll('.dl_no').forEach((b) => { b.onclick = () => { const nota = prompt('Motivo (facoltativo), lo leggerà chi ha fatto la richiesta:'); if (nota !== null) fai(() => api(`/deleghe-corso/${b.dataset.id}/rifiuta`, { body: { nota } }), 'Richiesta non approvata'); }; });
+  document.querySelectorAll('.dl_del').forEach((b) => { b.onclick = () => fai(() => api(`/deleghe-corso/${b.dataset.id}`, { method: 'DELETE' }), 'Richiesta ritirata'); });
   document.querySelectorAll('.corso .apri').forEach((b) => { b.onclick = () => { ev = eventi.find((e) => e.id === b.dataset.id); localStorage.setItem('ev_corsi', ev.id); vai('evento'); }; });
   document.querySelectorAll('.dsc').forEach((b) => { b.onclick = () => { ev = eventi.find((e) => e.id === b.dataset.id); localStorage.setItem('ev_corsi', ev.id); vai('discenti'); }; });
 }
@@ -1625,9 +1640,9 @@ async function tRuoli() {
     <div class="riga"><div><label>Nuovo gruppo</label><input id="ng_n" placeholder="es. Staff tecnico"></div><div class="stretto"><button class="b" id="ng_ok">Crea gruppo</button></div></div></div>
   <div class="card"><h3>Nuovo ruolo</h3><div class="riga"><div><label>Nome (es. Segreteria, Gestore news)</label><input id="nr_n"></div></div>
     <div class="aree">${chiavi.map((k) => casella({ aree: [], sistema: false }, k)).join('')}</div><p><button class="b" id="nr_ok">Crea ruolo</button></p></div>
-  <div class="card"><h3>Qualifiche</h3><p><small>Titoli permanenti della persona (si assegnano dall'anagrafica). Da sole non danno accesso: l'accesso arriva dall'assegnazione a un evento. Locale = opera nel proprio comitato, regionale = nei comitati della propria regione, nazionale = in tutta Italia.</small></p>
+  <div class="card"><h3>Qualifiche</h3><p><small>Titoli permanenti della persona (si assegnano dall'anagrafica). Da sole non danno accesso: l'accesso arriva dall'assegnazione a un evento. «Formazione» = qualifica con cui si insegna; dove si può operare lo decide il tipo di corso, qui sotto.</small></p>
     <table>${quals.map((q) => `<tr><td>${esc(q.nome)}${q.ambito ? ` <span class="tag">${q.ambito}</span>` : ''}${q.sistema ? ' <span class="tag">di base</span>' : ''}</td><td><small>${q.persone} persone</small></td><td>${q.sistema ? '' : `<button class="x p qd" data-c="${q.codice}">Elimina</button>`}</td></tr>`).join('')}</table>
-    <div class="riga"><div><label>Nuova qualifica</label><input id="nq_n"></div><div><label>Ambito</label><select id="nq_a"><option value="">nessuno</option><option value="locale">locale</option><option value="regionale">regionale</option><option value="nazionale">nazionale</option></select></div><div class="stretto"><button class="b" id="nq_ok">Aggiungi</button></div></div></div>`;
+    <div class="riga"><div><label>Nuova qualifica</label><input id="nq_n"></div><div><label>Ambito</label><select id="nq_a"><option value="">nessuno</option><option value="formazione">formazione (può insegnare)</option></select></div><div class="stretto"><button class="b" id="nq_ok">Aggiungi</button></div></div></div>`;
   document.querySelectorAll('.grs').forEach((b) => { b.onclick = () => { const g = b.closest('[data-g]'); fai(() => api(`/gruppi/${g.dataset.g}`, { method: 'PUT', body: { ruoli: [...g.querySelectorAll('.gr_r:checked')].map((i) => i.value) } }), 'Gruppo salvato'); }; });
   document.querySelectorAll('.grd').forEach((b) => { b.onclick = () => { if (confirm('Eliminare il gruppo? Le persone perdono i ruoli che avevano solo da questo gruppo.')) fai(() => api(`/gruppi/${b.closest('[data-g]').dataset.g}`, { method: 'DELETE' }), 'Gruppo eliminato'); }; });
   $('#ng_ok').onclick = () => { const n = $('#ng_n').value.trim(); if (!n) return alert('Scrivi il nome del gruppo'); fai(() => api('/gruppi', { body: { nome: n, ruoli: [] } }), 'Gruppo creato: spunta i ruoli e salva'); };
@@ -1641,13 +1656,14 @@ async function tRuoli() {
   const tipiC = await api('/tipi-corso'), formative = quals.filter((q) => q.ambito);
   cache.tipiCorso = tipiC;   // l'elenco aggiornato serve subito anche al modulo «Nuovo corso»
   const caselleTc = (t, campo) => formative.map((q) => `<label class="ar"><input type="checkbox" class="tc_${campo}" value="${esc(q.codice)}" ${(t?.[campo] || []).includes(q.codice) ? 'checked' : ''}> ${esc(q.nome)}</label>`).join('');
-  const rigaTc = (t) => `<div class="riga"><div><label>Può aprirlo e insegnare</label><div class="aree">${caselleTc(t, 'docenti')}</div></div><div><label>Può valutare</label><div class="aree">${caselleTc(t, 'valutatori')}</div></div></div>`;
+  const ambitoTc = (t) => `<div><label>Dove si apre</label><select class="tc_amb"><option value="regionale" ${t?.ambito === 'nazionale' ? '' : 'selected'}>nella propria regione (fuori dal proprio comitato serve la delega)</option><option value="nazionale" ${t?.ambito === 'nazionale' ? 'selected' : ''}>in tutta Italia</option></select></div>`;
+  const rigaTc = (t) => `${ambitoTc(t)}<div class="riga"><div><label>Può aprirlo e insegnare</label><div class="aree">${caselleTc(t, 'docenti')}</div></div><div><label>Può valutare</label><div class="aree">${caselleTc(t, 'valutatori')}</div></div></div>`;
   $('#app').insertAdjacentHTML('beforeend', `<div class="card"><h3>Tipi di corso</h3>
     <p class="nota">Per ogni tipo di corso scegli chi può aprirlo e insegnarvi e chi può valutare. Nei corsi di quel tipo compaiono, tra le persone da invitare e tra i valutatori, solo quelle con una di queste qualifiche. Per un corso nuovo (per esempio il corso per trainer) aggiungi un tipo qui sotto.</p>
-    ${tipiC.map((t) => `<div class="card" data-tc="${esc(t.codice)}" style="margin:8px 0"><b>${esc(t.nome)}</b> <small>· ${t.corsi} ${t.corsi === 1 ? 'corso' : 'corsi'}</small>${rigaTc(t)}
+    ${tipiC.map((t) => `<div class="card" data-tc="${esc(t.codice)}" style="margin:8px 0"><b>${esc(t.nome)}</b> <span class="tag">${t.ambito === 'nazionale' ? 'nazionale' : 'regionale'}</span> <small>· ${t.corsi} ${t.corsi === 1 ? 'corso' : 'corsi'}</small>${rigaTc(t)}
       <p><button class="b p tc_s">Salva</button> ${t.corsi ? '' : '<button class="x p tc_d">Elimina</button>'}</p></div>`).join('')}
     <div class="card" id="tc_nuovo" style="margin:8px 0"><label>Nuovo tipo di corso</label><input id="tc_n" placeholder="es. Corso Trainer TSSA">${rigaTc(null)}<p><button class="b" id="tc_ok">Aggiungi</button></p></div></div>`);
-  const sceltiTc = (el) => ({ docenti: [...el.querySelectorAll('.tc_docenti:checked')].map((i) => i.value), valutatori: [...el.querySelectorAll('.tc_valutatori:checked')].map((i) => i.value) });
+  const sceltiTc = (el) => ({ ambito: el.querySelector('.tc_amb').value, docenti: [...el.querySelectorAll('.tc_docenti:checked')].map((i) => i.value), valutatori: [...el.querySelectorAll('.tc_valutatori:checked')].map((i) => i.value) });
   document.querySelectorAll('.tc_s').forEach((b) => { b.onclick = () => { const el = b.closest('[data-tc]'); fai(() => api(`/tipi-corso/${el.dataset.tc}`, { method: 'PUT', body: sceltiTc(el) }), 'Tipo di corso salvato'); }; });
   document.querySelectorAll('.tc_d').forEach((b) => { b.onclick = () => { if (confirm('Eliminare questo tipo di corso?')) fai(() => api(`/tipi-corso/${b.closest('[data-tc]').dataset.tc}`, { method: 'DELETE' }), 'Tipo di corso eliminato'); }; });
   $('#tc_ok').onclick = () => { const n = $('#tc_n').value.trim(); if (!n) return alert('Scrivi il nome del tipo di corso'); fai(() => api('/tipi-corso', { body: { nome: n, ...sceltiTc($('#tc_nuovo')) } }), 'Tipo di corso aggiunto'); };

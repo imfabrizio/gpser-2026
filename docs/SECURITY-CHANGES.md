@@ -91,3 +91,13 @@ Migrazione `067-tipi-corso.sql` (additiva). La regola «chi può fare cosa in qu
 - I tipi si gestiscono da Gestione → Ruoli e permessi → Tipi di corso (solo amministratore). Un tipo in uso non si elimina.
 
 **Ambito regionale** (migrazione `068-ambito-regionale.sql`): Formatore TSSA e Formatore MS operano come i trainer del loro tipo di corso, ma su tutti i comitati della propria regione e non in tutta Italia. Aprono corsi per un comitato della regione, gestiscono quelli già aperti lì, non spostano un corso fuori regione. Il Capo monitore resta nazionale. L'ambito di ogni qualifica (locale, regionale, nazionale) si vede in Ruoli e permessi.
+
+## L'ambito sta sul tipo di corso; delega e direttore del corso
+
+Migrazione `069-ambito-sul-tipo-di-corso.sql` (additiva). Sostituisce l'ambito sulle qualifiche (locale / regionale / nazionale), che non conta più: sulle qualifiche resta solo l'indicazione «formazione».
+
+- **Tipi regionali** (TSSA, Manovre salvavita): chi ha la qualifica apre il corso nel proprio comitato. Per un altro comitato della propria regione parte una **richiesta di delega**: il corso nasce solo quando la formazione regionale la approva, con chi l'ha chiesto come direttore. Fuori regione non si apre, non si viene chiamati come docenti e non si valuta.
+- **Tipi nazionali** (Primo soccorso, Istruttore DU, TTSSA, Corso per trainer MS): si aprono per qualunque comitato. I corsi per trainer li tengono i formatori, che essendo anche trainer restano tra i docenti dei corsi per operatori.
+- **Direttore del corso**: chi lo apre. Sceglie i docenti e può passare l'incarico a un altro docente del corso con la qualifica prevista (lo può riassegnare anche la formazione regionale).
+- **Chi gestisce un corso**: il direttore, i docenti che ha chiamato (dopo che hanno accettato), i docenti del comitato organizzatore con la qualifica del tipo, la formazione regionale della regione.
+- **Formazione regionale**: nuova area «Formazione regionale» da dare a un ruolo in Ruoli e permessi. Chi ce l'ha approva le deleghe e segue i corsi della propria regione. Finché nessun ruolo ha quest'area, le deleghe le approva l'amministratore.

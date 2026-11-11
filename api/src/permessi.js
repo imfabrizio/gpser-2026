@@ -1,7 +1,7 @@
 // Ruoli e aree della Gestione. Un utente ha un ruolo (con le sue aree) e, se serve, la spunta "admin" che dà accesso a tutto.
 export const AREE = {
   gara: 'Gara', scene: 'Scene', schede: 'Schede', squadre: 'Squadre', notizie: 'Notizie', anagrafiche: 'Anagrafiche',
-  classifiche: 'Classifiche', stampa: 'Stampa', importa: 'Importa', approvazione: 'Approvazione', segreteria: 'Segreteria', valutazione: 'Valutazione', accompagnatore: 'Accompagnatore', documentazione: 'Documentazione', formazione_esame: 'Formazione d\'esame', esami: 'Esami',
+  classifiche: 'Classifiche', stampa: 'Stampa', importa: 'Importa', approvazione: 'Approvazione', segreteria: 'Segreteria', valutazione: 'Valutazione', accompagnatore: 'Accompagnatore', documentazione: 'Documentazione', formazione_esame: 'Formazione d\'esame', esami: 'Esami', formazione_regione: 'Formazione regionale',
 };   // Utenti, Ruoli e Richieste restano riservati agli admin
 
 // ruolo "efficace" usato dai controlli: admin > staff (ruolo con almeno un'area) > giudice / giudice master > partecipante (nessun potere)
@@ -19,7 +19,7 @@ const REGOLE = [
   R('POST', '/api/compilazioni/:id/riapri', ['valutazione']), R('DELETE', '/api/compilazioni/:id', ['valutazione']),
   R('PUT', '/api/persone/:id/qualifiche', ['anagrafiche']),
   R('POST|DELETE', '/api/avvisi(/:id)?', ['notizie']),
-  R('POST|PATCH', '/api/eventi(/:id)?', ['gara', 'esami']), R('POST', '/api/eventi/:id/(attiva|disattiva)', ['gara', 'esami']), R('PUT', '/api/eventi/:id/(ente|data-fine|posizione)', ['gara', 'esami']), R('GET|POST', '/api/eventi/:id/(inviti|invitabili)', ['gara', 'esami']), R('DELETE', '/api/eventi/:id/inviti/:utente', ['gara', 'esami']),
+  R('POST|PATCH', '/api/eventi(/:id)?', ['gara', 'esami']), R('POST', '/api/eventi/:id/(attiva|disattiva)', ['gara', 'esami']), R('PUT', '/api/eventi/:id/direttore', ['gara', 'esami']), R('PUT', '/api/eventi/:id/(ente|data-fine|posizione)', ['gara', 'esami']), R('GET|POST', '/api/eventi/:id/(inviti|invitabili)', ['gara', 'esami']), R('DELETE', '/api/eventi/:id/inviti/:utente', ['gara', 'esami']),
   R('POST', '/api/eventi/:id/squadre', ['squadre']), R('GET|POST', '/api/eventi/:id/discenti', ['squadre', 'esami']), R('DELETE', '/api/eventi/:id/discenti/:pid', ['squadre', 'esami']), R('POST', '/api/eventi/:id/collega-canovacci', ['scene']), R('PATCH', '/api/squadre/:id', ['squadre']), R('GET|PUT', '/api/squadre/:id/membri', ['squadre', 'anagrafiche']),
   R('POST', '/api/eventi/:id/scene', ['scene']), R('POST', '/api/scene/:id/(duplica|schede|elenco-pazienti|promozione)', ['scene']), R('PATCH|DELETE', '/api/scene/:id', ['scene']),
   R('PUT|DELETE', '/api/schede/:id/voci/:ordine', ['scene']), R('POST', '/api/schede/:id/voci', ['scene']), R('PUT', '/api/schede/:id/sezione', ['scene']), R('GET', '/api/schede/:id/anteprima.pdf', ['scene']), R('PATCH|DELETE', '/api/schede/:id', ['scene']), R('PUT', '/api/schede/:id/assegnazioni', ['scene']),

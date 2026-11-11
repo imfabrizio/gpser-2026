@@ -1,6 +1,8 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
+import { notifica } from './notifiche.js';
 import { firmaToken, leggiToken, verificaPassword, troppiTentativi, registraFallimento, azzeraFallimenti, verificaPasswordFinta, ipCliente, LIMITE_ACCOUNT } from './auth.js';
 import { inTransazione } from './db.js';
 import { sincronizza, riapri, elimina, httpErr } from './services/compilazioni.js';
@@ -44,7 +46,7 @@ import { disegnaMegacode } from './pdf/megacode.js';
 // una scheda è una "skill" (layout cartaceo 0-1-2) se la sua tipologia è solo skill/megacode o se è una scheda d'esame TSSA
 const èSkill = (p) => p?.categoria === 'Esame TSSA' || (Array.isArray(p?.tipologie) && p.tipologie.includes('skill') && !p.tipologie.includes('gara') && !p.tipologie.includes('olimpiadi'));
 import { registraAi } from './routes-ai.js';
-import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO, dirittiSuTipo } from './ambito.js';
+import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO, docenteDelTipo, formazioneRegionale, AREA_FORMAZIONE_REGIONE } from './ambito.js';
 import { haSchede, comitatoDi, controllaScheda, tipologieValide } from './libreria-ambito.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
@@ -110,6 +112,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     req.utente = { id: u.id, nome: u.nome, evento_id: u.evento_id, eventi_ammessi: (u.ev_ruoli || []).map((r) => r.evento_id), per_evento: !!u.per_evento, eventi_org: u.ev_org || [], mfa_attiva: u.mfa_attiva, admin: u.admin, aree: u.aree, ruolo_codice: u.ruolo, ruolo: ruoloEffettivo(u), via: t.via || 'pwd' };
     // organizzazione e admin con password devono prima attivare la MFA: fino ad allora solo la pagina di configurazione
     if (mfaObbligatoria(u, req.utente.via) && !(rotta === '/api/me' || rotta.startsWith('/api/mfa'))) throw httpErr(403, 'configura_mfa');
+    // la formazione regionale segue i corsi della sua regione: l'area porta con sé quella dei corsi («esami»)
+    if ((req.utente.aree || []).includes(AREA_FORMAZIONE_REGIONE) && !req.utente.aree.includes('esami')) u.aree = req.utente.aree = [...req.utente.aree, 'esami'];
     if (req.utente.ruolo === 'organizzazione') {                 // ruolo con aree: solo quelle consentite
       const serve = areeRichieste(req.method, rotta);
       if (serve && !serve.some((a) => u.aree.includes(a))) throw httpErr(403, 'area non consentita al tuo ruolo');
@@ -242,7 +246,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
     const org = RUOLI_ORG.includes(req.utente.ruolo);
     const righe = (await pool.query(
-      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, to_char(data_fine,'YYYY-MM-DD') as data_fine, attivo, archiviato, modalita, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, tipo_corso, comitato, livello, regione, lat, lng, comune_istat, luogo_provincia, luogo_regione, modalita, segreteria_lat, segreteria_lng
+      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, to_char(data_fine,'YYYY-MM-DD') as data_fine, attivo, archiviato, modalita, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, tipo_corso, direttore_id, (select u.nome from utente u where u.id = evento.direttore_id) as direttore, comitato, livello, regione, lat, lng, comune_istat, luogo_provincia, luogo_regione, modalita, segreteria_lat, segreteria_lng
          from evento where ($1 or id = $2 or id = any($3::uuid[]) or ($2::uuid is null and not cardinality($3::uuid[]) > 0 and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id, req.utente.eventi_ammessi])).rows;
     if (req.utente.ruolo === 'organizzazione' && req.utente.per_evento) return righe.filter((e) => req.utente.eventi_org.includes(e.id));
@@ -313,7 +317,56 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/comuni/regioni', async () => regioniComuni());
   app.get('/api/comuni/province', async (req) => provinceComuni(req.query?.regione || ''));
   app.get('/api/comuni', async (req) => cercaComuni({ regione: req.query?.regione, provincia: req.query?.provincia, q: req.query?.q }, Math.min(Number(req.query?.limite) || 60, 300)));
-  app.post('/api/eventi', { preHandler: soloOrg }, async (req) => {
+  // ── deleghe: aprire un corso (di tipo regionale) per un altro comitato della propria regione richiede l'approvazione della formazione regionale ──
+  const DELEGA_INTERNA = crypto.randomBytes(24).toString('hex');                  // segna la creazione del corso fatta dal server dopo l'approvazione
+  const formazioneRegionaleIds = async (regione) => {
+    const { rows } = await pool.query(
+      `select u.id, u.admin, (select p.comitato from partecipante p where p.utente_id=u.id and p.comitato is not null limit 1) as comitato from utente u
+        where u.attivo and (u.admin or exists (select 1 from ruolo r where $1 = any(r.aree) and (r.codice = u.ruolo or r.codice in (select x.ruolo from utente_ruolo_extra x where x.utente_id = u.id))))`, [AREA_FORMAZIONE_REGIONE]);
+    const ok = []; for (const u of rows) if (u.admin || (u.comitato && await regioneDelComitato(pool, u.comitato) === regione)) ok.push(u.id);
+    return ok;
+  };
+  const DELEGA_SQL = `select d.id, d.comitato, d.regione, d.tipo_corso, t.nome as tipo_nome, d.dati->>'nome' as nome, d.dati->>'codice' as codice, d.dati->>'data' as data, d.stato, d.nota, d.created_at, d.deciso_il, d.evento_id,
+      u.nome as richiedente, d.richiedente as richiedente_id, (select p.comitato from partecipante p where p.utente_id = d.richiedente limit 1) as richiedente_comitato
+    from delega_corso d join tipo_corso t on t.codice = d.tipo_corso join utente u on u.id = d.richiedente`;
+  // le proprie richieste e, per la formazione regionale, quelle della propria regione ancora da decidere
+  app.get('/api/deleghe-corso', { preHandler: soloOrg }, async (req) => {
+    const mie = (await pool.query(DELEGA_SQL + ` where d.richiedente=$1 and (d.stato='richiesta' or d.created_at > now() - interval '60 days') order by d.created_at desc limit 50`, [req.utente.id])).rows;
+    if (!formazioneRegionale(req.utente)) return { mie, da_decidere: [] };
+    const regione = req.utente.admin ? null : await regioneMia(req);
+    const da_decidere = (await pool.query(DELEGA_SQL + ` where d.stato='richiesta' and ($1::boolean or d.regione = $2::text) order by d.created_at`, [!!req.utente.admin, regione])).rows;
+    return { mie, da_decidere };
+  });
+  const decidiDelega = (approva) => async (req) => {
+    if (!formazioneRegionale(req.utente)) throw httpErr(403, 'le deleghe le decide la formazione regionale');
+    const { rows: [d] } = await pool.query(`select * from delega_corso where id=$1`, [req.params.id]);
+    if (!d || (!req.utente.admin && d.regione !== await regioneMia(req))) throw httpErr(404, 'richiesta inesistente');
+    if (d.stato !== 'richiesta') throw httpErr(409, 'richiesta già decisa');
+    if (d.richiedente === req.utente.id && !req.utente.admin) throw httpErr(403, 'la propria richiesta la decide un altro');
+    let evento = null;
+    if (approva) {
+      // il corso lo crea il server a nome di chi l'ha chiesto, con le stesse regole di sempre (qualifica, codice libero…)
+      const r = await app.inject({ method: 'POST', url: '/api/eventi', payload: d.dati, headers: { authorization: 'Bearer ' + firmaToken({ id: d.richiedente, via: 'pw' }, 0.02), 'x-delega-interna': DELEGA_INTERNA } });
+      const esito = JSON.parse(r.body || '{}');
+      if (r.statusCode !== 200) throw httpErr(409, `il corso non si può creare: ${esito.errore || 'errore'}`);
+      evento = esito;
+    }
+    const nota = String(req.body?.nota || '').trim().slice(0, 300) || null;
+    await pool.query(`update delega_corso set stato=$2, deciso_da=$3, deciso_il=now(), evento_id=$4, nota=$5 where id=$1`, [d.id, approva ? 'approvata' : 'rifiutata', req.utente.id, evento?.id ?? null, nota]);
+    await pool.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1::uuid,$2,'delega_corso',$3::text,$4)`, [req.utente.id, approva ? 'delega_approvata' : 'delega_rifiutata', d.id, JSON.stringify({ comitato: d.comitato, richiedente: d.richiedente })]);
+    await notifica(pool, [d.richiedente], approva
+      ? { tipo: 'delega_corso', titolo: `Delega approvata: «${d.dati.nome}»`, testo: `Il corso per ${d.comitato} è stato creato e ne sei il direttore.`, link: '/admin.html#corsi' }
+      : { tipo: 'delega_corso', titolo: `Delega non approvata: «${d.dati.nome}»`, testo: nota || `La richiesta di aprire un corso per ${d.comitato} non è stata approvata.`, link: '/admin.html#corsi' });
+    return { ok: true, stato: approva ? 'approvata' : 'rifiutata', evento_id: evento?.id ?? null };
+  };
+  app.post('/api/deleghe-corso/:id/approva', { preHandler: soloOrg }, decidiDelega(true));
+  app.post('/api/deleghe-corso/:id/rifiuta', { preHandler: soloOrg }, decidiDelega(false));
+  app.delete('/api/deleghe-corso/:id', { preHandler: soloOrg }, async (req) => {                // chi l'ha chiesta la può ritirare finché non è decisa
+    const { rowCount } = await pool.query(`delete from delega_corso where id=$1 and richiedente=$2 and stato='richiesta'`, [req.params.id, req.utente.id]);
+    if (!rowCount) throw httpErr(404, 'richiesta inesistente o già decisa'); return { ok: true };
+  });
+
+  app.post('/api/eventi', { preHandler: soloOrg }, async (req, reply) => {
     const b = req.body || {};
     if (!b.codice || !b.nome) throw httpErr(400, 'codice e nome obbligatori');
     if (b.tipo && !TIPI_EVENTO.includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
@@ -322,24 +375,28 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     // tipo di corso: lo dichiara chi apre un corso (o un esame che non appartiene a un corso); Mega Code ed esami di un corso seguono il corso
     let tipoCorso = null;
     if (TIPI_CORSO.includes(tipo) && !b.corso_id) {
-      const { rows: tipi } = await pool.query('select codice, nome, docenti, valutatori from tipo_corso order by ordine, nome');
+      const { rows: tipi } = await pool.query('select codice, nome, docenti, valutatori, ambito from tipo_corso order by ordine, nome');
       const mio = await profiloFormativo(pool, req.utente.id);
       tipoCorso = b.tipo_corso ? tipi.find((t) => t.codice === b.tipo_corso)                          // se non è indicato: il primo tipo per cui chi crea ha la qualifica, altrimenti TSSA
-        : (tipi.find((t) => dirittiSuTipo(mio, t).qualcosa) ?? tipi.find((t) => t.codice === 'tssa') ?? tipi[0]);
+        : (tipi.find((t) => mio.qualifiche.length && docenteDelTipo(mio, t)) ?? tipi.find((t) => t.codice === 'tssa') ?? tipi[0]);
       if (!tipoCorso) throw httpErr(400, 'tipo di corso non valido');
     }
+    let delega = null;                                                           // corso per un altro comitato della regione: nasce solo dopo l'approvazione
     if (soloFormazione(req.utente)) {
       if (!TIPI_CORSO.includes(tipo)) throw httpErr(403, 'puoi creare solo corsi, Mega Code ed esami');
       const prof = await profiloFormativo(pool, req.utente.id);
-      if (!prof.locale && !prof.regionale && !prof.nazionale) throw httpErr(403, 'serve una qualifica di trainer, monitore, formatore o capo monitore');
-      const d = dirittiSuTipo(prof, tipoCorso);                                                         // le qualifiche contano per il tipo di corso a cui servono
-      if (!d.qualcosa) throw httpErr(403, `per aprire un corso «${tipoCorso.nome}» serve una delle qualifiche previste per quel tipo di corso`);
-      if (d.regionale && !d.nazionale && comitato && prof.comitato && norm(comitato) !== norm(prof.comitato)) {   // il formatore apre corsi per i comitati della sua regione
-        const mia = await regioneDelComitato(pool, prof.comitato);
-        if (!mia || mia !== await regioneDelComitato(pool, comitato)) throw httpErr(403, 'puoi aprire corsi solo per i comitati della tua regione');
-      } else if (!d.nazionale) { if (!prof.comitato) throw httpErr(400, 'imposta il tuo comitato in anagrafica'); comitato = prof.comitato; }   // il trainer crea per il suo comitato
-      else comitato = comitato || prof.comitato;
+      if (!prof.qualifiche.length) throw httpErr(403, 'serve una qualifica di trainer, monitore, formatore o capo monitore');
       if (b.corso_id) { const { rows: [c] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [b.corso_id]); if (!c || !(await puoGestireEvento(pool, req.utente, c, prof))) throw httpErr(403, 'corso non nel tuo ambito'); }
+      else {
+        if (!docenteDelTipo(prof, tipoCorso)) throw httpErr(403, `per aprire un corso «${tipoCorso.nome}» serve una delle qualifiche previste per quel tipo di corso`);   // le qualifiche contano per il tipo di corso a cui servono
+        if (!prof.comitato) throw httpErr(400, 'imposta il tuo comitato in anagrafica');
+        if (!comitato || norm(comitato) === norm(prof.comitato)) comitato = prof.comitato;                // nel proprio comitato: subito
+        else if (tipoCorso.ambito !== 'nazionale') {                                                      // tipo regionale: altrove solo nella propria regione, e con la delega
+          const mia = await regioneDelComitato(pool, prof.comitato), sua = await regioneDelComitato(pool, comitato);
+          if (!mia || mia !== sua) throw httpErr(403, `un corso «${tipoCorso.nome}» si apre solo nella propria regione`);
+          if (req.headers['x-delega-interna'] !== DELEGA_INTERNA) delega = { comitato, regione: sua };
+        }
+      }
     }
     if (tipo === 'megacode') { const { rows: [c] } = await pool.query(`select tipo, archiviato from evento where id=$1`, [b.corso_id || null]); if (!c || c.tipo !== 'corso' || c.archiviato) throw httpErr(400, 'il Mega Code va assegnato a un corso attivo'); }
     const didattico = ['allenamento', 'corso', 'esame', 'megacode', 'corso_giudici'].includes(tipo);
@@ -354,9 +411,19 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (ente.livello === 'comitato' && !req.utente.admin && ['gara', 'olimpiadi', 'corso_giudici'].includes(tipo)) throw httpErr(403, 'le gare, le Olimpiadi e i corsi giudici li organizza la regione: un comitato crea allenamenti');
     const com = b.comune ? comunePerIstat(b.comune) : null;
     if (b.comune && !com) throw httpErr(400, 'comune inesistente');
+    if (delega) {
+      // la richiesta conserva i dati del corso: all'approvazione della formazione regionale il corso nasce così com'è stato chiesto, con chi l'ha chiesto come direttore
+      if ((await pool.query('select 1 from evento where codice=$1', [b.codice])).rowCount) throw httpErr(409, 'codice evento già esistente');
+      const dati = Object.fromEntries(['codice', 'nome', 'tipo', 'titolo_stampa', 'luogo', 'data', 'data_fine', 'codice_gaia', 'comune'].filter((k) => b[k] != null && b[k] !== '').map((k) => [k, b[k]]));
+      const { rows: [d] } = await pool.query(`insert into delega_corso (richiedente, comitato, regione, tipo_corso, dati) values ($1,$2,$3,$4,$5) returning id, comitato, regione, tipo_corso, stato, created_at`,
+        [req.utente.id, delega.comitato, delega.regione, tipoCorso.codice, JSON.stringify({ ...dati, tipo, tipo_corso: tipoCorso.codice, comitato: delega.comitato })]);
+      await notifica(pool, await formazioneRegionaleIds(delega.regione), { tipo: 'delega_corso', titolo: `Richiesta di delega: corso «${b.nome}» per ${delega.comitato}`, testo: `${req.utente.nome} chiede di aprire e dirigere un corso ${tipoCorso.nome} per il comitato di ${delega.comitato}.`, link: '/admin.html#corsi' });
+      reply.code(202);
+      return { delega: d, messaggio: `Richiesta inviata alla formazione regionale: il corso per ${delega.comitato} nascerà quando la delega sarà approvata.` };
+    }
     const nuovo = (await pool.query(
-      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, data_fine, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato, livello, regione, comune_istat, luogo_provincia, luogo_regione, lat, lng, tipo_corso) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,nullif(trim($10),''),$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) returning *`,
-      [b.codice, b.nome, tipo, b.titolo_stampa, com ? etichettaLuogo(com) : b.luogo, b.data, b.data_fine || null, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, ente.comitato ?? comitato, ente.livello, ente.regione, com?.istat ?? null, com?.provincia ?? null, com?.regione ?? null, com?.lat ?? null, com?.lng ?? null, tipoCorso?.codice ?? null])).rows[0];
+      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, data_fine, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato, livello, regione, comune_istat, luogo_provincia, luogo_regione, lat, lng, tipo_corso, direttore_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,nullif(trim($10),''),$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) returning *`,
+      [b.codice, b.nome, tipo, b.titolo_stampa, com ? etichettaLuogo(com) : b.luogo, b.data, b.data_fine || null, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, ente.comitato ?? comitato, ente.livello, ente.regione, com?.istat ?? null, com?.provincia ?? null, com?.regione ?? null, com?.lat ?? null, com?.lng ?? null, tipoCorso?.codice ?? null, tipoCorso ? req.utente.id : null])).rows[0];   // chi apre il corso ne è il direttore
     if (tipo === 'corso') await pool.query(`insert into evento_invito (evento_id, utente_id, invitato_da, stato) values ($1,$2,$2,'attivo') on conflict do nothing`, [nuovo.id, req.utente.id]);   // chi apre il corso è subito tra i suoi istruttori
     return nuovo;
   });
