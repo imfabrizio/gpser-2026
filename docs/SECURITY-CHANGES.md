@@ -75,3 +75,9 @@ Migrazione `066-regioni-eventi-sicurezza.sql` (additiva: toglie un indice, aggiu
 - **CSP senza script inline**: il codice delle pagine è in `web/app-*.js`, i pulsanti non hanno più `onclick`; `script-src 'self'`. Aggiunto `https://www.google.com` a `frame-src` per la mappa incorporata, che la vecchia regola bloccava.
 
 **Non toccato, da sapere**: la ricerca persone della Segreteria (solo nome e comitato) e l’elenco dei dispositivi restano nazionali; gli stili inline restano ammessi.
+
+## Google solo per gli account istituzionali (facoltativo)
+
+Con `GOOGLE_DOMINI=cri.it` su Render, il pulsante Google accetta solo chi ha un indirizzo di quel dominio o di un sottodominio (`nome.cognome@emiliaromagna.cri.it`) **e** un account Google dell'organizzazione (campo `hd` del token). Chi ha un Google personale accede con email e password, anche se la sua identità Google era già collegata. Senza la variabile non cambia nulla.
+
+Prima di attivarla: chi oggi entra solo con un Google personale non ha una password nota (alla creazione ne riceve una casuale). Dagliene una da Gestione → Utenti → Password, **a partire dal tuo account se è in questa situazione**, altrimenti resta fuori.

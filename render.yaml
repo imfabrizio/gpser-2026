@@ -22,6 +22,8 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
+      - key: GOOGLE_DOMINI
+        sync: false            # es. cri.it: con Google entra solo l'account istituzionale di quel dominio (e sottodomini). Vuota = nessun limite
       - key: MS_CLIENT_ID
         sync: false
       - key: MS_CLIENT_SECRET

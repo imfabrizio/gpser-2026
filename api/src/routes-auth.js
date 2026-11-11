@@ -27,6 +27,10 @@ const PROVIDER = {
     auth: `https://login.microsoftonline.com/${t}/oauth2/v2.0/authorize`, token: `https://login.microsoftonline.com/${t}/oauth2/v2.0/token`, iss: (i) => i === `https://login.microsoftonline.com/${t}/v2.0` }; },
 };
 const configurato = (p) => { const c = PROVIDER[p]?.(); return c && c.id && c.segreto && urlPubblico() && (p !== 'microsoft' || /^[0-9a-f-]{36}$/i.test(c.tenant)) ? c : null; };   // Microsoft: solo con l'ID del tenant (niente "common": email non verificabili)
+// GOOGLE_DOMINI (es. «cri.it», più domini separati da virgola): con Google entra solo chi ha un account istituzionale di quel dominio o di un suo sottodominio
+// (nome.cognome@emiliaromagna.cri.it). Chi ha un Google personale usa email e password. Senza la variabile non c'è alcun limite.
+export const dominiGoogle = () => String(process.env.GOOGLE_DOMINI || '').split(',').map((d) => d.trim().toLowerCase().replace(/^[@.]+/, '')).filter((d) => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d));
+const nelDominio = (host, domini) => typeof host === 'string' && domini.some((d) => host.toLowerCase() === d || host.toLowerCase().endsWith('.' + d));
 const b64u = (b) => Buffer.from(b).toString('base64url');
 const ticket = new Map();   // ticket monouso -> { id, exp } (in memoria: un solo processo)
 setInterval(() => { const n = Date.now(); for (const [k, v] of ticket) if (v.exp < n) ticket.delete(k); }, 60e3).unref();
@@ -35,7 +39,7 @@ const leggiCookie = (req, nome) => (req.headers.cookie || '').split(/;\s*/).map(
 export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
   const baseUrl = () => urlPubblico();   // mai dalle intestazioni della richiesta: senza PUBLIC_URL l'accesso con Google/Microsoft resta spento
 
-  app.get('/api/auth/config', async () => ({ google: !!configurato('google'), microsoft: !!configurato('microsoft') }));
+  app.get('/api/auth/config', async () => { const dom = dominiGoogle(); return { google: !!configurato('google'), microsoft: !!configurato('microsoft'), ...(dom.length && configurato('google') ? { google_domini: dom } : {}) }; });
 
   app.get('/api/auth/:prov/inizio', async (req, reply) => {
     const c = configurato(req.params.prov); if (!c) throw httpErr(404, 'accesso non configurato');
@@ -71,6 +75,12 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
     const email = String(idt.email || (prov === 'microsoft' ? idt.preferred_username : '') || '').toLowerCase();
     if (!idt.sub) return errore('token');
     if (prov === 'google' && !(idt.email_verified === true || idt.email_verified === 'true')) return errore('email_non_verificata');
+    if (prov === 'google') {
+      // account istituzionale: conta sia il dominio dell'indirizzo sia «hd», che Google scrive solo per gli account di un'organizzazione
+      // (un Google personale aperto con un indirizzo del dominio non ha «hd» e resta fuori). Vale anche per le identità già collegate.
+      const dom = dominiGoogle();
+      if (dom.length && !(nelDominio(email.slice(email.lastIndexOf('@') + 1), dom) && nelDominio(idt.hd, dom))) return errore('dominio');
+    }
     // 1) identità già collegata; 2) altrimenti l'utente registrato con quella email (l'admin deve averlo creato prima)
     let { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.attivo and u.id = (select utente_id from utente_identita where provider=$1 and sub=$2)', [prov, idt.sub]);
     if (!u && email && prov === 'google') {

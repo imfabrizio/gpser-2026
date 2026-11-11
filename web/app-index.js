@@ -178,7 +178,7 @@ async function vistaRegistrati(msg = '') {
   };
 }
 
-const ERR_SSO = { non_autorizzato: 'Questo account non è abilitato: chiedi all\'organizzazione di registrare la tua email.', email_non_verificata: 'Email del provider non verificata.', sessione: 'Sessione di accesso scaduta: riprova.', provider: 'Il provider non ha risposto: riprova.', token: 'Risposta del provider non valida.', tenant: 'Account di un\'altra organizzazione.', non_configurato: 'Accesso non configurato.' };
+const ERR_SSO = { non_autorizzato: 'Questo account non è abilitato: chiedi all\'organizzazione di registrare la tua email.', email_non_verificata: 'Email del provider non verificata.', sessione: 'Sessione di accesso scaduta: riprova.', provider: 'Il provider non ha risposto: riprova.', token: 'Risposta del provider non valida.', tenant: 'Account di un\'altra organizzazione.', dominio: 'Con Google si entra solo con l\'account istituzionale della Croce Rossa. Se hai un altro indirizzo accedi con email e password (se non ne hai una, chiedila all\'organizzazione).', non_configurato: 'Accesso non configurato.' };
 async function avviaSessione(r) {
   if (r.mfa) return vistaLogin('', r.ticket);
   token = r.token; me = r.utente; localStorage.setItem('token', token); localStorage.setItem('me', JSON.stringify(me));
@@ -191,7 +191,7 @@ async function vistaLogin(msg = '', ticketIniziale = null) {
   $('#esci').hidden = true; $('#hhome').hidden = false; $('#hsic').hidden = true;
   const cfg = await api('/auth/config').catch(() => ({}));
   $('#app').innerHTML = `<div class="card"><h2>Accesso</h2>
-    ${cfg.google || cfg.microsoft ? `<div class="sso">${cfg.google ? `<a class="sso-btn" href="/api/auth/google/inizio">${LOGO_GOOGLE}<span>Accedi con Google</span></a>` : ''}${cfg.microsoft ? `<a class="sso-btn" href="/api/auth/microsoft/inizio">${LOGO_MS}<span>Accedi con Microsoft</span></a>` : ''}</div><p><small>oppure con email e password</small></p>` : ''}
+    ${cfg.google || cfg.microsoft ? `<div class="sso">${cfg.google ? `<a class="sso-btn" href="/api/auth/google/inizio">${LOGO_GOOGLE}<span>Accedi con Google</span></a>` : ''}${cfg.microsoft ? `<a class="sso-btn" href="/api/auth/microsoft/inizio">${LOGO_MS}<span>Accedi con Microsoft</span></a>` : ''}</div>${cfg.google_domini ? `<p><small>Con Google entra solo l'account istituzionale (${esc(cfg.google_domini.map((d) => '…@' + d).join(', '))} e sottodomini).</small></p>` : ''}<p><small>oppure con email e password</small></p>` : ''}
     <div id="passo1"><label>Email</label><input id="em" type="email" autocomplete="username">
     <label>Password</label><input id="pw" type="password" autocomplete="current-password">
     <button class="btn" id="go">Entra</button></div>

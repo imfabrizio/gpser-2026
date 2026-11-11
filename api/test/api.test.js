@@ -2531,3 +2531,40 @@ test('SEC-SESSIONI: cambio password → le altre sessioni decadono; un codice OT
     assert.ok(!/href\s*=\s*["']javascript:/i.test(s), `${f}: collegamento javascript:`);
   }
 });
+
+test('SSO-DOMINIO: con GOOGLE_DOMINI entra con Google solo l\'account istituzionale (dominio dell\'indirizzo e «hd»), anche se l\'identità era già collegata', async () => {
+  const { buildApp: costruisci } = await import('../src/app.js');
+  const chiavi = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_DOMINI'], prima = Object.fromEntries(chiavi.map((k) => [k, process.env[k]]));
+  Object.assign(process.env, { GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gs' }); delete process.env.GOOGLE_DOMINI;
+  let claims = {};
+  const a2 = costruisci(pool, { fetchImpl: async () => ({ ok: true, json: async () => ({ id_token: 'x.' + Buffer.from(JSON.stringify(claims)).toString('base64url') + '.y' }) }) });
+  const entra = async (extra) => {
+    const i = await a2.inject({ method: 'GET', url: '/api/auth/google/inizio' }); const loc = new URL(i.headers.location);
+    claims = { iss: 'https://accounts.google.com', aud: 'gid', exp: Date.now() / 1000 + 600, nonce: loc.searchParams.get('nonce'), email_verified: true, ...extra };
+    const r = await a2.inject({ method: 'GET', url: `/api/auth/google/callback?code=a&state=${loc.searchParams.get('state')}`, headers: { cookie: String(i.headers['set-cookie']).split(';')[0] } });
+    return r.headers.location;
+  };
+  try {
+    for (const email of ['anna.verdi@emiliaromagna.cri.it', 'luca.gialli@gmail.com']) await pool.query(`insert into utente (email,nome,ruolo,password_hash) values ($1,$1,'giudice',$2)`, [email, hashPassword('password-dominio-1')]);
+    const cri = { sub: 'd-cri', email: 'anna.verdi@emiliaromagna.cri.it', hd: 'emiliaromagna.cri.it' }, gmail = { sub: 'd-gmail', email: 'luca.gialli@gmail.com' };
+    // senza la variabile: come prima, entrano entrambi (e l'identità Google personale resta collegata)
+    assert.match(await entra(cri), /#sso=/); assert.match(await entra(gmail), /#sso=/);
+    assert.deepEqual(json(await a2.inject({ method: 'GET', url: '/api/auth/config' })), { google: true, microsoft: false });
+    // con la variabile
+    process.env.GOOGLE_DOMINI = ' CRI.it , @esempio.invalid ';
+    assert.deepEqual(json(await a2.inject({ method: 'GET', url: '/api/auth/config' })).google_domini, ['cri.it', 'esempio.invalid']);
+    assert.match(await entra(cri), /#sso=/);
+    assert.match(await entra({ ...cri, hd: 'cri.it' }), /#sso=/);                                             // «hd» può essere il dominio principale dell'organizzazione
+    assert.match(await entra(gmail), /#sso-errore=dominio$/);                                                  // Google personale, anche se già collegato: email e password
+    assert.match(await entra({ sub: 'd-x1', email: 'anna.verdi@emiliaromagna.cri.it' }), /#sso-errore=dominio$/);                    // indirizzo del dominio ma account Google personale (senza «hd»)
+    assert.match(await entra({ sub: 'd-x2', email: 'mario@gmail.com', hd: 'cri.it' }), /#sso-errore=dominio$/);
+    assert.match(await entra({ sub: 'd-x3', email: 'mario@falsocri.it', hd: 'falsocri.it' }), /#sso-errore=dominio$/);               // «cri.it» in coda al nome non basta
+    assert.match(await entra({ sub: 'd-x4', email: 'mario@cri.it.esempio.org', hd: 'cri.it.esempio.org' }), /#sso-errore=dominio$/);
+    assert.equal((await pool.query(`select count(*)::int n from richiesta_accesso where sub like 'd-x%'`)).rows[0].n, 0);            // nessuna richiesta di accesso da fuori dominio
+    // chi ha il Google personale entra comunque con email e password
+    assert.ok(json(await chiama('POST', '/api/login', { body: { email: 'luca.gialli@gmail.com', password: 'password-dominio-1' } })).token);
+    // uno sconosciuto con account istituzionale può ancora presentare la richiesta di accesso
+    assert.match(await entra({ sub: 'd-nuovo', email: 'nuova.persona@lombardia.cri.it', hd: 'cri.it', given_name: 'Nuova', family_name: 'Persona' }), /#sso=/);
+    assert.equal((await pool.query(`select count(*)::int n from richiesta_accesso where sub='d-nuovo'`)).rows[0].n, 1);
+  } finally { await a2.close(); for (const k of chiavi) if (prima[k] === undefined) delete process.env[k]; else process.env[k] = prima[k]; }
+});
