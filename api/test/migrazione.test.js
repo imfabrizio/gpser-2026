@@ -15,7 +15,7 @@ test('migrazione 001 su un database con lo schema "vecchio": applica tutto, è i
   await db.query(fs.readFileSync(new URL('../../db/schema.sql', import.meta.url), 'utf8'));
   // riporta il database allo stato precedente alla revisione
   await db.query(`
-    drop index evento_unico_attivo;
+    drop index if exists evento_unico_attivo;   -- lo schema attuale non lo ha più (066): la 001 lo ricrea, la 066 lo toglie di nuovo
     alter table scena_scheda_voce drop constraint scena_scheda_voce_check;
     alter table compilazione drop constraint compilazione_scheda_id_fkey, drop constraint compilazione_squadra_id_fkey;
     alter table compilazione add foreign key (scheda_id) references scena_scheda(id) on delete cascade, add foreign key (squadra_id) references squadra(id) on delete cascade;
@@ -40,7 +40,7 @@ test('migrazione 001 su un database con lo schema "vecchio": applica tutto, è i
   const out1 = execFileSync('node', [fileURLToPath(new URL('../../tools/db-init.js', import.meta.url))], { env }).toString();
   assert.match(out1, /migrazione applicata: 001-revisione\.sql/);
   const dopo = await stato();
-  assert.deepEqual([dopo.indice, dopo.chk, dopo.da_org, dopo.nullable, dopo.attivi], [1, 1, 1, 'YES', 1]);
+  assert.deepEqual([dopo.indice, dopo.chk, dopo.da_org, dopo.nullable, dopo.attivi], [0, 1, 1, 'YES', 1]);   // 001 lascia un solo evento attivo; 066 toglie poi il vincolo: più eventi possono essere attivi insieme
   assert.match(dopo.fk, /^r+$/);                                                             // tutte restrict
   const out2 = execFileSync('node', [fileURLToPath(new URL('../../tools/db-init.js', import.meta.url))], { env }).toString();
   assert.match(out2, /già aggiornato/);                                                      // idempotente

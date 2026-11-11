@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
-import { firmaToken, leggiToken, troppiTentativi, registraFallimento, azzeraFallimenti, hashPassword, verificaPassword } from './auth.js';
+import { firmaToken, leggiToken, troppiTentativi, registraFallimento, azzeraFallimenti, hashPassword, verificaPassword, ipCliente, urlPubblico } from './auth.js';
 import { httpErr } from './services/compilazioni.js';
 import { eStaff, ruoloEffettivo, AREE } from './permessi.js';
-import { nuovoSegreto, verificaTotp, cifra, decifra, otpauth, nuoviCodiciRecupero, hashRecupero } from './mfa.js';
+import { nuovoSegreto, verificaTotp, passoTotp, cifra, decifra, otpauth, nuoviCodiciRecupero, hashRecupero } from './mfa.js';
 
 // aree = unione di quelle del ruolo principale e dei ruoli aggiuntivi; ruoli_extra = codici dei ruoli aggiuntivi
 export const SQL_UTENTE = `select u.*,
@@ -26,23 +26,23 @@ const PROVIDER = {
   microsoft: () => { const t = process.env.MS_TENANT || ''; return { id: process.env.MS_CLIENT_ID, segreto: process.env.MS_CLIENT_SECRET, tenant: t,
     auth: `https://login.microsoftonline.com/${t}/oauth2/v2.0/authorize`, token: `https://login.microsoftonline.com/${t}/oauth2/v2.0/token`, iss: (i) => i === `https://login.microsoftonline.com/${t}/v2.0` }; },
 };
-const configurato = (p) => { const c = PROVIDER[p]?.(); return c && c.id && c.segreto && (p !== 'microsoft' || /^[0-9a-f-]{36}$/i.test(c.tenant)) ? c : null; };   // Microsoft: solo con l'ID del tenant (niente "common": email non verificabili)
+const configurato = (p) => { const c = PROVIDER[p]?.(); return c && c.id && c.segreto && urlPubblico() && (p !== 'microsoft' || /^[0-9a-f-]{36}$/i.test(c.tenant)) ? c : null; };   // Microsoft: solo con l'ID del tenant (niente "common": email non verificabili)
 const b64u = (b) => Buffer.from(b).toString('base64url');
 const ticket = new Map();   // ticket monouso -> { id, exp } (in memoria: un solo processo)
 setInterval(() => { const n = Date.now(); for (const [k, v] of ticket) if (v.exp < n) ticket.delete(k); }, 60e3).unref();
 const leggiCookie = (req, nome) => (req.headers.cookie || '').split(/;\s*/).map((c) => c.split('=')).find(([k]) => k === nome)?.[1];
 
 export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
-  const baseUrl = (req) => (process.env.PUBLIC_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`).replace(/\/$/, '');
+  const baseUrl = () => urlPubblico();   // mai dalle intestazioni della richiesta: senza PUBLIC_URL l'accesso con Google/Microsoft resta spento
 
   app.get('/api/auth/config', async () => ({ google: !!configurato('google'), microsoft: !!configurato('microsoft') }));
 
   app.get('/api/auth/:prov/inizio', async (req, reply) => {
     const c = configurato(req.params.prov); if (!c) throw httpErr(404, 'accesso non configurato');
     // il cookie di sessione SSO deve nascere sullo stesso indirizzo a cui il provider ritorna (PUBLIC_URL): se si parte da un altro (es. *.onrender.com), si riparte da quello giusto
-    const pub = process.env.PUBLIC_URL && process.env.PUBLIC_URL.replace(/\/$/, '');
+    const pub = urlPubblico();
     const qui = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.headers.host}`;
-    if (pub && /^https?:\/\//.test(pub) && qui !== pub) return reply.redirect(`${pub}/api/auth/${req.params.prov}/inizio`);
+    if (qui !== pub) return reply.redirect(`${pub}/api/auth/${req.params.prov}/inizio`);
     const state = b64u(crypto.randomBytes(16)), nonce = b64u(crypto.randomBytes(16)), verifier = b64u(crypto.randomBytes(32));
     const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
     const q = new URLSearchParams({ client_id: c.id, redirect_uri: `${baseUrl(req)}/api/auth/${req.params.prov}/callback`, response_type: 'code', scope: 'openid email profile',
@@ -81,7 +81,7 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
       if (!email) return errore('non_autorizzato');
       await pool.query('delete from richiesta_accesso where scade_il < now()');
       const { rows: [r] } = await pool.query(
-        `insert into richiesta_accesso (provider, sub, email, nome, cognome) values ($1,$2,$3,$4,$5)
+        `insert into richiesta_accesso (provider, sub, email, nome, cognome, email_verificata) values ($1,$2,$3,$4,$5,true)
          on conflict (provider, sub) do update set email=excluded.email returning id`,
         [prov, idt.sub, email, String(idt.given_name || '').slice(0, 80) || null, String(idt.family_name || '').slice(0, 80) || null]);
       if (prov === 'microsoft') await pool.query('update richiesta_accesso set compilata=true where id=$1 and exists (select 1 from utente where lower(email)=$2)', [r.id, email]);
@@ -108,19 +108,22 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
   // ── secondo fattore dopo la password ──
   app.post('/api/login/mfa', async (req) => {
     const t = leggiToken(req.body?.ticket); if (!t || t.t !== 'mfa') throw httpErr(401, 'accesso scaduto: ricomincia');
-    const chiave = `mfa|${req.ip}|${t.id}`; if (troppiTentativi(chiave)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
+    // il tetto per account (10 errori ogni 15 minuti) vale da qualunque indirizzo: i codici sono solo un milione
+    const chiave = `mfa|${ipCliente(req)}|${t.id}`, chiaveAccount = `mfa|${t.id}`; if (troppiTentativi(chiave) || troppiTentativi(chiaveAccount, 10)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
     const { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.id=$1 and u.attivo and u.mfa_attiva', [t.id]);
     if (!u) throw httpErr(401, 'accesso non valido');
     const cod = String(req.body?.codice || '').trim();
-    let ok = verificaTotp(decifra(u.mfa_secret), cod);
+    // un codice vale una volta sola: il passo già usato (o uno precedente) non si accetta più, neppure entro i 90 secondi di tolleranza
+    const passo = passoTotp(decifra(u.mfa_secret), cod);
+    let ok = passo !== null && (await pool.query('update utente set mfa_ultimo_passo=$2 where id=$1 and coalesce(mfa_ultimo_passo, 0) < $2', [u.id, passo])).rowCount === 1;
     if (!ok) {                                           // codice di recupero: si può usare una sola volta
       const h = hashRecupero(cod);
       // Il consumo è atomico: due richieste concorrenti non riutilizzano il codice.
       const { rowCount } = await pool.query('update utente set mfa_recupero = array_remove(mfa_recupero, $2) where id=$1 and $2 = any(mfa_recupero)', [u.id, h]);
       ok = rowCount === 1;
     }
-    if (!ok) { registraFallimento(chiave); throw httpErr(401, 'codice non valido'); }
-    azzeraFallimenti(chiave);
+    if (!ok) { registraFallimento(chiave); registraFallimento(chiaveAccount); throw httpErr(401, 'codice non valido'); }
+    azzeraFallimenti(chiave); azzeraFallimenti(chiaveAccount);
     return creaSessione(u, 'pwd');
   });
 
@@ -130,13 +133,14 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
   app.post('/api/me/password', async (req) => {
     const { attuale, nuova } = req.body || {};
     if (typeof nuova !== 'string' || nuova.length < 8) throw httpErr(400, 'la nuova password deve avere almeno 8 caratteri');
-    const chiave = `pw|${req.ip}|${req.utente.id}`; if (troppiTentativi(chiave)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
+    const chiave = `pw|${req.utente.id}`; if (troppiTentativi(chiave)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
     const u = await utenteDb(req.utente.id);
     if (typeof attuale !== 'string' || !verificaPassword(attuale, u.password_hash)) { registraFallimento(chiave); throw httpErr(400, 'la password attuale non è corretta'); }
     azzeraFallimenti(chiave);
-    await pool.query('update utente set password_hash=$2 where id=$1', [u.id, hashPassword(nuova)]);
+    // le sessioni aperte prima del cambio non valgono più; chi ha cambiato la password riceve subito un token nuovo
+    await pool.query('update utente set password_hash=$2, sessioni_da=$3 where id=$1', [u.id, hashPassword(nuova), new Date()]);
     await pool.query(`insert into audit_log (utente_id, azione, entita, entita_id) values ($1::uuid,'password_cambiata','utente',$2::text)`, [u.id, u.id]);
-    return { ok: true };
+    return { ok: true, token: firmaToken({ id: u.id, via: req.utente.via }) };
   });
   app.get('/api/mfa', async (req) => {
     const u = await utenteDb(req.utente.id);
@@ -153,7 +157,9 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
   app.post('/api/mfa/conferma', async (req) => {
     const u = await utenteDb(req.utente.id); if (u.mfa_attiva) throw httpErr(409, 'MFA già attiva');
     if (!u.mfa_secret) throw httpErr(400, 'avvia prima la configurazione');
-    if (!verificaTotp(decifra(u.mfa_secret), req.body?.codice)) throw httpErr(400, 'codice non valido: controlla l\'ora del telefono e riprova');
+    const chiave = `mfaimp|${u.id}`; if (troppiTentativi(chiave)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
+    if (!verificaTotp(decifra(u.mfa_secret), req.body?.codice)) { registraFallimento(chiave); throw httpErr(400, 'codice non valido: controlla l\'ora del telefono e riprova'); }
+    azzeraFallimenti(chiave);
     const { chiari, hash } = nuoviCodiciRecupero();
     await pool.query('update utente set mfa_attiva=true, mfa_recupero=$2 where id=$1', [u.id, hash]);
     await pool.query(`insert into audit_log (utente_id, azione, entita, entita_id) values ($1::uuid,'mfa_attivata','utente',$2::text)`, [u.id, u.id]);
@@ -162,13 +168,15 @@ export function registraAuth(app, pool, { fetchImpl = fetch, soloAdmin } = {}) {
   app.post('/api/mfa/disattiva', async (req) => {
     const u = await utenteDb(req.utente.id); if (!u.mfa_attiva) throw httpErr(409, 'MFA non attiva');
     if (mfaObbligatoria({ ...u, mfa_attiva: false }, req.utente.via)) throw httpErr(400, 'la MFA è obbligatoria per il tuo ruolo');
-    if (!verificaTotp(decifra(u.mfa_secret), req.body?.codice)) throw httpErr(400, 'codice non valido');
-    await pool.query(`update utente set mfa_attiva=false, mfa_secret=null, mfa_recupero='{}' where id=$1`, [u.id]);
+    const chiave = `mfaimp|${u.id}`; if (troppiTentativi(chiave)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');   // senza limite il codice si indovina per tentativi con una sessione rubata
+    if (!verificaTotp(decifra(u.mfa_secret), req.body?.codice)) { registraFallimento(chiave); throw httpErr(400, 'codice non valido'); }
+    azzeraFallimenti(chiave);
+    await pool.query(`update utente set mfa_attiva=false, mfa_secret=null, mfa_recupero='{}', mfa_ultimo_passo=null where id=$1`, [u.id]);
     await pool.query(`insert into audit_log (utente_id, azione, entita, entita_id) values ($1::uuid,'mfa_disattivata','utente',$2::text)`, [u.id, u.id]);
     return { ok: true };
   });
   app.post('/api/utenti/:id/mfa-reset', { preHandler: soloAdmin }, async (req) => {   // chi perde il telefono e i codici di recupero
-    await pool.query(`update utente set mfa_attiva=false, mfa_secret=null, mfa_recupero='{}' where id=$1`, [req.params.id]);
+    await pool.query(`update utente set mfa_attiva=false, mfa_secret=null, mfa_recupero='{}', mfa_ultimo_passo=null where id=$1`, [req.params.id]);
     await pool.query(`insert into audit_log (utente_id, azione, entita, entita_id) values ($1,'mfa_reset','utente',$2)`, [req.utente.id, req.params.id]);
     return { ok: true };
   });

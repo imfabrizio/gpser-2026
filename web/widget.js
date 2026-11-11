@@ -60,8 +60,8 @@
       box.querySelectorAll('[data-ev]').forEach((a) => { a.onclick = () => { try { localStorage.setItem(a.dataset.k, a.dataset.ev); } catch { /* niente */ } }; });
     },
     async gara_attiva(box, c) {
-      const e = c.eventi.find((x) => x.attivo && (!c.mondo || TIPI[c.mondo].includes(x.tipo))) || c.eventi.find((x) => x.attivo);
-      box.innerHTML = `<h4>${c.mondo === 'formazione' ? 'Evento attivo' : 'Gara attiva'}</h4>${e ? riga(e).replace(/^<div class="r">|<\/div>$/g, '') : '<small>Nessun evento attivo.</small>'}`;
+      const att = c.eventi.filter((x) => x.attivo && !x.archiviato), l = (att.some((x) => !c.mondo || TIPI[c.mondo].includes(x.tipo)) ? att.filter((x) => !c.mondo || TIPI[c.mondo].includes(x.tipo)) : att).slice(0, 6);   // più eventi possono essere attivi insieme
+      box.innerHTML = `<h4>${c.mondo === 'formazione' ? (l.length > 1 ? 'Eventi attivi' : 'Evento attivo') : (l.length > 1 ? 'Gare attive' : 'Gara attiva')}</h4>${l.length ? l.map((e) => riga(e)).join('') : '<small>Nessun evento attivo.</small>'}`;
     },
     async storico(box) {
       let r = []; try { r = (await api('/me/storico')).righe; } catch { /* nessuno storico */ }

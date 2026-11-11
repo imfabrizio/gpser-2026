@@ -5,6 +5,7 @@ on:
   schedule:
     - cron: '17 */6 * * *'
   workflow_dispatch:
+permissions: {}   # il job fa solo una chiamata HTTP: nessun permesso sul repository
 jobs:
   backup:
     runs-on: ubuntu-latest

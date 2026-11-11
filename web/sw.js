@@ -1,6 +1,6 @@
 // Service worker: l'app si apre anche senza rete. Pagine e file del sito: prima la rete (così gli aggiornamenti arrivano), se manca si usa la copia salvata. Le API non si salvano mai.
-const VERSIONE = 'cri-v2';
-const BASE = ['/', '/index.html', '/stile.css', '/mobile.css', '/mobile.js', '/coda.js', '/offline.js', '/barra.js', '/layout.js', '/widget.js', '/comitati.js', '/logo-cri.jpg', '/manifest.webmanifest',
+const VERSIONE = 'cri-v3';
+const BASE = ['/', '/index.html', '/stile.css', '/mobile.css', '/mobile.js', '/coda.js', '/offline.js', '/barra.js', '/layout.js', '/widget.js', '/comitati.js', '/app-index.js', '/logo-cri.jpg', '/manifest.webmanifest',
   '/fonti/atkinson-hyperlegible-latin-400-normal.woff2', '/fonti/atkinson-hyperlegible-latin-700-normal.woff2', '/fonti/barlow-semi-condensed-latin-600-normal.woff2', '/fonti/barlow-semi-condensed-latin-700-normal.woff2'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSIONE).then((c) => Promise.all(BASE.map((u) => c.add(u).catch(() => null)))).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((k) => Promise.all(k.filter((x) => x !== VERSIONE).map((x) => caches.delete(x)))).then(() => self.clients.claim())); });

@@ -14,8 +14,10 @@ export function registraBackup(app, pool, { soloAdmin }) {
     const t = req.query.tipo, data = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
     if (t === 'sito') return reply.type('application/zip').header('Content-Disposition', `attachment; filename="gpser-sito-${data}.zip"`).send(await zipSito());
     if (t !== 'db') throw httpErr(400, 'tipo: db oppure sito');
-    const frase = process.env.BACKUP_PASSPHRASE, dump = await dumpDb(pool);
-    return reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="gpser-db-${data}.${frase ? 'gpsb' : 'json.gz'}"`).send(frase ? cifra(dump, frase) : dump);
+    const frase = process.env.BACKUP_PASSPHRASE;
+    if (!frase) throw httpErr(400, 'imposta BACKUP_PASSPHRASE su Render: il database non si scarica mai in chiaro');
+    const dump = await dumpDb(pool);
+    return reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename="gpser-db-${data}.gpsb"`).send(cifra(dump, frase));
   });
   // pianificazione: GitHub Actions chiama questa rotta ogni 6 ore con la chiave condivisa; se l'ultimo backup riuscito è recente non ne fa un altro
   app.post('/api/backup/automatico', async (req) => {

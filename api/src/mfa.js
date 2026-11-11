@@ -14,6 +14,12 @@ export function verificaTotp(segretoB32, codice, tempoMs = Date.now()) {   // to
   const c = String(codice || '').replace(/\s/g, ''); if (!/^\d{6}$/.test(c)) return false;
   return [-1, 0, 1].some((d) => crypto.timingSafeEqual(Buffer.from(totp(segretoB32, tempoMs + d * 30000)), Buffer.from(c)));
 }
+// come verificaTotp, ma restituisce il passo (finestra di 30 s) a cui il codice corrisponde: serve a non accettarlo due volte
+export function passoTotp(segretoB32, codice, tempoMs = Date.now()) {
+  const c = String(codice || '').replace(/\s/g, ''); if (!/^\d{6}$/.test(c)) return null;
+  for (const d of [0, -1, 1]) if (crypto.timingSafeEqual(Buffer.from(totp(segretoB32, tempoMs + d * 30000)), Buffer.from(c))) return Math.floor(tempoMs / 30000) + d;
+  return null;
+}
 const chiave = () => crypto.createHash('sha256').update((process.env.JWT_SECRET || 'solo-per-sviluppo-e-test') + ':mfa').digest();
 export function cifra(testo) { const iv = crypto.randomBytes(12); const c = crypto.createCipheriv('aes-256-gcm', chiave(), iv); const d = Buffer.concat([c.update(testo, 'utf8'), c.final()]); return [iv, c.getAuthTag(), d].map((x) => x.toString('base64url')).join('.'); }
 export function decifra(s) { const [iv, tag, d] = s.split('.').map((x) => Buffer.from(x, 'base64url')); const c = crypto.createDecipheriv('aes-256-gcm', chiave(), iv); c.setAuthTag(tag); return Buffer.concat([c.update(d), c.final()]).toString('utf8'); }

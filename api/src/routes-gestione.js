@@ -1,5 +1,6 @@
 import { notifica } from './notifiche.js';
-import { canonico } from './comitati.js';
+import { canonico, norm } from './comitati.js';
+import { enteUtente, regioneDelComitato, sqlRegioneDi } from './enti.js';
 import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO } from './ambito.js';
 import crypto from 'node:crypto';
 // Rotte usate dall'interfaccia di gestione (web/admin.html).
@@ -119,6 +120,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const { rows: [u] } = await pool.query(
       `update utente set nome=coalesce($2,nome), ruolo=coalesce($3,ruolo), attivo=coalesce($4,attivo),
          password_hash=coalesce($5,password_hash), admin=coalesce($8,admin),
+         sessioni_da = case when $5::text is not null then now() else sessioni_da end,   -- password reimpostata: le sessioni aperte non valgono più
          evento_id = case when $6 then $7::uuid else evento_id end where id=$1 returning id, email, nome, ruolo, admin, attivo, evento_id`,
       [req.params.id, b.nome ?? null, b.ruolo ?? null, b.attivo ?? null, b.password ? hashPassword(b.password) : null,
        'evento_id' in b, b.evento_id || null, typeof b.admin === 'boolean' ? b.admin : null]);
@@ -129,7 +131,12 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const q = req.query?.valutatori, lista = !q ? ['giudice', 'giudice_master'] : q === 'megacode' ? VALUTATORI_MEGACODE : [...VALUTATORI_CORSI, 'giudice', 'giudice_master'], elenco = lista.map((x) => `'${x}'`).join(',');   // nei corsi valutano gli istruttori/formatori
     return (await pool.query(`select * from (select id, nome, email, ruolo,
         array_cat(array_prepend(ruolo, coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id=u.id), '{}')), (select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in (${elenco}))) as ruoli
-        from utente u where attivo) q where ruoli && array[${elenco}] or id in (select utente_id from evento_invito where evento_id = $1 and stato = 'attivo') order by nome`, [/^[0-9a-f-]{36}$/i.test(req.query?.corso || '') ? req.query.corso : null])).rows;   // i trainer e formatori del corso valutano i suoi Mega Code
+        from utente u where attivo
+          -- fuori dalla propria regione si vedono solo i giudici già iscritti a un evento della propria regione (o a uno storico senza ente)
+          and ($2::boolean or ${REG_U} is null or ${REG_U} = $3::text or exists (select 1 from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id
+                 where pp.utente_id = u.id and not ee.archiviato and i.ruolo in ('giudice','giudice_master') and (ee.livello is null or ee.regione = $3::text)))
+        ) q where ruoli && array[${elenco}] or id in (select utente_id from evento_invito where evento_id = $1 and stato = 'attivo') order by nome`,
+      [/^[0-9a-f-]{36}$/i.test(req.query?.corso || '') ? req.query.corso : null, !!req.utente.admin, (await enteUtente(pool, req.utente)).regione])).rows;   // i trainer e formatori del corso valutano i suoi Mega Code
   });
 
   // ── assegnazioni giudici → schede ──
@@ -186,6 +193,25 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   };
   const COL_PERSONA = `p.id, p.cognome, p.nome, to_char(p.data_nascita,'YYYY-MM-DD') as data_nascita, p.cf_cifrato, p.email, p.comitato, p.provincia, p.unita, p.note, p.ruolo_gara, p.utente_id,
     (select r.nome from utente u join ruolo r on r.codice = u.ruolo where u.id = p.utente_id) as ruolo_utente, (select u.ruolo from utente u where u.id = p.utente_id) as ruolo_codice, (select coalesce(array_agg(x.ruolo), '{}') from utente_ruolo_extra x where x.utente_id = p.utente_id) as ruoli_extra, (select u.per_evento from utente u where u.id = p.utente_id) as per_evento, (select coalesce(array_agg(ug.gruppo), '{}') from utente_gruppo ug where ug.utente_id = p.utente_id) as gruppi, (select u.attivo from utente u where u.id = p.utente_id) as accesso_attivo, (select u.evento_id from utente u where u.id = p.utente_id) as accesso_evento, (select u.mfa_attiva from utente u where u.id = p.utente_id) as accesso_mfa, (select coalesce(array_agg(q.qualifica order by q.qualifica), '{}') from persona_qualifica q where q.partecipante_id = p.id) as qualifiche, (select u.admin from utente u where u.id = p.utente_id) as admin_utente`;
+  // ── ambito dell'anagrafica: l'amministratore vede tutta Italia; chi ha l'area Anagrafiche solo le persone della propria regione
+  //    (e quelle il cui comitato non è ancora riconosciuto, che non appartengono a nessuna regione) ──
+  const REG_P = sqlRegioneDi('p.comitato');
+  const REG_U = sqlRegioneDi('(select pz.comitato from partecipante pz where pz.utente_id = u.id and pz.comitato is not null limit 1)');
+  const regioneAnagrafica = async (req) => (req.utente.admin ? null : ((await enteUtente(pool, req.utente)).regione ?? ''));   // null = nessun limite
+  const controllaPersona = async (db, req, id) => {
+    const { rows: [x] } = await db.query(`select p.id, p.utente_id, p.comitato, ${REG_P} as regione from partecipante p where p.id=$1`, [id]);
+    if (!x) throw httpErr(404, 'persona inesistente');
+    const mia = await regioneAnagrafica(req);
+    if (mia !== null && x.regione && x.regione !== mia) throw httpErr(403, 'persona di un\'altra regione: la gestisce la sua regione o un amministratore');
+    return x;
+  };
+  // il comitato che si scrive in anagrafica: chi non è amministratore assegna solo comitati della propria regione
+  const controllaComitato = async (req, comitato) => {
+    const mia = await regioneAnagrafica(req); if (mia === null || !comitato) return;
+    if (!mia) throw httpErr(403, 'il tuo comitato non risulta in anagrafica: finché un amministratore non lo imposta non puoi assegnare comitati');
+    const reg = await regioneDelComitato(pool, comitato);
+    if (reg && reg !== mia) throw httpErr(403, 'puoi assegnare solo comitati della tua regione');
+  };
   // il codice fiscale in chiaro lo vede solo l'admin; gli altri sanno solo se c'è
   const uscita = (req) => ({ cf_cifrato, ...r }) => ({ ...r, ha_cf: !!cf_cifrato, codice_fiscale: req.utente.ruolo === 'admin' && cf_cifrato ? decifra(cf_cifrato) : undefined });
   const duplicato = (e) => { if (e.code === '23505') throw httpErr(409, 'codice fiscale già presente in anagrafica'); throw e; };
@@ -194,13 +220,14 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     return (await pool.query(
       `select ${COL_PERSONA}, (select count(*) from squadra_membro m where m.partecipante_id = p.id)::int as squadre
          from partecipante p
-        where $1::text is null or p.cognome ilike '%'||$1||'%' or p.nome ilike '%'||$1||'%' or p.comitato ilike '%'||$1||'%' or p.email ilike '%'||$1||'%' or p.cf_hash = $2
-        order by p.cognome, p.nome limit 500`, [q, qcf])).rows.map(uscita(req));
+        where ($1::text is null or p.cognome ilike '%'||$1||'%' or p.nome ilike '%'||$1||'%' or p.comitato ilike '%'||$1||'%' or p.email ilike '%'||$1||'%' or p.cf_hash = $2)
+          and ($3::text is null or ${REG_P} is null or ${REG_P} = $3::text)
+        order by p.cognome, p.nome limit 500`, [q, qcf, await regioneAnagrafica(req)])).rows.map(uscita(req));
   });
   app.post('/api/persone', { preHandler: soloOrg }, async (req) => {
     const p = persona(req.body || {});
     if (!p.cognome || !p.nome) throw httpErr(400, 'cognome e nome obbligatori');
-    await ufficiale(p);
+    await ufficiale(p); await controllaComitato(req, p.comitato);
     const cf = datiCf(p.cf);                                                     // si può scrivere da chi gestisce l'anagrafica, ma lo legge solo l'admin
     try {
       const { rows: [r] } = await pool.query(
@@ -213,7 +240,10 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.patch('/api/persone/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {}, p = persona(b);
     if (!p.cognome || !p.nome) throw httpErr(400, 'cognome e nome obbligatori');
-    await ufficiale(p);
+    const att = await controllaPersona(pool, req, req.params.id);
+    await ufficiale(p); await controllaComitato(req, p.comitato);
+    // il comitato decide a quali eventi si accede: il proprio lo cambia solo un amministratore
+    if (!req.utente.admin && att.utente_id === req.utente.id && norm(p.comitato || '') !== norm(att.comitato || '')) throw httpErr(403, 'il tuo comitato lo cambia un amministratore');
     const tocca = 'codice_fiscale' in b;                                         // se il campo non c'è (chi non è admin non lo vede) resta com'è
     const cf = tocca ? datiCf(p.cf) : null;
     try {
@@ -243,7 +273,8 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const q = req.body?.qualifiche;
     if (!Array.isArray(q) || q.some((x) => typeof x !== 'string') || (await db.query('select 1 from qualifica where codice = any($1::text[])', [q])).rowCount === 0 && q.length) throw httpErr(400, 'qualifiche non valide');
     { const { rows: v } = await db.query('select codice from qualifica where codice = any($1::text[])', [q]); if (v.length !== new Set(q).size) throw httpErr(400, 'qualifiche non valide'); }
-    if (!(await db.query('select 1 from partecipante where id=$1', [req.params.id])).rowCount) throw httpErr(404, 'persona inesistente');
+    const att = await controllaPersona(db, req, req.params.id);
+    if (!req.utente.admin && att.utente_id === req.utente.id) throw httpErr(403, 'le tue qualifiche le modifica un amministratore');   // alcune qualifiche danno ruoli
     await db.query('delete from persona_qualifica where partecipante_id=$1', [req.params.id]);
     for (const x of new Set(q)) await db.query('insert into persona_qualifica values ($1,$2)', [req.params.id, x]);
     await sincronizzaRuoliQualifiche(db, req.params.id);
@@ -292,6 +323,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   });
   // elimina la persona e, se ce l'ha, anche l'accesso al sito: le valutazioni già registrate restano, senza il collegamento all'utente
   app.delete('/api/persone/:id', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
+    await controllaPersona(db, req, req.params.id);
     const { rows: [x] } = await db.query('select p.utente_id, u.admin from partecipante p left join utente u on u.id=p.utente_id where p.id=$1 for update of p', [req.params.id]);
     if (!x) throw httpErr(404, 'persona inesistente');
     if (x.utente_id) {
@@ -439,6 +471,10 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   });
   app.patch('/api/scene/:id', { preHandler: soloOrg }, async (req) => {
     const b = req.body || {};
+    if (b.canovaccio_id && !req.utente.admin) {                                    // si collega solo un canovaccio generale o della propria regione
+      const { rows: [c] } = await pool.query('select regione from canovaccio where id=$1', [b.canovaccio_id]);
+      if (!c || (c.regione && c.regione !== (await enteUtente(pool, req.utente)).regione)) throw httpErr(404, 'canovaccio inesistente');
+    }
     const { rows: [s] } = await pool.query(
       `update scena set titolo=coalesce($2,titolo), ordine=coalesce($3,ordine),
          indirizzo = case when $4 then nullif(trim($5),'') else indirizzo end,

@@ -6,7 +6,8 @@ const UUID = /^[0-9a-f-]{36}$/i;
 const t = (v, max = 120) => { const s = String(v ?? '').trim(); return s ? s.slice(0, max) : null; };
 const TABELLE = ['utente', 'partecipante', 'squadra', 'richiesta_accesso', 'patologia', 'candidato_esame'];
 
-export function registraComitati(app, pool, { soloOrg }) {
+export function registraComitati(app, pool, { soloOrg, soloAdmin }) {
+  // l'elenco ufficiale decide a quale regione appartiene ogni persona ed evento: lo modifica solo un amministratore
   // ricerca per le prime lettere: nome, alias, regione o provincia; con "provincia" si restringe
   app.get('/api/comitati/cerca', async (req) => {
     const q = norm(req.query.q || ''), prov = String(req.query.provincia || '').trim().toUpperCase();
@@ -29,8 +30,8 @@ export function registraComitati(app, pool, { soloOrg }) {
       for (const u of c.unita) await db.query('insert into unita_territoriale (comitato_id, nome) values ($1,$2) on conflict do nothing', [id, u]); }
     svuotaCache(); return id;
   };
-  app.post('/api/comitati', { preHandler: soloOrg }, async (req) => { const id = await salva(pool, null, pulisci(req.body || {})); return (await elenco(pool)).find((c) => c.id === id); });
-  app.patch('/api/comitati/:id', { preHandler: soloOrg }, async (req) => {
+  app.post('/api/comitati', { preHandler: soloAdmin }, async (req) => { const id = await salva(pool, null, pulisci(req.body || {})); return (await elenco(pool)).find((c) => c.id === id); });
+  app.patch('/api/comitati/:id', { preHandler: soloAdmin }, async (req) => {
     if (!UUID.test(req.params.id)) throw httpErr(400, 'id non valido');
     const { rows: [v] } = await pool.query('select nome from comitato where id=$1', [req.params.id]); if (!v) throw httpErr(404, 'comitato inesistente');
     const c = pulisci(req.body || {});
@@ -38,13 +39,13 @@ export function registraComitati(app, pool, { soloOrg }) {
     if (v.nome !== c.nome) for (const tb of TABELLE) await pool.query(`update ${tb} set comitato=$2 where lower(comitato)=lower($1)`, [v.nome, c.nome]);   // rinomina ovunque
     return (await elenco(pool)).find((x) => x.id === req.params.id);
   });
-  app.delete('/api/comitati/:id', { preHandler: soloOrg }, async (req) => {
+  app.delete('/api/comitati/:id', { preHandler: soloAdmin }, async (req) => {
     if (!UUID.test(req.params.id)) throw httpErr(400, 'id non valido');
     const { rowCount } = await pool.query('delete from comitato where id=$1', [req.params.id]); svuotaCache();
     if (!rowCount) throw httpErr(404, 'comitato inesistente'); return { ok: true };
   });
   // import da testo: una riga per comitato, campi separati da ; o tab → nome;provincia;regione;unità1|unità2
-  app.post('/api/comitati/importa', { preHandler: soloOrg }, async (req) => {
+  app.post('/api/comitati/importa', { preHandler: soloAdmin }, async (req) => {
     const righe = String(req.body?.testo || '').split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
     if (!righe.length) throw httpErr(400, 'incolla almeno una riga');
     if (righe.length > 3000) throw httpErr(400, 'troppe righe (max 3000)');
@@ -62,7 +63,7 @@ export function registraComitati(app, pool, { soloOrg }) {
     return { importati: n };
   });
   // scritture libere che non coincidono con nessun comitato ufficiale, con il suggerimento più vicino
-  app.get('/api/comitati/da-ricondurre', { preHandler: soloOrg }, async () => {
+  app.get('/api/comitati/da-ricondurre', { preHandler: soloAdmin }, async () => {
     const tutti = await elenco(pool);
     if (!tutti.length) return [];
     const uniti = TABELLE.map((tb) => `select comitato from ${tb} where comitato is not null and trim(comitato) <> ''`).join(' union all ');
@@ -77,7 +78,7 @@ export function registraComitati(app, pool, { soloOrg }) {
     return out;
   });
   // ricondurre: tutte le scritture "da" diventano il comitato ufficiale, e "da" diventa un modo riconosciuto di scriverlo
-  app.post('/api/comitati/ricondurre', { preHandler: soloOrg }, async (req) => {
+  app.post('/api/comitati/ricondurre', { preHandler: soloAdmin }, async (req) => {
     const da = t(req.body?.da), id = req.body?.comitatoId;
     if (!da || !UUID.test(id || '')) throw httpErr(400, 'indica il testo e il comitato ufficiale');
     const { rows: [c] } = await pool.query('select nome from comitato where id=$1', [id]); if (!c) throw httpErr(404, 'comitato inesistente');
