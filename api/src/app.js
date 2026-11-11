@@ -35,7 +35,7 @@ import { registraRisorse } from './routes-risorse.js';
 import { registraDocumenti } from './routes-documenti.js';
 import { registraEsami } from './routes-esami.js';
 import { registraComitati } from './routes-comitati.js';
-import { canonico } from './comitati.js';
+import { canonico, norm } from './comitati.js';
 import { generaClassificaPdf } from './pdf/classifica.js';
 import { generaEsitoPdf } from './pdf/esito.js';
 import { fasceAuto, valutaEsito } from './esito.js';
@@ -325,16 +325,19 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
       const { rows: tipi } = await pool.query('select codice, nome, docenti, valutatori from tipo_corso order by ordine, nome');
       const mio = await profiloFormativo(pool, req.utente.id);
       tipoCorso = b.tipo_corso ? tipi.find((t) => t.codice === b.tipo_corso)                          // se non è indicato: il primo tipo per cui chi crea ha la qualifica, altrimenti TSSA
-        : (tipi.find((t) => { const d = dirittiSuTipo(mio, t); return d.locale || d.nazionale; }) ?? tipi.find((t) => t.codice === 'tssa') ?? tipi[0]);
+        : (tipi.find((t) => dirittiSuTipo(mio, t).qualcosa) ?? tipi.find((t) => t.codice === 'tssa') ?? tipi[0]);
       if (!tipoCorso) throw httpErr(400, 'tipo di corso non valido');
     }
     if (soloFormazione(req.utente)) {
       if (!TIPI_CORSO.includes(tipo)) throw httpErr(403, 'puoi creare solo corsi, Mega Code ed esami');
       const prof = await profiloFormativo(pool, req.utente.id);
-      if (!prof.locale && !prof.nazionale) throw httpErr(403, 'serve una qualifica di trainer, monitore, formatore o capo monitore');
+      if (!prof.locale && !prof.regionale && !prof.nazionale) throw httpErr(403, 'serve una qualifica di trainer, monitore, formatore o capo monitore');
       const d = dirittiSuTipo(prof, tipoCorso);                                                         // le qualifiche contano per il tipo di corso a cui servono
-      if (!d.locale && !d.nazionale) throw httpErr(403, `per aprire un corso «${tipoCorso.nome}» serve una delle qualifiche previste per quel tipo di corso`);
-      if (!d.nazionale) { if (!prof.comitato) throw httpErr(400, 'imposta il tuo comitato in anagrafica'); comitato = prof.comitato; }   // il trainer crea per il suo comitato
+      if (!d.qualcosa) throw httpErr(403, `per aprire un corso «${tipoCorso.nome}» serve una delle qualifiche previste per quel tipo di corso`);
+      if (d.regionale && !d.nazionale && comitato && prof.comitato && norm(comitato) !== norm(prof.comitato)) {   // il formatore apre corsi per i comitati della sua regione
+        const mia = await regioneDelComitato(pool, prof.comitato);
+        if (!mia || mia !== await regioneDelComitato(pool, comitato)) throw httpErr(403, 'puoi aprire corsi solo per i comitati della tua regione');
+      } else if (!d.nazionale) { if (!prof.comitato) throw httpErr(400, 'imposta il tuo comitato in anagrafica'); comitato = prof.comitato; }   // il trainer crea per il suo comitato
       else comitato = comitato || prof.comitato;
       if (b.corso_id) { const { rows: [c] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [b.corso_id]); if (!c || !(await puoGestireEvento(pool, req.utente, c, prof))) throw httpErr(403, 'corso non nel tuo ambito'); }
     }

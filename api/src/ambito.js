@@ -1,7 +1,9 @@
-// Ambito di chi gestisce i corsi: trainer / monitore (locale: solo il proprio comitato), formatore / capo monitore (nazionale: tutta Italia).
+// Ambito di chi gestisce i corsi: trainer / monitore (locale: solo il proprio comitato), formatore (regionale: i comitati della propria regione),
+// capo monitore (nazionale: tutta Italia).
 // Le qualifiche valgono per il tipo di corso a cui servono (tabella tipo_corso): un trainer delle manovre salvavita non gestisce un corso TSSA.
 // Un trainer di un altro comitato si invita al singolo evento. Admin e chi ha l'area «gara» gestiscono tutto.
 import { norm } from './comitati.js';
+import { regioneDelComitato } from './enti.js';
 
 export const TIPI_CORSO = ['corso', 'megacode', 'esame'];
 
@@ -9,7 +11,7 @@ export async function profiloFormativo(db, utenteId) {
   const { rows: [p] } = await db.query('select comitato from partecipante where utente_id=$1', [utenteId]);
   const { rows } = await db.query(
     `select q.codice, q.ambito from persona_qualifica pq join qualifica q on q.codice = pq.qualifica join partecipante p on p.id = pq.partecipante_id where p.utente_id=$1 and q.ambito is not null`, [utenteId]);
-  return { comitato: p?.comitato || null, locale: rows.some((r) => r.ambito === 'locale'), nazionale: rows.some((r) => r.ambito === 'nazionale'), qualifiche: rows };
+  return { comitato: p?.comitato || null, locale: rows.some((r) => r.ambito === 'locale'), regionale: rows.some((r) => r.ambito === 'regionale'), nazionale: rows.some((r) => r.ambito === 'nazionale'), qualifiche: rows };
 }
 
 // tipo di corso di un evento: il suo, oppure quello del corso a cui appartiene (null per gli eventi che non sono formazione)
@@ -19,11 +21,12 @@ export async function tipoCorsoDi(db, eventoId) {
     `select t.codice, t.nome, t.docenti, t.valutatori from evento e left join evento c on c.id = e.corso_id join tipo_corso t on t.codice = coalesce(e.tipo_corso, c.tipo_corso) where e.id=$1`, [eventoId]);
   return t ?? null;
 }
-// cosa può fare una persona su un tipo di corso con le qualifiche che ha: nulla, solo nel proprio comitato (locale) o ovunque (nazionale)
+// cosa può fare una persona su un tipo di corso con le qualifiche che ha: nulla, solo nel proprio comitato (locale), nella propria regione (regionale) o ovunque (nazionale)
 export function dirittiSuTipo(prof, tipo) {
-  if (!tipo) return { locale: !!prof.locale, nazionale: !!prof.nazionale };                    // evento senza tipo: vale qualunque qualifica di formazione
+  if (!tipo) return { locale: !!prof.locale, regionale: !!prof.regionale, nazionale: !!prof.nazionale, qualcosa: !!(prof.locale || prof.regionale || prof.nazionale) };                    // evento senza tipo: vale qualunque qualifica di formazione
   const mie = (prof.qualifiche || []).filter((q) => tipo.docenti.includes(q.codice));
-  return { locale: mie.some((q) => q.ambito === 'locale'), nazionale: mie.some((q) => q.ambito === 'nazionale') };
+  const d = { locale: mie.some((q) => q.ambito === 'locale'), regionale: mie.some((q) => q.ambito === 'regionale'), nazionale: mie.some((q) => q.ambito === 'nazionale') };
+  return { ...d, qualcosa: d.locale || d.regionale || d.nazionale };
 }
 
 // chi ha solo l'area dei corsi (non «gara») vede e modifica soltanto i corsi nel suo ambito
@@ -40,5 +43,8 @@ export async function puoGestireEvento(db, u, evento, prof) {
     const { rows: [c] } = await db.query('select id, tipo, comitato, corso_id from evento where id=$1', [evento.corso_id]);
     if (c && c.id !== evento.id && await puoGestireEvento(db, u, c, prof)) return true;
   }
-  return !!(d.locale && prof.comitato && evento.comitato && norm(prof.comitato) === norm(evento.comitato));
+  if (!prof.comitato || !evento.comitato) return false;
+  if ((d.locale || d.regionale) && norm(prof.comitato) === norm(evento.comitato)) return true;
+  if (d.regionale) { const mia = await regioneDelComitato(db, prof.comitato); return !!mia && mia === await regioneDelComitato(db, evento.comitato); }   // stessa regione
+  return false;
 }

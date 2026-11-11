@@ -63,7 +63,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const docenti = el('docenti'), valutatori = el('valutatori'), tutte = [...new Set([...docenti, ...valutatori])];
     const { rows } = await pool.query('select codice, ambito from qualifica where codice = any($1::text[])', [tutte]);
     if (rows.length !== tutte.length) throw httpErr(400, 'qualifica inesistente');
-    if (docenti.some((c) => !rows.find((q) => q.codice === c).ambito)) throw httpErr(400, 'tra i docenti vanno solo qualifiche di formazione (con ambito locale o nazionale)');
+    if (docenti.some((c) => !rows.find((q) => q.codice === c).ambito)) throw httpErr(400, 'tra i docenti vanno solo qualifiche di formazione (con ambito locale, regionale o nazionale)');
     if (!docenti.length || !valutatori.length) throw httpErr(400, 'indica almeno una qualifica per i docenti e una per i valutatori');
     return { docenti, valutatori };
   };
@@ -298,7 +298,7 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
   app.post('/api/qualifiche', { preHandler: soloAdmin }, async (req) => {
     const nome = String(req.body?.nome || '').trim().slice(0, 60), codice = slug(nome), ambito = req.body?.ambito || null;
     if (!codice) throw httpErr(400, 'nome della qualifica obbligatorio');
-    if (ambito && !['locale', 'nazionale'].includes(ambito)) throw httpErr(400, 'ambito non valido');
+    if (ambito && !['locale', 'regionale', 'nazionale'].includes(ambito)) throw httpErr(400, 'ambito non valido');
     try { return (await pool.query('insert into qualifica (codice, nome, ambito) values ($1,$2,$3) returning codice, nome, ambito, sistema', [codice, nome, ambito])).rows[0]; }
     catch (e) { if (e.code === '23505') throw httpErr(409, 'esiste già una qualifica con questo nome'); throw e; }
   });
@@ -451,9 +451,15 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
       if (!TIPI_CORSO.includes(b.tipo ?? att.tipo) || ('corso_id' in b ? b.corso_id : att.corso_id)) throw httpErr(400, 'il tipo si sceglie sul corso: Mega Code ed esami seguono il corso');
       ({ rows: [tipoNuovo] } = await pool.query('select codice, nome, docenti, valutatori from tipo_corso where codice=$1', [String(b.tipo_corso)]));
       if (!tipoNuovo) throw httpErr(400, 'tipo di corso non valido');
-      if (prof) { const d = dirittiSuTipo(prof, tipoNuovo); if (!d.locale && !d.nazionale) throw httpErr(403, `per un corso «${tipoNuovo.nome}» serve una delle qualifiche previste per quel tipo di corso`); }
+      if (prof) { const d = dirittiSuTipo(prof, tipoNuovo); if (!d.qualcosa) throw httpErr(403, `per un corso «${tipoNuovo.nome}» serve una delle qualifiche previste per quel tipo di corso`); }
     }
-    const cambiaCom = 'comitato' in b && (!prof || dirittiSuTipo(prof, tipoNuovo ?? await tipoCorsoDi(pool, att.id)).nazionale);                      // il comitato organizzatore lo cambia solo chi ha ambito nazionale (o la gestione gare)
+    // il comitato organizzatore lo cambia chi ha ambito nazionale (o la gestione gare); il formatore, regionale, solo verso un comitato della sua regione
+    const dTipo = prof ? dirittiSuTipo(prof, tipoNuovo ?? await tipoCorsoDi(pool, att.id)) : null;
+    let cambiaCom = 'comitato' in b && (!prof || dTipo.nazionale);
+    if ('comitato' in b && prof && !dTipo.nazionale && dTipo.regionale && b.comitato && prof.comitato) {
+      const mia = await regioneDelComitato(pool, prof.comitato);
+      cambiaCom = !!mia && mia === await regioneDelComitato(pool, (await canonico(pool, String(b.comitato))).nome);
+    }                      // il comitato organizzatore lo cambia solo chi ha ambito nazionale (o la gestione gare)
     const comitatoNuovo = cambiaCom && b.comitato ? (await canonico(pool, String(b.comitato))).nome : null;
     if (b.soglia_pct != null && b.soglia_pct !== '' && !(Number(b.soglia_pct) >= 1 && Number(b.soglia_pct) <= 100)) throw httpErr(400, 'soglia: percentuale tra 1 e 100');
     if (b.mappa_url && !/^https:\/\/(www\.)?google\.com\/maps\//.test(b.mappa_url.trim())) throw httpErr(400, 'la mappa deve essere un indirizzo https://www.google.com/maps/… (Condividi → Incorpora mappa)');

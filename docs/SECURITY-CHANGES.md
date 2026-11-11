@@ -89,3 +89,5 @@ Migrazione `067-tipi-corso.sql` (additiva). La regola «chi può fare cosa in qu
 - Chi ha solo la formazione apre e gestisce i corsi del tipo per cui ha la qualifica: nel proprio comitato con una qualifica locale, ovunque con una nazionale. Un Formatore MS che è anche Trainer TSSA è nazionale sulle manovre salvavita e locale sul TSSA.
 - Tra le persone da invitare a un corso e tra i valutatori di Mega Code, corsi ed esami compaiono solo quelle con una qualifica prevista dal tipo (oltre all'organizzazione e a chi è già stato invitato al corso).
 - I tipi si gestiscono da Gestione → Ruoli e permessi → Tipi di corso (solo amministratore). Un tipo in uso non si elimina.
+
+**Ambito regionale** (migrazione `068-ambito-regionale.sql`): Formatore TSSA e Formatore MS operano come i trainer del loro tipo di corso, ma su tutti i comitati della propria regione e non in tutta Italia. Aprono corsi per un comitato della regione, gestiscono quelli già aperti lì, non spostano un corso fuori regione. Il Capo monitore resta nazionale. L'ambito di ogni qualifica (locale, regionale, nazionale) si vede in Ruoli e permessi.

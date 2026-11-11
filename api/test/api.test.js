@@ -1234,7 +1234,7 @@ test('EV-1 accesso giudice legato alla gara: iscritto come giudice vede solo que
   assert.ok(json(await chiama('GET', '/api/persone?q=Senza', { token: O })).find((p) => p.id === sa.id).utente_id);
 });
 
-test('AMB-1 ambito dei corsi: trainer locale solo per il proprio comitato, formatore nazionale, invito al singolo corso', async () => {
+test('AMB-1 ambito dei corsi: trainer locale solo per il proprio comitato, formatore nella propria regione, invito al singolo corso', async () => {
   const O = tok['org@t'], A = tok['adm@t'];
   const crea = async (email, nome, comitato, qual) => {
     const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome, ruolo: 'istruttore_du', password: 'password-lunga' } }));
@@ -1249,7 +1249,16 @@ test('AMB-1 ambito dei corsi: trainer locale solo per il proprio comitato, forma
   assert.equal(c1.comitato, 'Piacenza', JSON.stringify(c1));                                                   // il trainer crea per il proprio comitato
   assert.equal((await chiama('POST', '/api/eventi', { token: t1.tk, body: { codice: 'AMB-G', nome: 'Gara', tipo: 'gara' } })).statusCode, 403);
   assert.equal((await chiama('PATCH', `/api/eventi/${c1.id}`, { token: t2.tk, body: { nome: 'X' } })).statusCode, 403);   // trainer di Parma sul corso di Piacenza
-  assert.equal((await chiama('PATCH', `/api/eventi/${c1.id}`, { token: f1.tk, body: { nome: 'Corso PC bis' } })).statusCode, 200);   // formatore: tutta Italia
+  assert.equal((await chiama('PATCH', `/api/eventi/${c1.id}`, { token: f1.tk, body: { nome: 'Corso PC bis' } })).statusCode, 200);   // formatore: tutta la sua regione (Parma e Piacenza sono in Emilia-Romagna)
+  // …ma non fuori: il formatore lombardo non tocca il corso emiliano, e l'emiliano non apre corsi per un comitato lombardo
+  const { rows: [lom] } = await pool.query(`select nome from comitato where regione='Lombardia' order by nome limit 1`);
+  const f2 = await crea('fo2@t.it', 'Fausto Delta', lom.nome, 'formatore_tssa');
+  assert.equal((await chiama('PATCH', `/api/eventi/${c1.id}`, { token: f2.tk, body: { nome: 'Preso dalla Lombardia' } })).statusCode, 403);
+  assert.ok(!json(await chiama('GET', '/api/eventi', { token: f2.tk })).some((e) => e.id === c1.id));
+  assert.equal((await chiama('POST', '/api/eventi', { token: f1.tk, body: { codice: 'AMB-LO', nome: 'Corso fuori regione', tipo: 'corso', comitato: lom.nome } })).statusCode, 403);
+  assert.equal(json(await chiama('POST', '/api/eventi', { token: f1.tk, body: { codice: 'AMB-PC2', nome: 'Corso per Piacenza', tipo: 'corso', comitato: 'Piacenza' } })).comitato, 'Piacenza');   // per un altro comitato della regione sì
+  assert.equal(json(await chiama('POST', '/api/eventi', { token: f1.tk, body: { codice: 'AMB-PR', nome: 'Corso a casa', tipo: 'corso' } })).comitato, 'Parma');
+  assert.equal(json(await chiama('PATCH', `/api/eventi/${c1.id}`, { token: f1.tk, body: { comitato: lom.nome } })).comitato, 'Piacenza');            // né sposta un corso fuori regione
   assert.ok(!json(await chiama('GET', '/api/eventi', { token: t2.tk })).some((e) => e.id === c1.id));
   assert.equal((await chiama('POST', `/api/eventi/${c1.id}/inviti`, { token: t1.tk, body: { partecipante_id: t2.pe.id } })).statusCode, 200);   // invito
   assert.equal((await chiama('PATCH', `/api/eventi/${c1.id}`, { token: t2.tk, body: { nome: 'Corso PC ter' } })).statusCode, 403, 'finché non accetta la richiesta non gestisce il corso');
@@ -2591,7 +2600,7 @@ test('TIPI-1 tipi di corso: le qualifiche valgono per il tipo a cui servono — 
     return { id: u.id, pid: pe.id, T: json(await chiama('POST', '/api/login', { body: { email, password: 'password-lunga' } })).token };
   };
   const tssa = await mk('tipi-tssa@t.it', 'Tipotssa', 'Modena', ['trainer_tssa']), ms = await mk('tipi-ms@t.it', 'Tipoms', 'Modena', ['trainer_ms']);
-  const misto = await mk('tipi-misto@t.it', 'Tipomisto', 'Parma', ['formatore_ms', 'trainer_tssa']);       // nazionale per le manovre salvavita, locale per il TSSA
+  const misto = await mk('tipi-misto@t.it', 'Tipomisto', 'Parma', ['formatore_ms', 'trainer_tssa']);       // regionale per le manovre salvavita, locale per il TSSA
   const corso = (T, codice, extra = {}) => chiama('POST', '/api/eventi', { token: T, body: { codice, nome: 'Corso ' + codice, tipo: 'corso', ...extra } });
   // chi apre: senza indicare il tipo si prende quello della propria qualifica; un tipo per cui non si ha la qualifica è rifiutato
   const cT = json(await corso(tssa.T, 'TIPI-T')); assert.equal(cT.tipo_corso, 'tssa'); assert.equal(cT.comitato, 'Modena');
@@ -2603,7 +2612,7 @@ test('TIPI-1 tipi di corso: le qualifiche valgono per il tipo a cui servono — 
   // Mega Code ed esami seguono il corso: stesso tipo, senza scriverlo
   const mc = json(await chiama('POST', '/api/eventi', { token: tssa.T, body: { codice: 'TIPI-T-MC', nome: 'Mega Code', tipo: 'megacode', corso_id: cT.id } }));
   assert.equal(mc.tipo_corso, null);
-  // chi vede e gestisce: ognuno i corsi del proprio tipo; il «misto» è nazionale solo sulle manovre salvavita
+  // chi vede e gestisce: ognuno i corsi del proprio tipo; il «misto» è regionale solo sulle manovre salvavita
   const vede = async (T) => json(await chiama('GET', '/api/eventi', { token: T })).filter((e) => e.codice.startsWith('TIPI-')).map((e) => e.codice).sort();
   assert.deepEqual(await vede(tssa.T), ['TIPI-T', 'TIPI-T-MC']); assert.deepEqual(await vede(ms.T), ['TIPI-M']);
   assert.deepEqual(await vede(misto.T), ['TIPI-M']);                                                       // il TSSA di Modena no: lì è solo trainer, e di un altro comitato

@@ -3703,3 +3703,10 @@ on conflict (codice) do nothing;
 alter table evento add column if not exists tipo_corso text references tipo_corso(codice);
 update evento set tipo_corso = 'tssa' where tipo in ('corso','esame','megacode') and corso_id is null and tipo_corso is null;   -- finora il sito è stato usato per il TSSA
 insert into schema_migrazioni (nome) values ('067-tipi-corso.sql') on conflict do nothing;
+
+-- 068-ambito-regionale
+-- Ambito regionale: il formatore opera come un trainer, ma in tutta la propria regione (non in tutta Italia)
+alter table qualifica drop constraint if exists qualifica_ambito_check;
+alter table qualifica add constraint qualifica_ambito_check check (ambito in ('locale','regionale','nazionale'));
+update qualifica set ambito = 'regionale' where codice in ('formatore_tssa', 'formatore_ms');
+insert into schema_migrazioni (nome) values ('068-ambito-regionale.sql') on conflict do nothing;
