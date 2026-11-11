@@ -1919,7 +1919,10 @@ test('VAL-1 nei corsi valutano gli istruttori: elenco valutatori, assegnazione e
   assert.ok(!json(await chiama('GET', '/api/giudici', { token: O })).some((x) => x.id === u.id), 'tra i giudici delle gare non compare');
   assert.ok(json(await chiama('GET', '/api/giudici?valutatori=1', { token: O })).some((x) => x.id === u.id), 'tra i valutatori dei corsi sì');
   assert.ok(json(await chiama('GET', '/api/giudici?valutatori=1', { token: O })).some((x) => x.email === 'org@t'), 'anche l\'organizzazione può valutare');
-  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'VAL-MC', nome: 'Corso prova', tipo: 'corso' } }));
+  const e = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'VAL-MC', nome: 'Corso prova', tipo: 'corso', tipo_corso: 'du' } }));   // l'Istruttore DU valuta nei corsi del suo tipo
+  assert.equal(e.tipo_corso, 'du');
+  assert.ok(json(await chiama('GET', `/api/giudici?valutatori=1&evento=${e.id}`, { token: O })).some((x) => x.id === u.id), 'tra i valutatori di un corso DU sì');
+  assert.ok(!json(await chiama('GET', `/api/giudici?evento=${ev}`, { token: O })).some((x) => x.id === u.id), 'per una gara l\'elenco resta quello dei giudici');
   const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'MC1', titolo: 'Scena', ordine: 1 } }));
   const pat = json(await chiama('GET', '/api/libreria/patologie', { token: O })).find((p) => !p.bozza && !p.is_master);
   const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } }));
@@ -1997,7 +2000,7 @@ test('STO-1 storico: il discente vede gli esiti solo dopo la pubblicazione del d
 test('INV-1 trainer e formatori del corso: del comitato subito attivi, esterni su richiesta; valutatori dei Mega Code; ritiro proposta', async () => {
   const O = tok['org@t'], A = tok['adm@t'];
   const { rows: [mc] } = await pool.query(`select id from patologia where codice='mc-scenario-2-scoop'`);
-  const corso = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'INV-C', nome: 'Corso inviti', tipo: 'corso' } }));
+  const corso = json(await chiama('POST', '/api/eventi', { token: O, body: { codice: 'INV-C', nome: 'Corso inviti', tipo: 'corso', tipo_corso: 'ms' } }));   // corso di manovre salvavita: vi entrano i trainer MS
   await pool.query(`update evento set comitato='Comitato Alfa' where id=$1`, [corso.id]);
   const inv0 = json(await chiama('GET', `/api/eventi/${corso.id}/inviti`, { token: O }));
   assert.ok(inv0.some((i) => i.stato === 'attivo'), 'chi apre il corso è subito istruttore');
@@ -2024,7 +2027,7 @@ test('INV-1 trainer e formatori del corso: del comitato subito attivi, esterni s
   const sc = json(await chiama('POST', `/api/eventi/${e.id}/scene`, { token: O, body: { codice: 'I1', titolo: 'Scena', ordine: 1 } }));
   const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: O, body: { patologiaId: mc.id, slot: 1, simulatore: '01' } }));
   assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [dentro.u.id] } })).statusCode, 200, 'trainer del corso: valutatore');
-  assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [fuori.u.id] } })).statusCode, 400, 'richiesta non ancora accettata');
+  assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [fuori.u.id] } })).statusCode, 200, 'ha la qualifica del tipo di corso: chi gestisce il corso può assegnargli una scheda anche prima che accetti l\'invito');
   assert.equal((await chiama('POST', `/api/me/inviti/${corso.id}/accetta`, { token: fuori.T, body: {} })).statusCode, 200);
   assert.equal((await chiama('POST', `/api/me/inviti/${corso.id}/accetta`, { token: fuori.T, body: {} })).statusCode, 404, 'una sola risposta');
   assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: O, body: { utenti: [dentro.u.id, fuori.u.id] } })).statusCode, 200);
@@ -2567,4 +2570,61 @@ test('SSO-DOMINIO: con GOOGLE_DOMINI entra con Google solo l\'account istituzion
     assert.match(await entra({ sub: 'd-nuovo', email: 'nuova.persona@lombardia.cri.it', hd: 'cri.it', given_name: 'Nuova', family_name: 'Persona' }), /#sso=/);
     assert.equal((await pool.query(`select count(*)::int n from richiesta_accesso where sub='d-nuovo'`)).rows[0].n, 1);
   } finally { await a2.close(); for (const k of chiavi) if (prima[k] === undefined) delete process.env[k]; else process.env[k] = prima[k]; }
+});
+
+test('TIPI-1 tipi di corso: le qualifiche valgono per il tipo a cui servono — chi apre, chi si invita, chi valuta; gestione riservata all\'admin', async () => {
+  const O = tok['org@t'], A = tok['adm@t'];
+  // elenco di partenza e gestione
+  const tipi = json(await chiama('GET', '/api/tipi-corso', { token: O }));
+  assert.deepEqual(tipi.map((t) => t.codice), ['tssa', 'ms', 'ps', 'du']); assert.deepEqual(tipi[0].docenti.sort(), ['formatore_tssa', 'trainer_tssa']);
+  assert.equal((await chiama('POST', '/api/tipi-corso', { token: O, body: { nome: 'X', docenti: ['monitore'], valutatori: ['monitore'] } })).statusCode, 403);
+  assert.equal((await chiama('POST', '/api/tipi-corso', { token: A, body: { nome: 'Trainer TSSA', docenti: ['inesistente'], valutatori: ['formatore_tssa'] } })).statusCode, 400);
+  assert.equal((await chiama('POST', '/api/tipi-corso', { token: A, body: { nome: 'Trainer TSSA', docenti: ['giudice'], valutatori: ['formatore_tssa'] } })).statusCode, 400);   // «giudice» non è una qualifica di formazione
+  const nuovo = json(await chiama('POST', '/api/tipi-corso', { token: A, body: { nome: 'Corso Trainer TSSA', docenti: ['formatore_tssa'], valutatori: ['formatore_tssa'] } }));
+  assert.equal(nuovo.codice, 'corso_trainer_tssa');                                                         // un tipo nuovo si aggiunge senza toccare il codice
+  assert.deepEqual(json(await chiama('PUT', `/api/tipi-corso/${nuovo.codice}`, { token: A, body: { docenti: ['formatore_tssa'], valutatori: ['formatore_tssa', 'trainer_tssa'] } })).valutatori, ['formatore_tssa', 'trainer_tssa']);
+  // persone con qualifiche diverse, tutte del comitato di Modena tranne la formatrice
+  const mk = async (email, cognome, comitato, quals) => {
+    const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome: 'Tipo', cognome, ruolo: 'partecipante', password: 'password-lunga' } }));
+    const { rows: [pe] } = await pool.query('update partecipante set comitato=$2 where utente_id=$1 returning id', [u.id, comitato]);
+    assert.equal((await chiama('PUT', `/api/persone/${pe.id}/qualifiche`, { token: A, body: { qualifiche: quals } })).statusCode, 200);
+    return { id: u.id, pid: pe.id, T: json(await chiama('POST', '/api/login', { body: { email, password: 'password-lunga' } })).token };
+  };
+  const tssa = await mk('tipi-tssa@t.it', 'Tipotssa', 'Modena', ['trainer_tssa']), ms = await mk('tipi-ms@t.it', 'Tipoms', 'Modena', ['trainer_ms']);
+  const misto = await mk('tipi-misto@t.it', 'Tipomisto', 'Parma', ['formatore_ms', 'trainer_tssa']);       // nazionale per le manovre salvavita, locale per il TSSA
+  const corso = (T, codice, extra = {}) => chiama('POST', '/api/eventi', { token: T, body: { codice, nome: 'Corso ' + codice, tipo: 'corso', ...extra } });
+  // chi apre: senza indicare il tipo si prende quello della propria qualifica; un tipo per cui non si ha la qualifica è rifiutato
+  const cT = json(await corso(tssa.T, 'TIPI-T')); assert.equal(cT.tipo_corso, 'tssa'); assert.equal(cT.comitato, 'Modena');
+  const cM = json(await corso(ms.T, 'TIPI-M')); assert.equal(cM.tipo_corso, 'ms');
+  assert.equal((await corso(ms.T, 'TIPI-X1', { tipo_corso: 'tssa' })).statusCode, 403);
+  assert.equal((await corso(tssa.T, 'TIPI-X2', { tipo_corso: 'ms' })).statusCode, 403);
+  assert.equal((await corso(tssa.T, 'TIPI-X3', { tipo_corso: 'non-esiste' })).statusCode, 400);
+  assert.equal((await corso(tssa.T, 'TIPI-X4', { tipo_corso: nuovo.codice })).statusCode, 403);             // il corso per trainer lo apre il formatore
+  // Mega Code ed esami seguono il corso: stesso tipo, senza scriverlo
+  const mc = json(await chiama('POST', '/api/eventi', { token: tssa.T, body: { codice: 'TIPI-T-MC', nome: 'Mega Code', tipo: 'megacode', corso_id: cT.id } }));
+  assert.equal(mc.tipo_corso, null);
+  // chi vede e gestisce: ognuno i corsi del proprio tipo; il «misto» è nazionale solo sulle manovre salvavita
+  const vede = async (T) => json(await chiama('GET', '/api/eventi', { token: T })).filter((e) => e.codice.startsWith('TIPI-')).map((e) => e.codice).sort();
+  assert.deepEqual(await vede(tssa.T), ['TIPI-T', 'TIPI-T-MC']); assert.deepEqual(await vede(ms.T), ['TIPI-M']);
+  assert.deepEqual(await vede(misto.T), ['TIPI-M']);                                                       // il TSSA di Modena no: lì è solo trainer, e di un altro comitato
+  assert.equal((await chiama('PATCH', `/api/eventi/${cT.id}`, { token: ms.T, body: { nome: 'Preso' } })).statusCode, 403);
+  assert.equal((await chiama('PATCH', `/api/eventi/${cM.id}`, { token: misto.T, body: { nome: 'Corso MS rivisto' } })).statusCode, 200);
+  assert.equal((await chiama('PATCH', `/api/eventi/${cM.id}`, { token: ms.T, body: { tipo_corso: 'tssa' } })).statusCode, 403);                 // non ci si sposta su un tipo per cui manca la qualifica
+  assert.equal((await chiama('PATCH', `/api/eventi/${mc.id}`, { token: tssa.T, body: { tipo_corso: 'ms' } })).statusCode, 400);                 // il tipo sta sul corso
+  // chi si può invitare: solo le qualifiche del tipo di corso
+  const invitabili = async (id) => json(await chiama('GET', `/api/eventi/${id}/invitabili`, { token: A })).map((x) => x.id);
+  assert.ok((await invitabili(cM.id)).includes(misto.pid)); assert.ok(!(await invitabili(cM.id)).includes(tssa.pid));
+  assert.ok((await invitabili(cT.id)).includes(misto.pid)); assert.ok(!(await invitabili(cT.id)).includes(ms.pid));
+  assert.equal((await chiama('POST', `/api/eventi/${cT.id}/inviti`, { token: tssa.T, body: { partecipanti: [ms.pid] } })).statusCode, 400);
+  // chi valuta: nel Mega Code del corso TSSA il trainer TSSA sì, il trainer delle manovre salvavita no
+  const { rows: [pat] } = await pool.query(`select id from patologia where codice='mc-scenario-2-scoop'`);
+  const sc = json(await chiama('POST', `/api/eventi/${mc.id}/scene`, { token: A, body: { codice: 'T1', titolo: 'Scena', ordine: 1 } }));
+  const k = json(await chiama('POST', `/api/scene/${sc.id}/schede`, { token: A, body: { patologiaId: pat.id, slot: 1, simulatore: '01' } })); assert.ok(k.id);
+  const elenco = json(await chiama('GET', `/api/giudici?valutatori=megacode&evento=${mc.id}`, { token: A })).map((x) => x.id);
+  assert.ok(elenco.includes(tssa.id) && elenco.includes(misto.id) && !elenco.includes(ms.id));
+  { const no = await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: A, body: { utenti: [ms.id] } }); assert.equal(no.statusCode, 400); assert.match(json(no).errore, /corso «TSSA»/); }
+  assert.equal((await chiama('PUT', `/api/schede/${k.id}/assegnazioni`, { token: A, body: { utenti: [tssa.id, misto.id] } })).statusCode, 200);
+  // un tipo in uso non si elimina; uno libero sì
+  assert.equal((await chiama('DELETE', '/api/tipi-corso/ms', { token: A })).statusCode, 409);
+  assert.equal((await chiama('DELETE', `/api/tipi-corso/${nuovo.codice}`, { token: A })).statusCode, 200);
 });

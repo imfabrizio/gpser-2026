@@ -44,7 +44,7 @@ import { disegnaMegacode } from './pdf/megacode.js';
 // una scheda è una "skill" (layout cartaceo 0-1-2) se la sua tipologia è solo skill/megacode o se è una scheda d'esame TSSA
 const èSkill = (p) => p?.categoria === 'Esame TSSA' || (Array.isArray(p?.tipologie) && p.tipologie.includes('skill') && !p.tipologie.includes('gara') && !p.tipologie.includes('olimpiadi'));
 import { registraAi } from './routes-ai.js';
-import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO } from './ambito.js';
+import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO, dirittiSuTipo } from './ambito.js';
 import { haSchede, comitatoDi, controllaScheda, tipologieValide } from './libreria-ambito.js';
 import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from './routes-auth.js';
 
@@ -242,7 +242,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.get('/api/eventi', async (req) => {   // i giudici vedono solo la gara a cui sono legati (o quella attiva); organizzazione e admin tutte
     const org = RUOLI_ORG.includes(req.utente.ruolo);
     const righe = (await pool.query(
-      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, to_char(data_fine,'YYYY-MM-DD') as data_fine, attivo, archiviato, modalita, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, comitato, livello, regione, lat, lng, comune_istat, luogo_provincia, luogo_regione, modalita, segreteria_lat, segreteria_lng
+      `select id, codice, nome, tipo, luogo, to_char(data,'YYYY-MM-DD') as data, to_char(data_fine,'YYYY-MM-DD') as data_fine, attivo, archiviato, modalita, mappa_url, soglia_pct, mostra_punteggi, codice_gaia, corso_id, tipo_corso, comitato, livello, regione, lat, lng, comune_istat, luogo_provincia, luogo_regione, modalita, segreteria_lat, segreteria_lng
          from evento where ($1 or id = $2 or id = any($3::uuid[]) or ($2::uuid is null and not cardinality($3::uuid[]) > 0 and attivo)) and ($1 or not archiviato)
         order by data desc nulls last`, [org, req.utente.evento_id, req.utente.eventi_ammessi])).rows;
     if (req.utente.ruolo === 'organizzazione' && req.utente.per_evento) return righe.filter((e) => req.utente.eventi_org.includes(e.id));
@@ -319,11 +319,22 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (b.tipo && !TIPI_EVENTO.includes(b.tipo)) throw httpErr(400, 'tipo di evento non valido');
     const tipo = b.tipo || 'gara';
     let comitato = typeof b.comitato === 'string' && b.comitato.trim() ? (await canonico(pool, b.comitato.trim())).nome : null;
+    // tipo di corso: lo dichiara chi apre un corso (o un esame che non appartiene a un corso); Mega Code ed esami di un corso seguono il corso
+    let tipoCorso = null;
+    if (TIPI_CORSO.includes(tipo) && !b.corso_id) {
+      const { rows: tipi } = await pool.query('select codice, nome, docenti, valutatori from tipo_corso order by ordine, nome');
+      const mio = await profiloFormativo(pool, req.utente.id);
+      tipoCorso = b.tipo_corso ? tipi.find((t) => t.codice === b.tipo_corso)                          // se non è indicato: il primo tipo per cui chi crea ha la qualifica, altrimenti TSSA
+        : (tipi.find((t) => { const d = dirittiSuTipo(mio, t); return d.locale || d.nazionale; }) ?? tipi.find((t) => t.codice === 'tssa') ?? tipi[0]);
+      if (!tipoCorso) throw httpErr(400, 'tipo di corso non valido');
+    }
     if (soloFormazione(req.utente)) {
       if (!TIPI_CORSO.includes(tipo)) throw httpErr(403, 'puoi creare solo corsi, Mega Code ed esami');
       const prof = await profiloFormativo(pool, req.utente.id);
       if (!prof.locale && !prof.nazionale) throw httpErr(403, 'serve una qualifica di trainer, monitore, formatore o capo monitore');
-      if (!prof.nazionale) { if (!prof.comitato) throw httpErr(400, 'imposta il tuo comitato in anagrafica'); comitato = prof.comitato; }   // il trainer crea per il suo comitato
+      const d = dirittiSuTipo(prof, tipoCorso);                                                         // le qualifiche contano per il tipo di corso a cui servono
+      if (!d.locale && !d.nazionale) throw httpErr(403, `per aprire un corso «${tipoCorso.nome}» serve una delle qualifiche previste per quel tipo di corso`);
+      if (!d.nazionale) { if (!prof.comitato) throw httpErr(400, 'imposta il tuo comitato in anagrafica'); comitato = prof.comitato; }   // il trainer crea per il suo comitato
       else comitato = comitato || prof.comitato;
       if (b.corso_id) { const { rows: [c] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [b.corso_id]); if (!c || !(await puoGestireEvento(pool, req.utente, c, prof))) throw httpErr(403, 'corso non nel tuo ambito'); }
     }
@@ -341,8 +352,8 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const com = b.comune ? comunePerIstat(b.comune) : null;
     if (b.comune && !com) throw httpErr(400, 'comune inesistente');
     const nuovo = (await pool.query(
-      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, data_fine, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato, livello, regione, comune_istat, luogo_provincia, luogo_regione, lat, lng) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,nullif(trim($10),''),$11,$12,$13,$14,$15,$16,$17,$18,$19) returning *`,
-      [b.codice, b.nome, tipo, b.titolo_stampa, com ? etichettaLuogo(com) : b.luogo, b.data, b.data_fine || null, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, ente.comitato ?? comitato, ente.livello, ente.regione, com?.istat ?? null, com?.provincia ?? null, com?.regione ?? null, com?.lat ?? null, com?.lng ?? null])).rows[0];
+      `insert into evento (codice, nome, tipo, titolo_stampa, luogo, data, data_fine, mostra_punteggi, soglia_pct, codice_gaia, corso_id, comitato, livello, regione, comune_istat, luogo_provincia, luogo_regione, lat, lng, tipo_corso) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,nullif(trim($10),''),$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) returning *`,
+      [b.codice, b.nome, tipo, b.titolo_stampa, com ? etichettaLuogo(com) : b.luogo, b.data, b.data_fine || null, didattico, tipo === 'esame' ? 75 : null, b.codice_gaia ?? '', b.corso_id || null, ente.comitato ?? comitato, ente.livello, ente.regione, com?.istat ?? null, com?.provincia ?? null, com?.regione ?? null, com?.lat ?? null, com?.lng ?? null, tipoCorso?.codice ?? null])).rows[0];
     if (tipo === 'corso') await pool.query(`insert into evento_invito (evento_id, utente_id, invitato_da, stato) values ($1,$2,$2,'attivo') on conflict do nothing`, [nuovo.id, req.utente.id]);   // chi apre il corso è subito tra i suoi istruttori
     return nuovo;
   });

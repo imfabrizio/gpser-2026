@@ -81,3 +81,11 @@ Migrazione `066-regioni-eventi-sicurezza.sql` (additiva: toglie un indice, aggiu
 Con `GOOGLE_DOMINI=cri.it` su Render, il pulsante Google accetta solo chi ha un indirizzo di quel dominio o di un sottodominio (`nome.cognome@emiliaromagna.cri.it`) **e** un account Google dell'organizzazione (campo `hd` del token). Chi ha un Google personale accede con email e password, anche se la sua identità Google era già collegata. Senza la variabile non cambia nulla.
 
 Prima di attivarla: chi oggi entra solo con un Google personale non ha una password nota (alla creazione ne riceve una casuale). Dagliene una da Gestione → Utenti → Password, **a partire dal tuo account se è in questa situazione**, altrimenti resta fuori.
+
+## Tipi di corso (12 novembre 2026)
+
+Migrazione `067-tipi-corso.sql` (additiva). La regola «chi può fare cosa in quale corso» passa dal codice ai dati: tabella `tipo_corso` con, per ogni tipo, le qualifiche che possono aprirlo e insegnarvi (`docenti`) e quelle che possono valutare (`valutatori`). Tipi di partenza: TSSA, Manovre salvavita, Primo soccorso, Istruttore DU. I corsi esistenti diventano TSSA; Mega Code ed esami seguono il corso a cui appartengono.
+
+- Chi ha solo la formazione apre e gestisce i corsi del tipo per cui ha la qualifica: nel proprio comitato con una qualifica locale, ovunque con una nazionale. Un Formatore MS che è anche Trainer TSSA è nazionale sulle manovre salvavita e locale sul TSSA.
+- Tra le persone da invitare a un corso e tra i valutatori di Mega Code, corsi ed esami compaiono solo quelle con una qualifica prevista dal tipo (oltre all'organizzazione e a chi è già stato invitato al corso).
+- I tipi si gestiscono da Gestione → Ruoli e permessi → Tipi di corso (solo amministratore). Un tipo in uso non si elimina.

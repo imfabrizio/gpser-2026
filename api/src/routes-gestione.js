@@ -1,7 +1,7 @@
 import { notifica } from './notifiche.js';
 import { canonico, norm } from './comitati.js';
 import { enteUtente, regioneDelComitato, sqlRegioneDi } from './enti.js';
-import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO } from './ambito.js';
+import { profiloFormativo, puoGestireEvento, soloFormazione, TIPI_CORSO, tipoCorsoDi, dirittiSuTipo } from './ambito.js';
 import crypto from 'node:crypto';
 // Rotte usate dall'interfaccia di gestione (web/admin.html).
 import { hashPassword } from './auth.js';
@@ -55,6 +55,39 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const { rows: [{ n }] } = await pool.query('select count(*)::int n from utente where ruolo=$1', [r.codice]);
     if (n) throw httpErr(409, `${n} utenti hanno questo ruolo: cambialo prima`);
     await pool.query('delete from ruolo where codice=$1', [r.codice]); return { ok: true };
+  });
+
+  // ── tipi di corso: per ognuno, le qualifiche che possono aprirlo e insegnarvi e quelle che possono valutare (li gestisce l'amministratore) ──
+  const tipoCorsoDaCorpo = async (b) => {
+    const el = (k) => { const l = b?.[k]; if (!Array.isArray(l) || l.some((x) => typeof x !== 'string') || l.length > 30) throw httpErr(400, `${k}: elenco di qualifiche`); return [...new Set(l)]; };
+    const docenti = el('docenti'), valutatori = el('valutatori'), tutte = [...new Set([...docenti, ...valutatori])];
+    const { rows } = await pool.query('select codice, ambito from qualifica where codice = any($1::text[])', [tutte]);
+    if (rows.length !== tutte.length) throw httpErr(400, 'qualifica inesistente');
+    if (docenti.some((c) => !rows.find((q) => q.codice === c).ambito)) throw httpErr(400, 'tra i docenti vanno solo qualifiche di formazione (con ambito locale o nazionale)');
+    if (!docenti.length || !valutatori.length) throw httpErr(400, 'indica almeno una qualifica per i docenti e una per i valutatori');
+    return { docenti, valutatori };
+  };
+  const TIPO_CORSO_SQL = `select t.codice, t.nome, t.docenti, t.valutatori, t.ordine, (select count(*)::int from evento e where e.tipo_corso = t.codice) as corsi from tipo_corso t`;
+  app.get('/api/tipi-corso', { preHandler: soloOrg }, async () => (await pool.query(TIPO_CORSO_SQL + ' order by t.ordine, t.nome')).rows);
+  app.post('/api/tipi-corso', { preHandler: soloAdmin }, async (req) => {
+    const nome = String(req.body?.nome || '').trim().slice(0, 60), codice = slug(nome); if (!codice) throw httpErr(400, 'scrivi il nome del tipo di corso');
+    const t = await tipoCorsoDaCorpo(req.body);
+    try { await pool.query('insert into tipo_corso (codice, nome, docenti, valutatori, ordine) values ($1,$2,$3,$4,(select coalesce(max(ordine),0)+1 from tipo_corso))', [codice, nome, t.docenti, t.valutatori]); }
+    catch (e) { if (e.code === '23505') throw httpErr(409, 'esiste già un tipo di corso con questo nome'); throw e; }
+    return (await pool.query(TIPO_CORSO_SQL + ' where t.codice=$1', [codice])).rows[0];
+  });
+  app.put('/api/tipi-corso/:codice', { preHandler: soloAdmin }, async (req) => {
+    const { rows: [v] } = await pool.query('select nome from tipo_corso where codice=$1', [req.params.codice]); if (!v) throw httpErr(404, 'tipo di corso inesistente');
+    const t = await tipoCorsoDaCorpo(req.body), nome = String(req.body?.nome || v.nome).trim().slice(0, 60) || v.nome;
+    await pool.query('update tipo_corso set nome=$2, docenti=$3, valutatori=$4 where codice=$1', [req.params.codice, nome, t.docenti, t.valutatori]);
+    await pool.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'tipo_corso_modificato','tipo_corso',$2,$3)`, [req.utente.id, req.params.codice, JSON.stringify(t)]);
+    return (await pool.query(TIPO_CORSO_SQL + ' where t.codice=$1', [req.params.codice])).rows[0];
+  });
+  app.delete('/api/tipi-corso/:codice', { preHandler: soloAdmin }, async (req) => {
+    const { rows: [{ n }] } = await pool.query('select count(*)::int n from evento where tipo_corso=$1', [req.params.codice]);
+    if (n) throw httpErr(409, `${n} corsi sono di questo tipo: cambiali prima di eliminarlo`);
+    const { rowCount } = await pool.query('delete from tipo_corso where codice=$1', [req.params.codice]); if (!rowCount) throw httpErr(404, 'tipo di corso inesistente');
+    return { ok: true };
   });
 
   // ── gruppi di ruoli: un gruppo raccoglie più ruoli; chi è nel gruppo li ha tutti ──
@@ -128,15 +161,19 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     return u;
   });
   app.get('/api/giudici', { preHandler: soloOrg }, async (req) => {
-    const q = req.query?.valutatori, lista = !q ? ['giudice', 'giudice_master'] : q === 'megacode' ? VALUTATORI_MEGACODE : [...VALUTATORI_CORSI, 'giudice', 'giudice_master'], elenco = lista.map((x) => `'${x}'`).join(',');   // nei corsi valutano gli istruttori/formatori
+    const q = req.query?.valutatori, UUIDRE = /^[0-9a-f-]{36}$/i;
+    // in un corso, Mega Code o esame valuta chi ha una qualifica prevista dal tipo di corso (oltre all'organizzazione); nelle gare i giudici
+    const tipoEv = UUIDRE.test(req.query?.evento || '') ? await tipoCorsoDi(pool, req.query.evento) : null;
+    const corsoEv = tipoEv ? (await pool.query('select coalesce(corso_id, id) as c from evento where id=$1', [req.query.evento])).rows[0]?.c : null;
+    const lista = tipoEv ? [...tipoEv.valutatori, 'admin', 'organizzazione'] : !q ? ['giudice', 'giudice_master'] : q === 'megacode' ? VALUTATORI_MEGACODE : [...VALUTATORI_CORSI, 'giudice', 'giudice_master'];
     return (await pool.query(`select * from (select id, nome, email, ruolo,
-        array_cat(array_prepend(ruolo, coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id=u.id), '{}')), (select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo in (${elenco}))) as ruoli
+        array_cat(array_prepend(ruolo, coalesce((select array_agg(x.ruolo) from utente_ruolo_extra x where x.utente_id=u.id), '{}')), (select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo = any($4::text[]))) as ruoli
         from utente u where attivo
           -- fuori dalla propria regione si vedono solo i giudici già iscritti a un evento della propria regione (o a uno storico senza ente)
           and ($2::boolean or ${REG_U} is null or ${REG_U} = $3::text or exists (select 1 from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id
                  where pp.utente_id = u.id and not ee.archiviato and i.ruolo in ('giudice','giudice_master') and (ee.livello is null or ee.regione = $3::text)))
-        ) q where ruoli && array[${elenco}] or id in (select utente_id from evento_invito where evento_id = $1 and stato = 'attivo') order by nome`,
-      [/^[0-9a-f-]{36}$/i.test(req.query?.corso || '') ? req.query.corso : null, !!req.utente.admin, (await enteUtente(pool, req.utente)).regione])).rows;   // i trainer e formatori del corso valutano i suoi Mega Code
+        ) q where ruoli && $4::text[] or id in (select utente_id from evento_invito where evento_id = $1 and stato = 'attivo') order by nome`,
+      [corsoEv ?? (UUIDRE.test(req.query?.corso || '') ? req.query.corso : null), !!req.utente.admin, (await enteUtente(pool, req.utente)).regione, lista])).rows;   // i trainer e formatori del corso valutano i suoi Mega Code
   });
 
   // ── assegnazioni giudici → schede ──
@@ -150,9 +187,11 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const ids = req.body?.utenti || [];
     if (!Array.isArray(ids)) throw httpErr(400, 'utenti: elenco di id');
     const { rows: [evs] } = await db.query(`select e.tipo, coalesce(e.corso_id, e.id) as corso from scena_scheda s join scena sc on sc.id=s.scena_id join evento e on e.id=sc.evento_id where s.id=$1`, [req.params.id]); const tipoEv = evs?.tipo, megacode = tipoEv === 'megacode';
-    const ammessi = megacode ? VALUTATORI_MEGACODE : ['corso', 'esame'].includes(tipoEv) ? ['giudice', 'giudice_master', ...VALUTATORI_CORSI] : ['giudice', 'giudice_master'];
-    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (exists (select 1 from evento_invito ei where ei.utente_id=u.id and ei.stato='attivo' and ei.evento_id=$4) or ruolo = any($2::text[]) or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo = any($2::text[])) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo = any($2::text[]) and not $3)) > 0)`, [ids, ammessi, megacode, evs?.corso ?? null]);
-    if (ok.length !== new Set(ids).size) throw httpErr(400, megacode ? 'nei Mega Code valutano solo trainer e formatori TSSA (oltre all\'organizzazione)' : 'solo utenti attivi con ruolo giudice, giudice master o di formazione');
+    const { rows: [idEv] } = await db.query('select sc.evento_id from scena_scheda s join scena sc on sc.id=s.scena_id where s.id=$1', [req.params.id]);
+    const tc = TIPI_CORSO.includes(tipoEv) ? await tipoCorsoDi(db, idEv?.evento_id) : null;                 // formazione: valutano le qualifiche previste dal tipo di corso
+    const ammessi = tc ? [...tc.valutatori, 'admin', 'organizzazione'] : megacode ? VALUTATORI_MEGACODE : ['corso', 'esame'].includes(tipoEv) ? ['giudice', 'giudice_master', ...VALUTATORI_CORSI] : ['giudice', 'giudice_master'];
+    const { rows: ok } = await db.query(`select id from utente u where id = any($1::uuid[]) and attivo and (exists (select 1 from evento_invito ei where ei.utente_id=u.id and ei.stato='attivo' and ei.evento_id=$4) or ruolo = any($2::text[]) or exists (select 1 from utente_ruolo_extra x where x.utente_id=u.id and x.ruolo = any($2::text[])) or cardinality((select coalesce(array_agg(distinct i.ruolo), '{}') from iscrizione i join partecipante pp on pp.id = i.partecipante_id join evento ee on ee.id = i.evento_id where pp.utente_id = u.id and not ee.archiviato and i.ruolo = any($2::text[]) and not $3)) > 0)`, [ids, ammessi, megacode || !!tc, evs?.corso ?? null]);
+    if (ok.length !== new Set(ids).size) throw httpErr(400, tc ? `in un corso «${tc.nome}» valuta solo chi ha una qualifica prevista per quel tipo di corso (oltre all'organizzazione e a chi è stato invitato al corso)` : megacode ? 'nei Mega Code valutano solo trainer e formatori TSSA (oltre all\'organizzazione)' : 'solo utenti attivi con ruolo giudice, giudice master o di formazione');
     await db.query('delete from assegnazione where scheda_id=$1', [req.params.id]);
     for (const u of new Set(ids)) await db.query('insert into assegnazione values ($1,$2)', [req.params.id, u]);
     return { ok: true, assegnati: ids.length };
@@ -406,20 +445,30 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const prof = soloFormazione(req.utente) ? await profiloFormativo(pool, req.utente.id) : null;
     if (!(await puoGestireEvento(pool, req.utente, att, prof))) throw httpErr(403, 'evento fuori dal tuo ambito');
     if (prof && b.tipo && !TIPI_CORSO.includes(b.tipo)) throw httpErr(403, 'tipo di evento non consentito');
-    const cambiaCom = 'comitato' in b && (!prof || prof.nazionale);                      // il comitato organizzatore lo cambia solo chi ha ambito nazionale (o la gestione gare)
+    // tipo di corso: si cambia sul corso (o sull'esame che non appartiene a un corso); chi ha solo la formazione deve avere la qualifica anche per il tipo nuovo
+    let tipoNuovo = null;
+    if ('tipo_corso' in b && b.tipo_corso) {
+      if (!TIPI_CORSO.includes(b.tipo ?? att.tipo) || ('corso_id' in b ? b.corso_id : att.corso_id)) throw httpErr(400, 'il tipo si sceglie sul corso: Mega Code ed esami seguono il corso');
+      ({ rows: [tipoNuovo] } = await pool.query('select codice, nome, docenti, valutatori from tipo_corso where codice=$1', [String(b.tipo_corso)]));
+      if (!tipoNuovo) throw httpErr(400, 'tipo di corso non valido');
+      if (prof) { const d = dirittiSuTipo(prof, tipoNuovo); if (!d.locale && !d.nazionale) throw httpErr(403, `per un corso «${tipoNuovo.nome}» serve una delle qualifiche previste per quel tipo di corso`); }
+    }
+    const cambiaCom = 'comitato' in b && (!prof || dirittiSuTipo(prof, tipoNuovo ?? await tipoCorsoDi(pool, att.id)).nazionale);                      // il comitato organizzatore lo cambia solo chi ha ambito nazionale (o la gestione gare)
     const comitatoNuovo = cambiaCom && b.comitato ? (await canonico(pool, String(b.comitato))).nome : null;
     if (b.soglia_pct != null && b.soglia_pct !== '' && !(Number(b.soglia_pct) >= 1 && Number(b.soglia_pct) <= 100)) throw httpErr(400, 'soglia: percentuale tra 1 e 100');
     if (b.mappa_url && !/^https:\/\/(www\.)?google\.com\/maps\//.test(b.mappa_url.trim())) throw httpErr(400, 'la mappa deve essere un indirizzo https://www.google.com/maps/… (Condividi → Incorpora mappa)');
     const { rows: [e] } = await pool.query(
       `update evento set mappa_url = case when $9 then nullif(trim($10),'') else mappa_url end, codice=coalesce($8,codice), nome=coalesce($2,nome), titolo_stampa=coalesce($3,titolo_stampa), luogo=coalesce($4,luogo),
-         data=coalesce($5::date,data), tipo=coalesce($6,tipo), soglia_pct = case when $11 then $12::numeric else soglia_pct end, mostra_punteggi = coalesce($13::boolean, mostra_punteggi), codice_gaia = case when $14 then nullif(trim($15),'') else codice_gaia end, corso_id = case when $16 then $17::uuid else corso_id end, comitato = case when $18 then $19 else comitato end, archiviato=coalesce($7,archiviato), attivo = case when coalesce($7,archiviato) then false else attivo end, updated_at=now()
+         data=coalesce($5::date,data), tipo=coalesce($6,tipo), soglia_pct = case when $11 then $12::numeric else soglia_pct end, mostra_punteggi = coalesce($13::boolean, mostra_punteggi), codice_gaia = case when $14 then nullif(trim($15),'') else codice_gaia end, corso_id = case when $16 then $17::uuid else corso_id end, comitato = case when $18 then $19 else comitato end, tipo_corso = coalesce($20::text, tipo_corso), archiviato=coalesce($7,archiviato), attivo = case when coalesce($7,archiviato) then false else attivo end, updated_at=now()
        where id=$1 returning *`, [req.params.id, b.nome ?? null, b.titolo_stampa ?? null, b.luogo ?? null, b.data ?? null, b.tipo ?? null, b.archiviato ?? null, b.codice?.trim() || null, 'mappa_url' in b, b.mappa_url ?? '', 'soglia_pct' in b, b.soglia_pct === '' ? null : (b.soglia_pct ?? null), b.mostra_punteggi ?? null,
-       'codice_gaia' in b, b.codice_gaia ?? '', 'corso_id' in b, b.corso_id || null, cambiaCom, comitatoNuovo]);
+       'codice_gaia' in b, b.codice_gaia ?? '', 'corso_id' in b, b.corso_id || null, cambiaCom, comitatoNuovo, tipoNuovo?.codice ?? null]);
     if (!e) throw httpErr(404, 'evento inesistente');
     return e;
   });
   // inviti: un trainer di un altro comitato viene invitato al singolo evento e lo gestisce solo per quello
   const gestisce = async (req) => { const { rows: [e] } = await pool.query('select id, tipo, comitato, corso_id from evento where id=$1', [req.params.id]); if (!e) throw httpErr(404, 'evento inesistente'); if (!(await puoGestireEvento(pool, req.utente, e))) throw httpErr(403, 'evento fuori dal tuo ambito'); return e; };
+  // qualifiche con cui si entra in un corso come docente o valutatore (null = evento senza tipo: vale qualunque qualifica di formazione)
+  const qualificheDelCorso = async (eventoId) => { const t = await tipoCorsoDi(pool, eventoId); return t ? [...new Set([...t.docenti, ...t.valutatori])] : null; };
   const normCom = (c) => String(c || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   app.get('/api/eventi/:id/inviti', { preHandler: soloOrg }, async (req) => { await gestisce(req);
     return (await pool.query(`select i.utente_id, i.stato, u.nome, u.email, (select p.comitato from partecipante p where p.utente_id=u.id) as comitato,
@@ -431,20 +480,21 @@ export function registraGestione(app, pool, { soloOrg, soloAdmin }) {
     const rows = (await pool.query(`select p.id, p.cognome, p.nome, p.comitato,
           (select string_agg(q.nome, ', ' order by q.nome) from persona_qualifica pq join qualifica q on q.codice=pq.qualifica where pq.partecipante_id=p.id and q.ambito is not null) as qualifiche
         from partecipante p
-        where p.utente_id is not null and exists (select 1 from persona_qualifica pq join qualifica q on q.codice=pq.qualifica where pq.partecipante_id=p.id and q.ambito is not null)
-          and p.utente_id not in (select utente_id from evento_invito where evento_id=$1) order by p.comitato nulls last, p.cognome, p.nome`, [req.params.id])).rows;
+        where p.utente_id is not null and exists (select 1 from persona_qualifica pq join qualifica q on q.codice=pq.qualifica where pq.partecipante_id=p.id and q.ambito is not null and ($2::text[] is null or q.codice = any($2::text[])))
+          and p.utente_id not in (select utente_id from evento_invito where evento_id=$1) order by p.comitato nulls last, p.cognome, p.nome`, [req.params.id, await qualificheDelCorso(e.id)])).rows;
     return rows.map((r) => ({ ...r, stesso_comitato: !!ev?.comitato && normCom(r.comitato) === normCom(ev.comitato) })); });
   app.post('/api/eventi/:id/inviti', { preHandler: soloOrg }, async (req) => { const e = await gestisce(req);
     const ids = [].concat(req.body?.partecipanti ?? req.body?.partecipante_id ?? []);
     if (!ids.length || ids.length > 100) throw httpErr(400, 'scegli da 1 a 100 persone');
     const { rows: [ev] } = await pool.query('select nome, comitato from evento where id=$1', [e.id]);
+    const ammesse = await qualificheDelCorso(e.id);
     let attivi = 0, richiesti = 0;
     for (const pid of new Set(ids)) {
       const { rows: [p] } = await pool.query('select id, utente_id, comitato from partecipante where id=$1', [pid]);
       if (!p) throw httpErr(404, 'persona inesistente');
       if (!p.utente_id) throw httpErr(400, 'la persona non ha un accesso al sito: crealo prima dall\'anagrafica');
-      const { rowCount } = await pool.query('select 1 from persona_qualifica pq join qualifica q on q.codice=pq.qualifica where pq.partecipante_id=$1 and q.ambito is not null', [p.id]);
-      if (!rowCount) throw httpErr(400, 'si aggiungono persone con una qualifica di trainer, monitore, formatore o capo monitore');
+      const { rowCount } = await pool.query('select 1 from persona_qualifica pq join qualifica q on q.codice=pq.qualifica where pq.partecipante_id=$1 and q.ambito is not null and ($2::text[] is null or q.codice = any($2::text[]))', [p.id, ammesse]);
+      if (!rowCount) throw httpErr(400, ammesse ? 'si aggiungono persone con una qualifica prevista per questo tipo di corso' : 'si aggiungono persone con una qualifica di trainer, monitore, formatore o capo monitore');
       const stesso = !!ev.comitato && normCom(p.comitato) === normCom(ev.comitato);
       const stato = stesso || req.utente.ruolo === 'admin' || p.utente_id === req.utente.id ? 'attivo' : 'richiesto';
       const { rowCount: nuovo } = await pool.query('insert into evento_invito (evento_id, utente_id, invitato_da, stato) values ($1,$2,$3,$4) on conflict do nothing', [e.id, p.utente_id, req.utente.id, stato]);
