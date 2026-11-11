@@ -146,8 +146,14 @@ export function registraOffline(app, pool, { soloOrg }) {
         if (!UUID.test(i.utente_id || '') || !i.payload) throw httpErr(400, 'invio non valido');
         const { rows: [chk] } = await pool.query('select 1 from scena_scheda s join scena sc on sc.id=s.scena_id where s.id=$1 and sc.evento_id=$2 and sc.offline', [i.payload.scheda_id, b.evento_id]);
         if (!chk) throw httpErr(400, 'scheda non appartenente a una scena offline di questa gara');
+        // si agisce a nome di un'altra persona solo se quella persona lavora davvero su questa scheda: giudice assegnato o master della scena
+        const { rows: [chi] } = await pool.query(
+          `select exists (select 1 from assegnazione a where a.scheda_id=$1 and a.utente_id=$2) as giudice,
+                  exists (select 1 from scena_master m join scena_scheda s on s.scena_id=m.scena_id where s.id=$1 and m.utente_id=$2) as master`, [i.payload.scheda_id, i.utente_id]);
+        if (!chi.giudice && !chi.master) throw httpErr(403, 'la persona indicata non è giudice di questa scheda');
         for (const rip of (i.riaperture || []).slice(0, 20)) {
           if (!UUID.test(rip.master_id || '')) continue;
+          if (!(await pool.query('select 1 from scena_master m join scena_scheda s on s.scena_id=m.scena_id where s.id=$1 and m.utente_id=$2', [i.payload.scheda_id, rip.master_id])).rowCount) throw httpErr(403, 'riapertura non firmata dal giudice master della scena');
           const { rows: [c] } = await pool.query('select id, stato from compilazione where scheda_id=$1 and squadra_id=$2', [i.payload.scheda_id, i.payload.squadra_id]);
           if (c && c.stato !== 'bozza') jsonOk(await chiama(rip.master_id, 'POST', `/api/compilazioni/${c.id}/riapri`, {}));
         }

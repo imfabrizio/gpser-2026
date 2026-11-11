@@ -17,7 +17,7 @@ services:
       - key: TRUST_PROXY
         value: "1"             # dietro il proxy HTTPS di Render: limite login per IP reale
       - key: PUBLIC_URL
-        sync: false            # indirizzo pubblico, es. https://garecri-xxxx.onrender.com (serve per Google/Microsoft)
+        sync: false            # OBBLIGATORIO: indirizzo pubblico https senza / finale, es. https://gpser.fbcri.eu. Senza, il server non parte
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
@@ -29,6 +29,8 @@ services:
       - key: MS_TENANT
         sync: false            # ID (GUID) del tenant Microsoft Entra della tua organizzazione
       - key: RESEND_API_KEY
-        sync: false            # facoltativa: email di avviso per le richieste di accesso
+        sync: false            # email di avviso e codice di verifica dell'indirizzo per chi si registra con password (serve un dominio verificato: NOTIFICA_DA)
+      - key: BACKUP_PASSPHRASE
+        sync: false            # frase che cifra i backup: senza, il database non si scarica né si invia
       - key: NOTIFICA_EMAIL
         sync: false            # dove ricevere l avviso

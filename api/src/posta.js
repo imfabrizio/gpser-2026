@@ -8,4 +8,6 @@ export async function inviaMail(a, oggetto, testo) {
     return r.ok;
   } catch { return false; }          // la mail è un di più: l'esito resta comunque nell'app
 }
-export const URL_BASE = () => process.env.PUBLIC_URL || '';
+import { urlPubblico } from './auth.js';
+export const postaAttiva = () => !!process.env.RESEND_API_KEY;
+export const URL_BASE = () => urlPubblico() || '';

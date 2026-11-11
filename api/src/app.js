@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
-import { firmaToken, leggiToken, verificaPassword, troppiTentativi, registraFallimento, azzeraFallimenti, verificaPasswordFinta } from './auth.js';
+import { firmaToken, leggiToken, verificaPassword, troppiTentativi, registraFallimento, azzeraFallimenti, verificaPasswordFinta, ipCliente, LIMITE_ACCOUNT } from './auth.js';
 import { inTransazione } from './db.js';
 import { sincronizza, riapri, elimina, httpErr } from './services/compilazioni.js';
 import { generaPdfSchede } from './services/stampa.js';
@@ -9,7 +9,7 @@ import { creaDocumento, disegnaScheda } from './pdf/scheda.js';
 import { registraGestione } from './routes-gestione.js';
 import { registraTurni } from './routes-turni.js';
 import { calcolaAvanzamento } from './services/avanzamento.js';
-import { enteUtente, regioneDelComitato, puoVedereEvento, accessoEvento, verificaAccessoEvento, èApprovatore } from './enti.js';
+import { enteUtente, regioneDelComitato, puoVedereEvento, accessoEvento, verificaAccessoEvento, èApprovatore, sqlRegioneDi } from './enti.js';
 import { trovaDoppioni, unisci, ignora } from './services/accorpamenti.js';
 import { confronta, revisioni, proposteRaggruppamento, raggruppa, salvaRevisioneDaScena } from './services/revisioni.js';
 import { proponi, approva, rifiuta, tutteLeRegioni, impostaCondivisione } from './services/promozioni.js';
@@ -50,6 +50,8 @@ import { registraAuth, creaSessione, profilo, mfaObbligatoria, SQL_UTENTE } from
 
 const RUOLI_ORG = ['admin', 'organizzazione'];
 const SKILL_AUTO = ['esame', 'corso', 'megacode'];   // schede con fasce di giudizio calcolate sul numero di voci quando non ne hanno di proprie
+const UUID_CANONICO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PARAMETRI_ID = ['id', 'evento', 'pid', 'scheda', 'utente'];   // parametri di rotta che sono sempre UUID
 const TIPI_EVENTO = ['gara', 'olimpiadi', 'allenamento', 'corso', 'esame', 'megacode', 'corso_giudici'];
 
 export function buildApp(pool, { logger = false, fetchImpl } = {}) {
@@ -57,10 +59,12 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.addHook('onError', async (req, reply, err) => { if (process.env.DEBUG_ERR) console.error('ERR', err); });
 
   // ── sicurezza: intestazioni ──
+  // script solo da file del sito: niente codice scritto nelle pagine né gestori onclick (un testo malevolo finito in pagina non può eseguire nulla)
   app.addHook('onSend', async (req, reply) => {
     if (req.routeOptions?.url?.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
-    reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org; object-src 'none'; frame-src blob:; base-uri 'none'; frame-ancestors 'self'");
+    reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org; object-src 'none'; frame-src blob: https://www.google.com; base-uri 'none'; form-action 'self'; frame-ancestors 'self'");
     reply.header('X-Content-Type-Options', 'nosniff');
+    if (req.protocol === 'https') reply.header('Strict-Transport-Security', 'max-age=31536000');   // dopo la prima visita il browser usa solo HTTPS
     reply.header('Referrer-Policy', 'no-referrer');
   });
 
@@ -69,7 +73,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
 
   // evento a cui appartiene la risorsa richiesta (null se la rotta non è legata a un evento)
   const eventoDellaRotta = async (rotta, params = {}) => {
-    const id = params.id; if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+    const id = params.id; if (!id || !UUID_CANONICO.test(id)) return null;
     const Q = { '/api/eventi/': null, '/api/scene/': 'select evento_id from scena where id=$1', '/api/schede/': 'select sc.evento_id from scena_scheda s join scena sc on sc.id = s.scena_id where s.id=$1',
       '/api/squadre/': 'select evento_id from squadra where id=$1', '/api/iscritti/': 'select evento_id from iscrizione where id=$1', '/api/iscrizioni/': 'select evento_id from iscrizione where id=$1' };
     for (const [pre, q] of Object.entries(Q)) if (rotta.startsWith(pre)) return q ? ((await pool.query(q, [id])).rows[0]?.evento_id ?? null) : id.toLowerCase();
@@ -83,18 +87,26 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     const rotta = req.routeOptions?.url || '';
     let decodificato; try { decodificato = decodeURIComponent(req.url.split('?')[0]); } catch { throw httpErr(400, 'URL non valido'); }
     const api = rotta.startsWith('/api/') || decodificato.startsWith('/api/');
-    if (!api || ['/api/login', '/api/login/mfa', '/api/pubblico', '/api/registrati/inizia', '/api/backup/automatico'].includes(rotta) || rotta.startsWith('/api/auth/')) return;
+    // Gli identificatori nell'indirizzo devono essere UUID in forma canonica: PostgreSQL accetta anche altre scritture
+    // (senza trattini, tra graffe…) che sfuggivano ai controlli fatti qui sul testo e arrivavano comunque al database.
+    if (api) for (const k of PARAMETRI_ID) {
+      const v = req.params?.[k]; if (v === undefined) continue;
+      if (!UUID_CANONICO.test(v)) throw httpErr(400, 'identificativo non valido');
+      req.params[k] = v.toLowerCase();
+    }
+    if (!api ||['/api/login', '/api/login/mfa', '/api/pubblico', '/api/registrati/inizia', '/api/backup/automatico'].includes(rotta) || rotta.startsWith('/api/auth/')) return;
     const t = leggiToken((req.headers.authorization || '').replace(/^Bearer /, ''));
     // I ticket di secondo fattore e i cookie SSO non sono sessioni API.
     if (!t || t.t || t.p || (!t.id && !t.rid)) throw httpErr(401, 'non autenticato');
     if (t.rid) {                                   // sessione di chi non è ancora registrato: solo il modulo di richiesta
       const { rows: [r] } = await pool.query('select * from richiesta_accesso where id=$1 and scade_il > now()', [t.rid]);
       if (!r) throw httpErr(401, 'richiesta scaduta: accedi di nuovo per ripresentarla');
-      if (!['/api/me', '/api/registrazione', '/api/registrazione/mfa', '/api/comitati/cerca'].includes(rotta)) throw httpErr(403, 'accesso in attesa di approvazione');
+      if (!['/api/me', '/api/registrazione', '/api/registrazione/mfa', '/api/registrazione/email', '/api/comitati/cerca'].includes(rotta)) throw httpErr(403, 'accesso in attesa di approvazione');
       req.richiesta = r; return;
     }
     const { rows: [u] } = await pool.query(SQL_UTENTE + ' where u.id=$1 and u.attivo', [t.id]);
     if (!u) throw httpErr(401, 'utente non valido');
+    if (u.sessioni_da && !(t.iat >= new Date(u.sessioni_da).getTime())) throw httpErr(401, 'sessione non più valida: accedi di nuovo');   // nata prima di un cambio password o di un reset
     req.utente = { id: u.id, nome: u.nome, evento_id: u.evento_id, eventi_ammessi: (u.ev_ruoli || []).map((r) => r.evento_id), per_evento: !!u.per_evento, eventi_org: u.ev_org || [], mfa_attiva: u.mfa_attiva, admin: u.admin, aree: u.aree, ruolo_codice: u.ruolo, ruolo: ruoloEffettivo(u), via: t.via || 'pwd' };
     // organizzazione e admin con password devono prima attivare la MFA: fino ad allora solo la pagina di configurazione
     if (mfaObbligatoria(u, req.utente.via) && !(rotta === '/api/me' || rotta.startsWith('/api/mfa'))) throw httpErr(403, 'configura_mfa');
@@ -151,12 +163,12 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.post('/api/login', async (req) => {
     const { email, password } = req.body || {};
     if (typeof email !== 'string' || typeof password !== 'string') throw httpErr(400, 'email e password obbligatorie');
-    const chiave = `${req.ip}|${email.toLowerCase()}`;
-    if (troppiTentativi(chiave)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
+    const mail = email.toLowerCase().slice(0, 200), chiave = `${ipCliente(req)}|${mail}`, chiaveAccount = `acc|${mail}`;
+    if (troppiTentativi(chiave) || troppiTentativi(chiaveAccount, LIMITE_ACCOUNT)) throw httpErr(429, 'troppi tentativi: riprova tra qualche minuto');
     const { rows: [u] } = await pool.query(SQL_UTENTE + ' where lower(u.email)=lower($1) and u.attivo', [email]);
     const ok = u ? verificaPassword(password, u.password_hash) : (verificaPasswordFinta(password), false);   // stesso tempo di risposta
-    if (!ok) { registraFallimento(chiave); throw httpErr(401, 'credenziali errate'); }
-    azzeraFallimenti(chiave);
+    if (!ok) { registraFallimento(chiave); registraFallimento(chiaveAccount); throw httpErr(401, 'credenziali errate'); }
+    azzeraFallimenti(chiave); azzeraFallimenti(chiaveAccount);
     if (u.mfa_attiva) return { mfa: true, ticket: firmaToken({ id: u.id, t: 'mfa' }, 0.1) };   // 6 minuti per inserire il codice
     return creaSessione(u, 'pwd');
   });
@@ -334,14 +346,15 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     if (tipo === 'corso') await pool.query(`insert into evento_invito (evento_id, utente_id, invitato_da, stato) values ($1,$2,$2,'attivo') on conflict do nothing`, [nuovo.id, req.utente.id]);   // chi apre il corso è subito tra i suoi istruttori
     return nuovo;
   });
-  // un solo evento attivo alla volta (nel vecchio sistema se ne potevano attivare due)
-  app.post('/api/eventi/:id/attiva', { preHandler: soloOrg }, async (req) => inTransazione(pool, async (db) => {
-    const { rowCount } = await db.query('select 1 from evento where id=$1 and not archiviato', [req.params.id]);
+  // più eventi possono essere attivi insieme (gare in regioni diverse, molti corsi lo stesso giorno): attivarne uno non tocca gli altri
+  const impostaAttivo = (attivo) => async (req) => {
+    const { rowCount } = await pool.query(`update evento set attivo=$2, updated_at=now() where id=$1 and (not archiviato or not $2)`, [req.params.id, attivo]);
     if (!rowCount) throw httpErr(404, 'evento inesistente o archiviato');
-    await db.query('update evento set attivo=false, updated_at=now() where attivo');
-    await db.query('update evento set attivo=true, updated_at=now() where id=$1', [req.params.id]);
-    return { ok: true };
-  }));
+    await pool.query(`insert into audit_log (utente_id, azione, entita, entita_id) values ($1::uuid,$2,'evento',$3::text)`, [req.utente.id, attivo ? 'evento_attivato' : 'evento_disattivato', req.params.id]);
+    return { ok: true, attivo };
+  };
+  app.post('/api/eventi/:id/attiva', { preHandler: soloOrg }, impostaAttivo(true));
+  app.post('/api/eventi/:id/disattiva', { preHandler: soloOrg }, impostaAttivo(false));
   app.get('/api/eventi/:id/squadre', async (req) =>
     (await pool.query('select id, numero, nome, comitato, attiva, partenza_scena_id from squadra where evento_id=$1 order by numero', [req.params.id])).rows);
   app.post('/api/eventi/:id/squadre', { preHandler: soloOrg }, async (req) => {
@@ -385,11 +398,16 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
     await db.query(`insert into audit_log (utente_id, azione, entita, entita_id, dettaglio) values ($1,'direzione_gara','evento',$2,$3)`, [req.utente.id, req.params.id, JSON.stringify({ utenti: ids })]);
     return { ok: true, direzione: ids.length };
   }));
+  const REG_U = sqlRegioneDi('(select pz.comitato from partecipante pz where pz.utente_id = u.id and pz.comitato is not null limit 1)');   // regione di un utente, dal comitato in anagrafica
   // ── staff della gara: direzione e logistica (ruoli della singola gara). Chi è scelto può essere chiunque abbia un accesso al sito ──
   app.get('/api/eventi/:id/staff', { preHandler: soloOrg }, async (req) => {
     await verificaAccessoEvento(pool, req.utente, req.params.id);
     const q = (t) => pool.query(`select x.utente_id, u.nome, u.email from ${t} x join utente u on u.id=x.utente_id where x.evento_id=$1 order by u.nome`, [req.params.id]);
-    const [dir, log, persone] = await Promise.all([q('evento_direzione'), q('evento_logistica'), pool.query('select id, nome, email from utente where attivo order by nome')]);
+    const [dir, log, persone] = await Promise.all([q('evento_direzione'), q('evento_logistica'), pool.query(
+      // chi si può scegliere: l'amministratore tutti; gli altri le persone della propria regione, quelle senza comitato riconosciuto e chi è già nello staff di questa gara
+      `select u.id, u.nome, u.email from utente u where u.attivo and ($1::boolean or ${REG_U} is null or ${REG_U} = $2::text
+          or exists (select 1 from evento_direzione d where d.evento_id=$3 and d.utente_id=u.id) or exists (select 1 from evento_logistica l where l.evento_id=$3 and l.utente_id=u.id)) order by u.nome`,
+      [!!req.utente.admin, (await enteUtente(pool, req.utente)).regione, req.params.id])]);
     const gruppi = (await pool.query(`select g.codice, g.nome, coalesce(json_agg(ug.utente_id) filter (where ug.utente_id is not null), '[]') as membri from gruppo g left join utente_gruppo ug on ug.gruppo=g.codice group by g.codice, g.nome order by g.nome`)).rows;
     return { direzione: dir.rows, logistica: log.rows, persone: persone.rows, gruppi };
   });
@@ -557,52 +575,63 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   });
   // collega ai canovacci le scene dell'evento che non ne hanno uno: stessa lettera, versione Gara oppure Olimpiadi in base al tipo di evento
   app.post('/api/eventi/:id/collega-canovacci', { preHandler: soloOrg }, async (req) => {
-    const { rows: [e] } = await pool.query('select tipo, codice from evento where id=$1', [req.params.id]); if (!e) throw httpErr(404, 'evento inesistente');
+    const { rows: [e] } = await pool.query('select tipo, codice, regione, comitato from evento where id=$1', [req.params.id]); if (!e) throw httpErr(404, 'evento inesistente');
+    const regEv = e.regione ?? await regioneDelComitato(pool, e.comitato);          // si collegano i canovacci generali, quelli della regione dell'evento e quelli della regione di chi collega
     const ver = e.tipo === 'olimpiadi' ? 'olimpiadi' : e.tipo === 'megacode' ? 'megacode' : 'gara';
     // stessa lettera e stesso codice gara; in mancanza, i canovacci ancora senza codice
     const r = await pool.query(`update scena s set canovaccio_id = x.cid from (
-        select distinct on (s2.id) s2.id as sid, c.id as cid from scena s2 join canovaccio c on c.codice = s2.codice and c.versione = $2 and (c.gara_codice = $3 or c.gara_codice is null)
-         where s2.evento_id=$1 and s2.canovaccio_id is null order by s2.id, (c.gara_codice = $3) desc nulls last) x where s.id = x.sid returning s.codice`, [req.params.id, ver, e.codice]);
+        select distinct on (s2.id) s2.id as sid, c.id as cid from scena s2 join canovaccio c on c.codice = s2.codice and c.versione = $2 and (c.gara_codice = $3 or c.gara_codice is null) and ($4::boolean or c.regione is null or c.regione = $5::text or c.regione = $6::text)
+         where s2.evento_id=$1 and s2.canovaccio_id is null order by s2.id, (c.gara_codice = $3) desc nulls last) x where s.id = x.sid returning s.codice`, [req.params.id, ver, e.codice, !!req.utente.admin, regEv, await regioneMia(req)]);
     return { collegate: r.rows.map((x) => x.codice) };
   });
   // ── canovacci: descrizione completa delle scene (briefing, pazienti, triage, logistica) ──
   app.post('/api/import/canovacci', { preHandler: soloOrg, bodyLimit: 12 * 1024 * 1024 }, async (req) => {
     const files = Array.isArray(req.body?.files) ? req.body.files : [];
     if (!files.length || files.length > 30) throw httpErr(400, 'carica da 1 a 30 file .docx');
+    const regione = await regioneNuovoCanovaccio(req, req.body || {});
     const esiti = [];
     for (const f of files) {
-      try { esiti.push({ file: f.nome, ...(await importaCanovaccio(pool, Buffer.from(String(f.dati || ''), 'base64'), f.nome || '', req.body?.gara_codice)) }); }
+      try { esiti.push({ file: f.nome, ...(await importaCanovaccio(pool, Buffer.from(String(f.dati || ''), 'base64'), f.nome || '', req.body?.gara_codice, regione)) }); }
       catch (e) { esiti.push({ file: f.nome, errore: e.statusCode && e.statusCode < 500 ? e.message : 'file non leggibile' }); }
     }
     return { esiti };
   });
-  app.get('/api/canovacci', { preHandler: soloOrg }, async () => (await pool.query(
-    `select c.id, c.codice, c.versione, c.titolo, c.tempo_min, c.fabbisogno, c.gara_codice, jsonb_array_length(c.dati->'pazienti') as pazienti, c.updated_at,
+  // ── ambito dei canovacci: ogni regione vede e modifica i propri; quelli senza regione sono generali (storici, esempi); l'amministratore vede tutto ──
+  const canovaccioDi = async (req, id) => {
+    const { rows: [c] } = await pool.query('select * from canovaccio where id=$1', [id]);
+    if (!c || (!req.utente.admin && c.regione && c.regione !== await regioneMia(req))) throw httpErr(404, 'canovaccio inesistente');
+    return c;
+  };
+  const regioneNuovoCanovaccio = async (req, b) => {
+    const mia = await regioneMia(req);
+    if (req.utente.admin) return 'regione' in b ? (String(b.regione || '').trim() || null) : mia;     // l'amministratore può crearne di generali (regione vuota) o per un'altra regione
+    if (!mia) throw httpErr(400, 'il tuo comitato non risulta in anagrafica: non so a quale regione assegnare il canovaccio');
+    return mia;
+  };
+  app.get('/api/canovacci', { preHandler: soloOrg }, async (req) => (await pool.query(
+    `select c.id, c.codice, c.versione, c.titolo, c.tempo_min, c.fabbisogno, c.gara_codice, c.regione, jsonb_array_length(c.dati->'pazienti') as pazienti, c.updated_at,
             (select count(*)::int from scena s where s.canovaccio_id = c.id) as scene,
             (select coalesce(array_agg(distinct e.codice order by e.codice), '{}') from scena s join evento e on e.id = s.evento_id where s.canovaccio_id = c.id) as usato_in
-       from canovaccio c order by c.codice, c.versione`)).rows);
-  app.get('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => {
-    const { rows: [c] } = await pool.query('select * from canovaccio where id=$1', [req.params.id]);
-    if (!c) throw httpErr(404, 'canovaccio inesistente'); return c;
-  });
+       from canovaccio c where ($1::boolean or c.regione is null or c.regione = $2::text) order by c.codice, c.versione`, [!!req.utente.admin, await regioneMia(req)])).rows);
+  app.get('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => canovaccioDi(req, req.params.id));
   app.get('/api/canovacci/:id/canovaccio.pdf', { preHandler: soloOrg }, async (req, reply) => {
-    const { rows: [c] } = await pool.query('select * from canovaccio where id=$1', [req.params.id]);
-    if (!c) throw httpErr(404, 'canovaccio inesistente');
+    const c = await canovaccioDi(req, req.params.id);
     const doc = (c.versione === 'megacode' ? creaScenario : creaCanovaccio)(c); const chunks = []; doc.on('data', (x) => chunks.push(x)); const fine = new Promise((r) => doc.on('end', r)); doc.end(); await fine;
     return reply.type('application/pdf').header('Content-Disposition', `inline; filename="canovaccio-${c.codice}-${c.versione}.pdf"`).send(Buffer.concat(chunks));
   });
   // nuovo canovaccio da modulo (Gara, Olimpiadi o scenario di Mega Code) e modifica del suo contenuto
   const fab = (versione, dati) => (versione === 'megacode' ? {} : calcolaFabbisogno(dati));
-  const salvaCanovaccio = async (id, versione, b) => {
+  const salvaCanovaccio = async (req, id, versione, b) => {
     const h = validaIntestazione(b, versione), dati = normalizzaDati(versione, b.dati);
     try {
       if (id) {
         const { rows: [vecchio] } = await pool.query('select dati from canovaccio where id=$1', [id]); if (!vecchio) throw httpErr(404, 'canovaccio inesistente');
         if (versione !== 'megacode' && !Array.isArray(b.dati?.pazienti)) { dati.pazienti = vecchio.dati?.pazienti ?? []; dati.triage = vecchio.dati?.triage ?? []; }
-        const r = await pool.query('update canovaccio set codice=$2, titolo=$3, tempo_min=$4, gara_codice=$5, dati=$6, fabbisogno=$7, updated_at=now() where id=$1 returning id', [id, h.codice, h.titolo, h.tempo, h.gara, dati, fab(versione, dati)]);
+        const r = await pool.query('update canovaccio set codice=$2, titolo=$3, tempo_min=$4, gara_codice=$5, dati=$6, fabbisogno=$7, regione = case when $8 then $9::text else regione end, updated_at=now() where id=$1 returning id',
+          [id, h.codice, h.titolo, h.tempo, h.gara, dati, fab(versione, dati), !!req.utente.admin && 'regione' in b, String(b.regione || '').trim() || null]);
         return { id: r.rows[0].id };
       }
-      const r = await pool.query('insert into canovaccio (codice, versione, titolo, tempo_min, dati, fabbisogno, gara_codice) values ($1,$2,$3,$4,$5,$6,$7) returning id', [h.codice, versione, h.titolo, h.tempo, dati, fab(versione, dati), h.gara]);
+      const r = await pool.query('insert into canovaccio (codice, versione, titolo, tempo_min, dati, fabbisogno, gara_codice, regione) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id', [h.codice, versione, h.titolo, h.tempo, dati, fab(versione, dati), h.gara, await regioneNuovoCanovaccio(req, b)]);
       return { id: r.rows[0].id };
     } catch (e) { if (e.code === '23505') throw httpErr(409, 'esiste già un canovaccio con questa lettera, questo tipo e questo codice evento'); throw e; }
   };
@@ -610,31 +639,32 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   app.post('/api/canovacci/esempi-megacode', { preHandler: soloOrg }, async () => {
     const esempi = JSON.parse(fs.readFileSync(new URL('./dati/megacode-esempio.json', import.meta.url), 'utf8')); let creati = 0;
     for (const e of esempi) {
-      const r = await pool.query(`insert into canovaccio (codice, versione, titolo, tempo_min, dati, fabbisogno, gara_codice) values ($1,'megacode',$2,$3,$4,'{}','MC-ESEMPIO') on conflict ((coalesce(gara_codice, '')), codice, versione) do nothing`,
+      const r = await pool.query(`insert into canovaccio (codice, versione, titolo, tempo_min, dati, fabbisogno, gara_codice) values ($1,'megacode',$2,$3,$4,'{}','MC-ESEMPIO') on conflict ((coalesce(regione, '')), (coalesce(gara_codice, '')), codice, versione) do nothing`,
         [e.codice, e.titolo, e.tempo_min ?? null, normalizzaDati('megacode', e.dati)]); creati += r.rowCount;
     }
     return { creati };
   });
-  app.post('/api/canovacci', { preHandler: soloOrg }, async (req) => salvaCanovaccio(null, req.body?.versione, req.body || {}));
+  app.post('/api/canovacci', { preHandler: soloOrg }, async (req) => salvaCanovaccio(req, null, req.body?.versione, req.body || {}));
   app.put('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => {
-    const { rows: [c] } = await pool.query('select versione from canovaccio where id=$1', [req.params.id]); if (!c) throw httpErr(404, 'canovaccio inesistente');
-    return salvaCanovaccio(req.params.id, c.versione, req.body || {});
+    const c = await canovaccioDi(req, req.params.id);
+    return salvaCanovaccio(req, req.params.id, c.versione, req.body || {});
   });
   // il codice della gara si scrive a mano oppure si ricava dalla gara in cui il canovaccio è già usato
   app.patch('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => {
     const g = String(req.body?.gara_codice ?? '').trim().toUpperCase() || null;
     if (g && !/^[A-Z0-9][A-Z0-9_-]{1,39}$/.test(g)) throw httpErr(400, 'codice gara: lettere, numeri e trattini (es. GPSER-2027)');
+    await canovaccioDi(req, req.params.id);
     try { const r = await pool.query('update canovaccio set gara_codice=$2, updated_at=now() where id=$1 returning id', [req.params.id, g]); if (!r.rowCount) throw httpErr(404, 'canovaccio inesistente'); }
     catch (e) { if (e.code === '23505') throw httpErr(409, 'esiste già un canovaccio di questa scena con quel codice gara'); throw e; }
     return { ok: true, gara_codice: g };
   });
-  app.post('/api/canovacci/codici-mancanti', { preHandler: soloOrg }, async () => {
-    const { rows } = await pool.query(`select c.id, array_agg(distinct e.codice) as cod from canovaccio c join scena s on s.canovaccio_id=c.id join evento e on e.id=s.evento_id where c.gara_codice is null group by c.id having count(distinct e.codice) = 1`);
+  app.post('/api/canovacci/codici-mancanti', { preHandler: soloOrg }, async (req) => {
+    const { rows } = await pool.query(`select c.id, array_agg(distinct e.codice) as cod from canovaccio c join scena s on s.canovaccio_id=c.id join evento e on e.id=s.evento_id where c.gara_codice is null and ($1::boolean or c.regione is null or c.regione = $2::text) group by c.id having count(distinct e.codice) = 1`, [!!req.utente.admin, await regioneMia(req)]);
     let n = 0;
     for (const r of rows) { try { await pool.query('update canovaccio set gara_codice=$2 where id=$1', [r.id, r.cod[0]]); n++; } catch (e) { if (e.code !== '23505') throw e; } }
     return { compilati: n };
   });
-  app.delete('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => { await pool.query('delete from canovaccio where id=$1', [req.params.id]); return { ok: true }; });
+  app.delete('/api/canovacci/:id', { preHandler: soloOrg }, async (req) => { await canovaccioDi(req, req.params.id); await pool.query('delete from canovaccio where id=$1', [req.params.id]); return { ok: true }; });
   app.post('/api/eventi/:id/scene', { preHandler: soloOrg }, async (req) => {
     const { codice, titolo, ordine, sosta } = req.body || {};
     if (!/^[A-Z0-9]{1,3}$/.test(codice || '')) throw httpErr(400, 'codice scena: 1-3 caratteri maiuscoli o cifre');
@@ -1116,7 +1146,7 @@ export function buildApp(pool, { logger = false, fetchImpl } = {}) {
   registraRisorse(app, pool, { inTransazione, soloOrg });
   registraDocumenti(app, pool, { soloOrg });
   registraEsami(app, pool, { soloOrg });
-  registraComitati(app, pool, { soloOrg });
+  registraComitati(app, pool, { soloOrg, soloAdmin });
   registraAi(app, pool, { soloOrg, inTransazione });
 
   app.setErrorHandler((err, req, reply) => {

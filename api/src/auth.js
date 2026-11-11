@@ -1,9 +1,16 @@
 import crypto from 'node:crypto';
+import net from 'node:net';
 
 const secret = () => process.env.JWT_SECRET || 'solo-per-sviluppo-e-test';
 export function verificaConfigurazione() {
   const s = process.env.JWT_SECRET;
   if (!s || s.length < 32) throw new Error('JWT_SECRET mancante o più corto di 32 caratteri: impostalo prima di avviare il server');
+  // l'indirizzo del sito non si ricava mai dalle intestazioni della richiesta (Host si può falsificare): va dichiarato
+  if (!urlPubblico()) throw new Error('PUBLIC_URL mancante o non valido: imposta l\'indirizzo pubblico del sito (es. https://gpser.fbcri.eu) prima di avviare il server');
+}
+export function urlPubblico() {
+  const u = String(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
+  return /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(u) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(u) ? u : null;
 }
 const b64 = (b) => Buffer.from(b).toString('base64url');
 
@@ -20,7 +27,8 @@ export function verificaPassword(pw, stored) {
   return crypto.timingSafeEqual(calc, Buffer.from(h, 'hex'));
 }
 export function firmaToken(payload, ore = 12) {
-  const body = b64(JSON.stringify({ ...payload, exp: Date.now() + ore * 3600e3 }));
+  const ora = Date.now();
+  const body = b64(JSON.stringify({ ...payload, iat: ora, exp: ora + ore * 3600e3 }));
   const sig = crypto.createHmac('sha256', secret()).update(body).digest('base64url');
   return `${body}.${sig}`;
 }
@@ -37,11 +45,19 @@ export function leggiToken(token) {
   } catch { return null; }
 }
 
-// limite ai tentativi di login: 8 errori ogni 15 minuti per coppia ip+email (in memoria, per un solo processo)
+// limite ai tentativi: 8 errori ogni 15 minuti per coppia ip+account e, in più, un tetto per il solo account
+// (LIMITE_ACCOUNT) che non dipende dall'indirizzo: cambiare IP non dà tentativi illimitati. In memoria, per un solo processo.
 const falliti = new Map();
-export function troppiTentativi(chiave) {
+export const LIMITE_ACCOUNT = 20;
+export function troppiTentativi(chiave, massimo = 8) {
   const r = falliti.get(chiave);
-  return !!r && r.n >= 8 && Date.now() - r.t < 15 * 60e3;
+  return !!r && r.n >= massimo && Date.now() - r.t < 15 * 60e3;
+}
+// Indirizzo del client per i limiti. Dietro un proxy che accoda soltanto a X-Forwarded-For (Render) la prima voce la sceglie
+// il client; CF-Connecting-IP lo scrive invece Cloudflare, che su Render sta sempre davanti al servizio.
+export function ipCliente(req) {
+  const cf = process.env.TRUST_PROXY === '1' ? req.headers['cf-connecting-ip'] : null;
+  return typeof cf === 'string' && net.isIP(cf) ? cf : req.ip;
 }
 setInterval(() => { const ora = Date.now(); for (const [k, r] of falliti) if (ora - r.t > 15 * 60e3) falliti.delete(k); }, 5 * 60e3).unref();
 export function registraFallimento(chiave) {

@@ -15,6 +15,9 @@ export async function verificaAccessoEvento(db, utente, eventoId, scrittura = tr
   if (!accesso || (scrittura && accesso !== 'scrittura')) nega();
 }
 
+// la stessa chiave regionale di chiaveRegione(), calcolata in SQL a partire dal nome del comitato scritto in una colonna
+export const sqlRegioneDi = (colonna) => `(select case when k.regione ilike 'trentino%' and k.provincia is not null then k.regione || ' · ' || k.provincia else k.regione end from comitato k where lower(k.nome) = lower(trim(${colonna})) limit 1)`;
+
 // chiave dell'ente regionale di un comitato (null se il comitato non è in elenco)
 export const chiaveRegione = (c) => (!c?.regione ? null : (/^trentino/i.test(c.regione) && c.provincia ? `${c.regione} · ${c.provincia}` : c.regione));
 

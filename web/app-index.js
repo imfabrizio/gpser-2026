@@ -1,0 +1,925 @@
+// Codice della pagina index.html: sta in un file a parte perché la Content-Security-Policy del sito non ammette script scritti dentro le pagine.
+const $ = (s, r = document) => r.querySelector(s);
+const LIV = [['MB','Molto bene'],['BE','Bene'],['SU','Soddisfacente'],['IN','Insufficiente'],['NE','Non eseguito']];   // nessun punteggio: chi inserisce i dati non lo conosce
+const etSill = (t) => t.replace('Soddisfacente', 'Soddisfa&shy;cente').replace('Insufficiente', 'Insuffi&shy;ciente').replace('Sufficiente', 'Suffi&shy;ciente');   // a capo ordinato sui pulsanti stretti del telefono
+const ET3 = { NE: 'Non eseguito', SU: 'Sufficiente', MB: 'Bene' };   // schede a 3 livelli (0-1-2) degli esami
+const TIPO_EV = { gara: 'Gara', olimpiadi: 'Olimpiadi', allenamento: 'Allenamento', corso: 'Corso', esame: 'Esame', megacode: 'Mega Code' };
+const master = () => me && me.ruolo === 'giudice_master';
+let token = localStorage.getItem('token'), me = JSON.parse(localStorage.getItem('me') || 'null');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const org = () => me && ['admin','organizzazione'].includes(me.ruolo);
+
+let OFF = null; const OFFP = import('/offline.js').then((m) => (OFF = m)).catch(() => null);   // modalità offline: pacchetto sul tablet, valutazioni in locale
+async function api(path, opt = {}) {
+  if (OFF && OFF.sessioneAttiva()) { const r = await OFF.apiOffline(path, opt); if (r !== undefined) return r; }   // tablet sbloccato col codice: tutto passa dal pacchetto locale
+  const r = await fetch('/api' + path, { method: opt.method || (opt.body ? 'POST' : 'GET'),
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: opt.body ? JSON.stringify(opt.body) : undefined });
+  if (r.status === 401 && !path.startsWith('/login') && !path.startsWith('/auth/')) { logout(); throw new Error('sessione scaduta'); }
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 403 && j.errore === 'configura_mfa') { location.hash = '#sicurezza'; throw new Error('Per continuare attiva la verifica in due passaggi (MFA)'); }
+  if (!r.ok) throw Object.assign(new Error(j.errore || r.statusText), { stato: r.status, definitivo: r.status >= 400 && r.status < 500 && r.status !== 401 && r.status !== 429 });
+  return j;
+}
+// il PDF si scarica con l'intestazione Authorization: il token non finisce mai nell'indirizzo, nei log o nella cronologia
+async function apriPdf(url) {
+  const w = window.open('', '_blank');
+  try {
+    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).errore || r.statusText);
+    w.location = URL.createObjectURL(await r.blob());
+  } catch (e) { w.close(); alert('PDF non generato: ' + e.message); }
+}
+// il logout NON cancella la coda: i dati non inviati restano legati all'utente e ripartono al suo prossimo accesso
+function logout() { localStorage.removeItem('token'); localStorage.removeItem('me'); token = me = coda = null; window.__meOk = false; location.hash = ''; route(); }
+$('#esci').onclick = logout;
+
+
+// ── mappa del percorso: incorporamento Google My Maps + link a Google Maps per ogni scena ──
+const puntoMaps = (sc) => (sc.lat != null && sc.lng != null ? `${sc.lat},${sc.lng}` : (sc.indirizzo || ''));
+function mappaHtml(ev, scene) {
+  const punti = (scene || []).filter((x) => puntoMaps(x));
+  if (!ev.mappa_url && !punti.length) return '';
+  const q = (x) => encodeURIComponent(puntoMaps(x));
+  const percorso = punti.length >= 2
+    ? `https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=${q(punti[0])}&destination=${q(punti[punti.length - 1])}${punti.length > 2 ? '&waypoints=' + punti.slice(1, -1).map(q).join('%7C') : ''}` : '';
+  return `<div class="card"><strong>Percorso gara</strong>
+    ${ev.mappa_url ? `<iframe class="mappa" src="${esc(ev.mappa_url)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>` : ''}
+    <div class="scene-mappa">${punti.map((x) => `<a href="https://www.google.com/maps/search/?api=1&query=${q(x)}" target="_blank" rel="noopener">📍 Scena ${esc(x.codice)} – ${esc(x.titolo)}</a>`).join('')}
+    ${percorso ? `<br><a class="btn" href="${percorso}" target="_blank" rel="noopener">Apri il percorso in Google Maps</a>` : ''}</div></div>`;
+}
+const km = (a, b) => { const R = Math.PI / 180, dLa = (b.lat - a.lat) * R, dLo = (b.lng - a.lng) * R; const x = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * R) * Math.cos(b.lat * R) * Math.sin(dLo / 2) ** 2; return 12742 * Math.asin(Math.sqrt(x)); };
+async function vistaPubblica() {
+  $('#esci').hidden = true; $('#hhome').hidden = true; $('#titolo').textContent = 'Gare, Olimpiadi e attività formative';
+  let d = { avvisi: [], eventi: [] }; try { d = await api('/pubblico'); } catch { /* offline: resta la pagina base */ }
+  const oggiS = oggi();
+  let pos = null; try { pos = JSON.parse(localStorage.getItem('pos') || 'null'); } catch { /* niente */ }
+  let reg = ''; try { reg = localStorage.getItem('regione') || ''; } catch { /* niente */ }
+  const regioni = [...new Set(d.eventi.map((e) => e.regione).filter(Boolean))].sort();
+  const dist = (e) => (pos && e.lat != null ? km(pos, { lat: Number(e.lat), lng: Number(e.lng) }) : null);
+  const disegna = () => {
+    const lista = d.eventi.filter((e) => !reg || e.regione === reg);
+    const ord = (x, y) => { const a = dist(x), b = dist(y); if (a != null && b != null && a !== b) return a - b; return String(x.data).localeCompare(String(y.data)); };
+    const prossime = lista.filter((e) => e.attivo || (e.data && (e.data_fine || e.data) >= oggiS)).sort(ord);
+    const passate = lista.filter((e) => !prossime.includes(e)).sort((x, y) => String(y.data).localeCompare(String(x.data)));
+    const riga = (e) => { const k = dist(e); return `<div class="notizia"><b>${esc(e.nome)}</b>${e.attivo ? ' · <span class="ok">in corso</span>' : ''}<br><small>${TIPO_EV[e.tipo] || 'Gara'} · ${esc(e.luogo || '')} ${esc(e.data || '')}${k != null ? ` · a circa ${Math.round(k)} km` : ''}</small></div>`; };
+    const attive = prossime.filter((e) => e.attivo);                                   // possono essere più d'una: gare in regioni diverse lo stesso giorno
+    const inCorso = attive.length ? attive.slice(0, 4) : [prossime[0] || lista.find((e) => e.mappa_url || e.scene.length)].filter(Boolean);
+    $('#app').innerHTML = `<div class="card pub" style="text-align:center"><img src="/logo-cri.jpg" alt="Croce Rossa Italiana" style="height:90px">
+        <h2>Gare, Olimpiadi e attività formative</h2><p>Le prossime edizioni, le notizie e il percorso gara.</p><a class="btn" href="#login">Accedi</a> <a class="btn sec" href="#registrati">Registrati</a></div>
+      <div class="card pub"><h2>Prossime edizioni</h2>
+        <div class="riga" style="gap:8px;align-items:end"><div><label>Regione</label><select id="pb_reg"><option value="">Tutte</option>${regioni.map((r) => `<option ${r === reg ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></div>
+          ${navigator.geolocation && d.eventi.some((e) => e.lat != null) ? `<div class="stretto"><button class="btn sec" id="pb_pos">${pos ? 'Aggiorna la mia posizione' : 'Ordina per vicinanza'}</button></div>` : ''}</div>
+        ${prossime.length ? prossime.map(riga).join('') : '<p><small>Nessuna edizione in programma.</small></p>'}</div>
+      <div class="card pub"><h2>Notizie</h2>${d.avvisi.length ? d.avvisi.map((a) => `<div class="notizia"><b>${esc(a.titolo)}</b>${a.testo ? `<br>${esc(a.testo)}` : ''}<br><small>${esc(String(a.created_at).slice(0, 10))}</small></div>`).join('') : '<p><small>Nessuna notizia.</small></p>'}</div>
+      ${inCorso.map((e) => { const m = mappaHtml(e, e.scene); return m && inCorso.length > 1 ? m.replace('<strong>Percorso gara</strong>', `<strong>Percorso gara · ${esc(e.nome)}</strong>`) : m; }).join('')}
+      ${passate.length ? `<div class="card pub"><h2>Edizioni recenti</h2>${passate.map(riga).join('')}</div>` : ''}
+      <p style="text-align:center"><small><a href="/privacy.html">Privacy</a> · <a href="/termini.html">Termini di utilizzo</a></small></p>`;
+    $('#pb_reg').onchange = () => { reg = $('#pb_reg').value; try { localStorage.setItem('regione', reg); } catch { /* niente */ } disegna(); };
+    if ($('#pb_pos')) $('#pb_pos').onclick = () => navigator.geolocation.getCurrentPosition((p) => { pos = { lat: p.coords.latitude, lng: p.coords.longitude }; try { localStorage.setItem('pos', JSON.stringify(pos)); } catch { /* niente */ } disegna(); },
+      () => flashPub('Posizione non disponibile: scegli la tua regione dal menu.'), { timeout: 10000, maximumAge: 3600e3 });
+  };
+  const flashPub = (t) => { const x = document.createElement('div'); x.className = 'msg err'; x.textContent = t; document.body.append(x); setTimeout(() => x.remove(), 6000); };
+  disegna();
+}
+
+// ── chi entra con Google/Microsoft senza essere registrato: modulo di richiesta, poi attesa dell'approvazione ──
+async function vistaRegistrazione() {
+  $('#esci').hidden = false; $('#hhome').hidden = true; $('#hsic').hidden = true; $('#titolo').textContent = 'Richiesta di accesso';
+  const d = await api('/registrazione');
+  const ore = (d.scade_il ? Math.max(0, Math.round((new Date(d.scade_il) - Date.now()) / 3600e3)) : 48);
+  const attesa = () => { $('#app').innerHTML = `<div class="card"><h2>Richiesta inviata</h2>
+    <p>Grazie! L'organizzazione ha ricevuto la tua richiesta e ti abiliterà assegnandoti il ruolo.</p>
+    <p><small>Account: ${esc(d.email)}. Se non viene approvata entro circa ${ore} ore, la richiesta viene cancellata: potrai ripresentarla accedendo di nuovo.</small></p>
+    <button class="btn sec" id="modifica">Modifica la richiesta</button></div>`; $('#modifica').onclick = form; };
+  const form = () => {
+    const tipi = Object.entries(d.tipi);
+    $('#app').innerHTML = `<div class="card"><h2>Chiedi l'accesso</h2>
+      <p>Il tuo account (${esc(d.email)}) non è ancora abilitato. Dicci chi sei: l'organizzazione controlla i dati e ti abilita.</p>
+      <label>Come ti registri?</label>
+      ${tipi.map(([k, v]) => `<label style="display:block;font-size:16px;color:inherit;margin:4px 0"><input type="radio" name="r_t" value="${k}"> ${esc(v)}</label>`).join('')}
+      <div id="r_campi" hidden>
+        <label>Nome</label><input id="r_n" value="${esc(d.nome || '')}" autocomplete="given-name">
+        <label>Cognome</label><input id="r_c" value="${esc(d.cognome || '')}" autocomplete="family-name">
+        <div id="r_sq" hidden><label>Squadra che segui</label><select id="r_s"><option value="">— scegli la squadra —</option>${d.squadre.map((x) => `<option value="${x.id}">${esc(x.nome)}${x.comitato ? ' · ' + esc(x.comitato) : ''} (${esc(x.evento)})</option>`).join('')}</select>
+          ${d.squadre.length ? '' : '<p><small>Nessuna squadra disponibile al momento: riprova più avanti.</small></p>'}</div>
+        <div id="r_co_b" hidden><label id="r_co_l">Comitato di appartenenza</label><input id="r_co" placeholder="es. Comitato di Modena"><input id="r_p" type="hidden"></div>
+        <div id="r_vol" hidden>
+          <label>Data di nascita</label><input id="r_dn" type="date" autocomplete="bday">
+          <label>Luogo di nascita (comune)</label><input id="r_ln" placeholder="es. Modena">
+          <label>Qualifiche CRI (se ne hai; puoi sceglierne più di una)</label>
+          <div>${d.qualifiche.map((q) => `<label style="font-size:15px;color:inherit;display:inline-block;margin:3px 12px 3px 0"><input type="checkbox" class="r_q" value="${esc(q.codice)}"> ${esc(q.nome)}</label>`).join('')}</div>
+          <p><small>Le qualifiche indicate sono una richiesta: valgono solo dopo la verifica dell'organizzazione.</small></p>
+          <label id="r_cf_l">Codice fiscale</label><input id="r_cf" maxlength="16" autocapitalize="characters" style="text-transform:uppercase" autocomplete="off">
+          <p id="r_cf_n"><small>Facoltativo, ma diventa obbligatorio se dichiari una qualifica: serve a verificarla.</small></p>
+        </div>
+      </div>
+      <p class="err" id="r_e" hidden></p>
+      <button class="btn" id="r_go" hidden>Invia richiesta</button></div>`;
+    legaComitato($('#r_co'), { provincia: $('#r_p') });
+    const tipo = () => (document.querySelector('input[name=r_t]:checked') || {}).value;
+    const aggiorna = () => { const t = tipo(); $('#r_campi').hidden = !t; $('#r_go').hidden = !t; $('#r_sq').hidden = t !== 'supporter'; $('#r_co_b').hidden = t === 'supporter' || !t; $('#r_vol').hidden = t !== 'volontario';
+      $('#r_co_l').textContent = t === 'aspirante' ? 'Comitato di riferimento (se ce l\'hai)' : 'Comitato di appartenenza'; };
+    document.querySelectorAll('input[name=r_t]').forEach((i) => { i.onchange = aggiorna; });
+    $('#r_go').onclick = async () => {
+      const e = $('#r_e'); e.hidden = true; $('#r_go').disabled = true;
+      try {
+        await api('/registrazione', { body: { tipo: tipo(), nome: $('#r_n').value, cognome: $('#r_c').value, squadra_id: $('#r_s').value || null, comitato: $('#r_co').value, provincia: $('#r_p').value,
+          data_nascita: $('#r_dn').value || null, luogo_nascita: $('#r_ln').value, codice_fiscale: $('#r_cf').value, qualifiche: [...document.querySelectorAll('.r_q:checked')].map((i) => i.value) } });
+        d.compilata = true; d.scade_il = new Date(Date.now() + 48 * 3600e3).toISOString(); return vistaRegistrazione();
+      } catch (x) { e.textContent = x.message; e.hidden = false; $('#r_go').disabled = false; }
+    };
+  };
+  const passoMfa = () => {
+    $('#app').innerHTML = `<div class="card"><h2>Verifica in due passaggi</h2>
+      <p>1. Scansiona il codice QR con un'app di autenticazione (Microsoft Authenticator, Google Authenticator…).</p><img src="${d.mfa.qr}" alt="QR code" width="220" height="220">
+      <p><small>Non riesci a scansionare? Inserisci a mano questa chiave: <code>${esc(d.mfa.segreto)}</code></small></p>
+      <p>2. Scrivi il codice a 6 cifre che mostra l'app.</p><input id="rm_c" inputmode="numeric" autocomplete="one-time-code" placeholder="123456">
+      <p class="err" id="rm_e" hidden></p><button class="btn" id="rm_go">Conferma</button></div>`;
+    $('#rm_go').onclick = async () => {
+      try {
+        const c = await api('/registrazione/mfa', { body: { codice: $('#rm_c').value } });
+        $('#app').innerHTML = `<div class="card"><h2>Verifica attivata</h2><p><strong>Salva questi codici di recupero.</strong> Servono se perdi il telefono; ognuno vale una sola volta e non verranno più mostrati.</p>
+          <pre style="font-size:18px;line-height:1.7">${c.codici_recupero.join('\n')}</pre><button class="btn" id="rm_ok">Li ho salvati, continua</button></div>`;
+        $('#rm_ok').onclick = () => { vistaRegistrazione(); };
+      } catch (x) { $('#rm_e').textContent = x.message; $('#rm_e').hidden = false; }
+    };
+  };
+  // registrazione con password: prima di compilare il modulo si conferma l'indirizzo con il codice ricevuto per email
+  const passoEmail = () => {
+    $('#app').innerHTML = `<div class="card"><h2>Conferma il tuo indirizzo email</h2>
+      <p>Abbiamo spedito un codice di 6 cifre a <b>${esc(d.email)}</b>. Scrivilo qui per continuare.</p><input id="re_c" inputmode="numeric" autocomplete="one-time-code" placeholder="123456">
+      <p id="re_e" hidden></p><button class="btn" id="re_go">Conferma</button> <button class="btn sec" id="re_ri">Spedisci un nuovo codice</button>
+      <p><small>Non arriva? Controlla la posta indesiderata. Il codice vale 30 minuti.</small></p></div>`;
+    const dico = (t, ok) => { const e = $('#re_e'); e.className = ok ? 'ok' : 'err'; e.textContent = t; e.hidden = false; };
+    $('#re_go').onclick = async () => { try { await api('/registrazione/email', { body: { codice: $('#re_c').value } }); vistaRegistrazione(); } catch (x) { dico(x.message, false); } };
+    $('#re_ri').onclick = async () => { try { await api('/registrazione/email', { body: { rinvia: true } }); dico('Nuovo codice spedito.', true); } catch (x) { dico(x.message, false); } };
+  };
+  return d.mfa ? passoMfa() : d.verifica_email ? passoEmail() : d.compilata ? attesa() : form();
+}
+
+// ── registrazione con email e password: crea la richiesta con password e secondo fattore, poi si compila lo stesso modulo del primo accesso con Google ──
+async function vistaRegistrati(msg = '') {
+  $('#esci').hidden = true; $('#hhome').hidden = false; $('#hsic').hidden = true; $('#titolo').textContent = 'Registrati';
+  const cfg = await api('/auth/config').catch(() => ({}));
+  $('#app').innerHTML = `<div class="card"><h2>Registrati</h2>
+    <p>Crea il tuo account in tre passi: email e password, verifica in due passaggi, dati personali. L'accesso si attiva quando l'organizzazione approva la richiesta.</p>
+    ${cfg.google || cfg.microsoft ? `<p><small>Preferisci Google o Microsoft? <a href="#login">Accedi con il tuo account</a>: al primo accesso trovi lo stesso modulo.</small></p>` : ''}
+    <label>Email</label><input id="rg_e" type="email" autocomplete="username">
+    <label>Password (almeno 8 caratteri)</label><input id="rg_p" type="password" autocomplete="new-password">
+    <label>Ripeti la password</label><input id="rg_p2" type="password" autocomplete="new-password">
+    <p class="err" id="rg_m">${esc(msg)}</p><button class="btn" id="rg_go">Continua</button>
+    <p><small>Hai già un account? <a href="#login">Accedi</a> · <a href="/privacy.html">Privacy</a></small></p></div>`;
+  $('#rg_go').onclick = async () => {
+    if ($('#rg_p').value !== $('#rg_p2').value) { $('#rg_m').textContent = 'Le due password non coincidono'; return; }
+    $('#rg_go').disabled = true;
+    try { await avviaSessione(await api('/registrati/inizia', { body: { email: $('#rg_e').value, password: $('#rg_p').value } })); }
+    catch (e) { $('#rg_m').textContent = e.message; $('#rg_go').disabled = false; }
+  };
+}
+
+const ERR_SSO = { non_autorizzato: 'Questo account non è abilitato: chiedi all\'organizzazione di registrare la tua email.', email_non_verificata: 'Email del provider non verificata.', sessione: 'Sessione di accesso scaduta: riprova.', provider: 'Il provider non ha risposto: riprova.', token: 'Risposta del provider non valida.', tenant: 'Account di un\'altra organizzazione.', non_configurato: 'Accesso non configurato.' };
+async function avviaSessione(r) {
+  if (r.mfa) return vistaLogin('', r.ticket);
+  token = r.token; me = r.utente; localStorage.setItem('token', token); localStorage.setItem('me', JSON.stringify(me));
+  if (me.in_attesa) { window.__meOk = false; location.hash = ''; return route(); }
+  await preparaCoda(); location.hash = me.mfa_da_configurare ? '#sicurezza' : ''; await route(); window.Barra && Barra.disegna('index');
+}
+const LOGO_GOOGLE = '<svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
+const LOGO_MS = '<svg viewBox="0 0 21 21" width="20" height="20" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#F25022"/><rect x="11" y="1" width="9" height="9" fill="#7FBA00"/><rect x="1" y="11" width="9" height="9" fill="#00A4EF"/><rect x="11" y="11" width="9" height="9" fill="#FFB900"/></svg>';
+async function vistaLogin(msg = '', ticketIniziale = null) {
+  $('#esci').hidden = true; $('#hhome').hidden = false; $('#hsic').hidden = true;
+  const cfg = await api('/auth/config').catch(() => ({}));
+  $('#app').innerHTML = `<div class="card"><h2>Accesso</h2>
+    ${cfg.google || cfg.microsoft ? `<div class="sso">${cfg.google ? `<a class="sso-btn" href="/api/auth/google/inizio">${LOGO_GOOGLE}<span>Accedi con Google</span></a>` : ''}${cfg.microsoft ? `<a class="sso-btn" href="/api/auth/microsoft/inizio">${LOGO_MS}<span>Accedi con Microsoft</span></a>` : ''}</div><p><small>oppure con email e password</small></p>` : ''}
+    <div id="passo1"><label>Email</label><input id="em" type="email" autocomplete="username">
+    <label>Password</label><input id="pw" type="password" autocomplete="current-password">
+    <button class="btn" id="go">Entra</button></div>
+    <p><small>Non hai ancora un account? <a href="#registrati"><strong>Registrati</strong></a></small></p>
+    <p><small><a href="/privacy.html">Privacy</a> · <a href="/termini.html">Termini di utilizzo</a></small></p>
+    <div id="passo2" hidden><p>Inserisci il codice a 6 cifre dell'app di autenticazione (o un codice di recupero).</p>
+    <input id="cod" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"><button class="btn" id="go2">Conferma</button></div>
+    <p id="msg" class="err">${esc(msg)}</p></div>`;
+  $('#pw').onkeydown = (e) => { if (e.key === 'Enter') $('#go').click(); };
+  $('#cod').onkeydown = (e) => { if (e.key === 'Enter') $('#go2').click(); };
+  let ticketMfa = ticketIniziale;
+  if (ticketMfa) { $('#passo1').hidden = true; $('#passo2').hidden = false; $('#cod').focus(); }
+  $('#go').onclick = async () => {
+    try {
+      const r = await api('/login', { body: { email: $('#em').value, password: $('#pw').value } });
+      if (r.mfa) { ticketMfa = r.ticket; $('#passo1').hidden = true; $('#passo2').hidden = false; $('#cod').focus(); $('#msg').textContent = ''; return; }
+      await avviaSessione(r);
+    } catch (e) { $('#msg').textContent = e.message; }
+  };
+  $('#go2').onclick = async () => {
+    try { await avviaSessione(await api('/login/mfa', { body: { ticket: ticketMfa, codice: $('#cod').value } })); } catch (e) { $('#msg').textContent = e.message; }
+  };
+}
+// ── sicurezza: verifica in due passaggi (MFA) ──
+async function vistaSicurezza() {
+  $('#esci').hidden = false; $('#hhome').hidden = !!(me && me.mfa_da_configurare); $('#titolo').textContent = 'Il mio account';
+  const st = await api('/mfa');
+  const conAi = (me.aree || []).some((a) => ['schede', 'formazione_esame'].includes(a)) || me.admin;
+  const ai = conAi ? await api('/ai/stato').catch(() => null) : null;
+  const obbl = me && me.mfa_da_configurare;
+  $('#app').innerHTML = `${obbl ? '<div class="avviso"><strong>Per continuare devi attivare la verifica in due passaggi.</strong> Serve un\'app di autenticazione (Microsoft Authenticator, Google Authenticator, …).</div>' : ''}
+    <div class="card"><h2>${esc(me.nome)}</h2><p>${esc(me.email || '')}</p><p><small>Ruolo: ${esc(me.ruolo_nome || me.ruolo_codice || me.ruolo)}${me.admin ? ' · amministratore' : ''}</small></p></div>
+    ${obbl ? '' : '<div id="widget-ed"></div>'}
+    <div class="card"><h2>Password</h2><p><small>Se accedi solo con Google o Microsoft non hai una password del sito.</small></p>
+      <label>Password attuale</label><input id="pw0" type="password" autocomplete="current-password"><label>Nuova password (min. 8 caratteri)</label><input id="pw1" type="password" autocomplete="new-password">
+      <button class="btn" id="pwok">Cambia password</button><p id="pwmsg" class="err"></p></div>
+    <div class="card"><h2>Verifica in due passaggi (MFA)</h2>
+    ${st.attiva ? `<p class="ok"><strong>Attiva.</strong> Codici di recupero rimasti: ${st.recupero_rimasti}.</p>
+      ${st.obbligatoria ? '' : ''}<label>Per disattivarla inserisci un codice</label><input id="dc" inputmode="numeric" placeholder="123456"><button class="btn sec" id="dis">Disattiva</button>`
+    : `<p>Non attiva. Aggiunge un codice temporaneo all'accesso con password.</p><button class="btn" id="ini">Attiva MFA</button><div id="conf"></div>`}
+    <p id="msg" class="err"></p></div>
+    ${ai ? `<div class="card"><h2>Chiavi AI personali</h2><p><small>Per generare schede con la tua chiave (Claude, ChatGPT o Gemini). Restano cifrate sul sito e non si possono rivedere: per cambiarle, salvane una nuova. ${ai.predefinito ? 'Se non ne metti, si usa Gemini del sito.' : ''}</small></p>
+      <p>${['gemini', 'anthropic', 'openai'].map((k) => `<span class="tag ${ai.personali.includes(k) ? 'ok' : ''}">${{ gemini: 'Gemini', anthropic: 'Claude', openai: 'ChatGPT' }[k]}: ${ai.personali.includes(k) ? 'salvata <a href="#" class="kdel" data-p="${k}">togli</a>' : 'nessuna'}</span>`).join(' ')}</p>
+      <label>Servizio</label><select id="k_p"><option value="gemini">Gemini</option><option value="anthropic">Claude</option><option value="openai">ChatGPT</option></select><label>Chiave</label><input id="k_k" type="password" autocomplete="off">
+      <button class="btn" id="k_ok">Salva chiave</button><p id="kmsg" class="err"></p></div>` : ''}
+    <div class="card"><strong>Accesso con provider esterni</strong><p>${st.identita.length ? 'Collegato a: ' + st.identita.map(esc).join(', ') : 'Nessun provider collegato. Si collega al primo accesso con Google o Microsoft, se la tua email è quella registrata.'}</p></div>
+    ${obbl ? '' : '<a class="btn sec" href="#">Home</a>'}`;
+  if ($('#widget-ed')) Widget.editor($('#widget-ed'), (pref) => { me.preferenze = pref; });
+  $('#pwok').onclick = async () => { try { const r = await api('/me/password', { body: { attuale: $('#pw0').value, nuova: $('#pw1').value } }); if (r.token) { token = r.token; localStorage.setItem('token', token); }   /* le altre sessioni decadono: questa continua con il token nuovo */ $('#pw0').value = $('#pw1').value = ''; $('#pwmsg').className = 'ok'; $('#pwmsg').textContent = 'Password cambiata. Gli altri dispositivi dovranno accedere di nuovo.'; } catch (e) { $('#pwmsg').className = 'err'; $('#pwmsg').textContent = e.message; } };
+  if ($('#k_ok')) $('#k_ok').onclick = async () => { try { await api('/me/chiavi-ai', { method: 'PUT', body: { provider: $('#k_p').value, chiave: $('#k_k').value } }); vistaSicurezza(); } catch (e) { $('#kmsg').textContent = e.message; } };
+  document.querySelectorAll('.kdel').forEach((a) => { a.onclick = async (e) => { e.preventDefault(); await api('/me/chiavi-ai/' + a.dataset.p, { method: 'DELETE' }); vistaSicurezza(); }; });
+  if ($('#ini')) $('#ini').onclick = async () => {
+    try {
+      const r = await api('/mfa/inizia', { body: {} });
+      $('#ini').hidden = true;
+      $('#conf').innerHTML = `<p>1. Scansiona il codice QR con l'app di autenticazione.</p><img src="${r.qr}" alt="QR code" width="220" height="220">
+        <p><small>Non riesci a scansionare? Inserisci a mano questa chiave: <code>${esc(r.segreto)}</code></small></p>
+        <p>2. Scrivi il codice a 6 cifre che mostra l'app.</p><input id="cc" inputmode="numeric" placeholder="123456"><button class="btn" id="cf">Conferma e attiva</button>`;
+      $('#cf').onclick = async () => {
+        try {
+          const c = await api('/mfa/conferma', { body: { codice: $('#cc').value } });
+          me = await api('/me'); localStorage.setItem('me', JSON.stringify(me));
+          $('#app').innerHTML = `<div class="card"><h2>MFA attiva</h2><p><strong>Salva questi codici di recupero.</strong> Servono se perdi il telefono; ognuno vale una sola volta e non verranno più mostrati.</p>
+            <pre style="font-size:18px;line-height:1.7">${c.codici_recupero.join('\n')}</pre><button class="btn" id="ok">Li ho salvati</button></div>`;
+          $('#ok').onclick = () => { location.hash = ''; route(); };
+        } catch (e) { $('#msg').textContent = e.message; }
+      };
+    } catch (e) { $('#msg').textContent = e.message; }
+  };
+  if ($('#dis')) $('#dis').onclick = async () => {
+    try { await api('/mfa/disattiva', { body: { codice: $('#dc').value } }); me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); vistaSicurezza(); } catch (e) { $('#msg').textContent = e.message; }
+  };
+}
+
+// gara corrente: chi è legato a una gara resta in quella; organizzazione e admin scelgono dal menu
+async function garaCorrente() {
+  const tutti = await api('/eventi');
+  const form = org() && localStorage.getItem('mondo') === 'formazione', chiave = form ? 'evF' : 'ev';   // nel mondo Formazione si valutano Mega Code, corsi ed esami
+  const base = org() ? tutti.filter((e) => (form ? ['megacode', 'corso', 'esame'] : ['gara', 'olimpiadi', 'allenamento', 'corso_giudici']).includes(e.tipo) && !(form && e.archiviato)) : tutti;
+  const eventi = form ? base.filter((e) => e.tipo !== 'megacode') : base;     // i Mega Code stanno dentro il corso, non negli elenchi
+  const figli = form ? base.filter((e) => e.tipo === 'megacode') : [];
+  let ev = null;
+  ev = base.find((e) => e.id === localStorage.getItem(chiave));   // l'ultima scelta vale per tutti, non solo per l'organizzazione
+  ev = ev || base.find((e) => e.id === me.evento_id) || eventi.find((e) => e.attivo) || eventi[0] || null;
+  if (ev) localStorage.setItem(chiave, ev.id);
+  window.__ev = ev;
+  return { ev, eventi, figli };
+}
+const ICONE = {"libreria": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 3h9l4 4v14H6z\"/><path d=\"M14 3v5h5M9 13h7M9 17h7\"/></svg>", "esami": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 9l10-5 10 5-10 5z\"/><path d=\"M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5\"/><path d=\"M22 9v6\"/></svg>", "documenti": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5\"/><path d=\"M9 8h7M9 12h7\"/></svg>", "valutazione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8l1.5 1.5L13 7M9 14l1.5 1.5L13 13M15 8h1M15 14h1\"/></svg>", "gestione": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2\"/></svg>", "monitor": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12h4l3-7 4 14 3-7h4\"/></svg>"};
+const oggi = () => new Date().toISOString().slice(0, 10);
+const statoGara = (e) => (e.attivo ? 'in corso' : (e.data && e.data > oggi() ? 'prossima' : 'passata'));
+function menuGare(eventi, corrente) {
+  if (corrente && corrente.tipo === 'megacode') corrente = eventi.find((e) => e.id === corrente.corso_id) || corrente;   // un Mega Code si sceglie dentro il suo corso
+  const gruppi = [['In corso', eventi.filter((e) => statoGara(e) === 'in corso')], ['Prossime', eventi.filter((e) => statoGara(e) === 'prossima')], ['Passate', eventi.filter((e) => statoGara(e) === 'passata')]];
+  return `<select id="selgara">${gruppi.filter(([, l]) => l.length).map(([n, l]) => `<optgroup label="${n}">${l.map((e) => `<option value="${e.id}" ${corrente && e.id === corrente.id ? 'selected' : ''}>${esc(e.nome)} · ${esc(e.luogo || '')} ${esc(e.data || '')}</option>`).join('')}</optgroup>`).join('')}</select>`;
+}
+async function vistaHome() { await vistaHome0(); window.Barra && Barra.disegna('index'); window.Layout && Layout.disegna(); }
+async function vistaHome0() {
+  $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'CRI Eventi';
+  const aree = me.aree || [];
+  const soloFormazione = org() && !me.admin && aree.every((a) => ['esami', 'formazione_esame', 'valutazione'].includes(a)) && !aree.includes('valutazione');   // es. istruttore con solo Esami
+  const widgetHome = '<div class="sezione-home solo-stretto"><h3>Per te</h3><div id="widgets"></div></div>';   // sui telefoni e schermi stretti non c'è la colonna di destra: i widget stanno qui
+  const tileF = (href, ico, titolo, desc) => `<a class="tile" href="${href}"><i class="ico">${ICONE[ico]}</i><b>${titolo}</b><span>${desc}</span></a>`;
+  const formazione = `<div class="sezione-home"><h3>Formazione</h3><div class="tiles">
+      ${org() ? tileF('#valutazione', 'valutazione', 'Valutazioni', 'Inizia la valutazione di un Mega Code o di un corso') : ''}
+      ${aree.includes('esami') ? tileF('/esami.html', 'esami', 'Esami', 'Sessioni d\'esame e valutazioni') : ''}
+      ${aree.includes('formazione_esame') ? tileF('/admin.html#corsi.libreria', 'libreria', 'Schede d\'esame', 'Skill e schede dei Mega Code') : ''}
+      ${tileF('#documenti', 'documenti', 'Documentazione', 'Regolamento, comunicazioni, manuali')}</div></div>`;
+  // due mondi: chi ha accesso a entrambi sceglie all'ingresso; ciascuno vede solo le proprie cose
+  const haForm = org() && (me.admin || aree.some((a) => ['esami', 'formazione_esame'].includes(a))), haGara = !soloFormazione;
+  const haComune = org() && (me.admin || aree.includes('anagrafiche'));
+  const tileComune = haComune ? tileF('/admin.html#hub:comune', 'documenti', 'Gestione comune', 'Persone e accessi, comitati, ruoli e permessi') : '';
+  let mondo = haGara && haForm ? localStorage.getItem('mondo') : (haForm ? 'formazione' : 'gara');
+  const cambia = '';   // l'area si cambia dal menu in alto
+  if (org() && (haForm || haComune) && ['gara', 'formazione'].includes(mondo) && window.Barra) $('#titolo').textContent = Barra.titolo(mondo);
+  const legaCambia = () => { if ($('#cambia_area')) $('#cambia_area').onclick = (e) => { e.preventDefault(); localStorage.removeItem('mondo'); vistaHome(); }; };
+  if (haGara && haForm && !['gara', 'formazione'].includes(mondo)) {
+    $('#app').innerHTML = `<div class="sezione-home"><div class="tiles">${tileF('#', 'gestione', 'Gare e Olimpiadi', 'Gare, allenamenti, scene, schede e classifiche').replace('<a class="tile" href="#"', '<a class="tile" href="#" data-m="gara"')}
+      ${tileF('#', 'esami', 'Formazione', 'Corsi, Mega Code, esami e schede d\'esame').replace('<a class="tile" href="#"', '<a class="tile" href="#" data-m="formazione"')}${tileComune}</div></div>`;
+    document.querySelectorAll('[data-m]').forEach((a) => { a.onclick = (e) => { e.preventDefault(); localStorage.setItem('mondo', a.dataset.m); vistaHome(); }; });
+    return;
+  }
+  if (mondo === 'formazione') {
+    try { localStorage.setItem('mondo', 'formazione'); } catch { /* ignora */ }
+    $('#app').innerHTML = `${cambia}${formazione.replace('<h3>Formazione</h3><div class="tiles">', '<h3>Formazione</h3><div class="tiles">' + (org() ? tileF('/admin.html#hub:corsi', 'gestione', 'Gestione', 'Corsi, scene, equipaggi, notizie') : ''))}${widgetHome}`;
+    Widget.disegna($('#widgets'), { mondo: 'formazione' });
+    legaCambia(); return;
+  }
+  if (soloFormazione) { $('#app').innerHTML = formazione; return; }
+  const { ev, eventi } = await garaCorrente();
+  if (!ev) { $('#app').innerHTML = '<div class="card">Nessuna gara.' + (org() ? ' <a class="btn" href="/admin.html#hub:gara">Vai a Gestione per crearne una</a>' : ' Chiedi all\'organizzazione di assegnartene una.') + '</div>' + cambia; legaCambia(); return; }
+  const scene = await api(`/eventi/${ev.id}/scene`).catch(() => []);
+  const tipoGara = TIPO_EV[ev.tipo] || 'Gara';
+  const gestioneGara = org() && aree.some((a) => !['valutazione', 'accompagnatore', 'esami', 'formazione_esame'].includes(a));
+  const tileGara = (aree.includes('valutazione') ? tileF('#valutazione', 'valutazione', 'Valutazione', 'Inizia a valutare: scegli gara, scena e squadra') : '')
+    + (aree.includes('accompagnatore') || org() || master() ? tileF('#accompagnatore', 'monitor', 'Accompagnatore', 'Segna le squadre in attesa davanti alle scene') : '')
+    + (org() || (me.logistica || []).length ? tileF('#materiali', 'libreria', 'Materiali', 'Cosa serve in ogni scena e cosa è già pronto') : '')
+    + (org() || (me.logistica || []).length ? tileF('#sopralluogo', 'monitor', 'Sopralluogo', 'Percorso e posizione delle scene sulla mappa') : '')
+    + (org() || aree.includes('valutazione') ? tileF('#offline', 'monitor', 'Offline', 'Prepara un tablet per le scene senza rete e sincronizza') : '')
+    + (gestioneGara ? tileF('/admin.html#hub:gara', 'gestione', 'Gestione', 'Scene, schede, squadre, classifiche') : '')
+    + (gestioneGara && aree.includes('classifiche') ? tileF('#monitor', 'monitor', 'Monitor', 'Avanzamento delle schede') : '');
+  $('#app').innerHTML = `${cambia}${tileGara.trim() ? `<div class="sezione-home"><h3>Gara</h3><div class="tiles">${tileGara}</div></div>` : ''}
+    ${mappaHtml(ev, scene)}
+    ${widgetHome}`;
+  legaCambia(); Widget.disegna($('#widgets'), { mondo: 'gara' });
+  if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem(org() && localStorage.getItem('mondo') === 'formazione' ? 'evF' : 'ev', $('#selgara').value); vistaHome(); };
+  const cc = coda.conta();
+  if (cc.inCoda || cc.rifiutate) {
+    const rif = coda.elencoRifiutate();
+    $('#app').insertAdjacentHTML('beforeend', `<div class="card"><strong>Dati sul dispositivo</strong><br>
+      ${cc.inCoda ? `${cc.inCoda} modifiche non ancora inviate. ` : ''}${rif.length ? `${rif.length} invii rifiutati dal server:<ul>${rif.map(r => `<li>${esc(r.errore)}</li>`).join('')}</ul>` : ''}
+      <button class="btn" id="invia-ora">Invia ora</button> ${rif.length ? '<button class="btn sec" id="ripristina">Riprova i rifiutati</button>' : ''} <span id="esito"></span></div>`);
+    $('#invia-ora').onclick = async () => { const r = await coda.svuota(); $('#esito').textContent = r.ok ? 'Inviato' : r.errori.join('; '); setTimeout(vistaHome, 1200); };
+    if ($('#ripristina')) $('#ripristina').onclick = () => { coda.riprovaRifiutate(); vistaHome(); };
+  }
+}
+
+// scelta di scena, scheda e squadra della gara corrente
+async function vistaSelezione() {
+  $('#esci').hidden = false; $('#hhome').hidden = false;
+  let { ev, eventi, figli } = await garaCorrente();
+  if (!ev) { location.hash = ''; return; }
+  const corso = ev.tipo === 'megacode' ? eventi.find((e) => e.id === ev.corso_id) : ev, mcDelCorso = corso ? figli.filter((m) => m.corso_id === corso.id) : [];
+  if (ev.tipo === 'corso' && mcDelCorso.length) ev = mcDelCorso[0];            // scelto il corso si valuta il suo Mega Code (il primo, se ce ne sono più di uno)
+  $('#titolo').textContent = 'Valutazione';
+  const [scene, squadre] = await Promise.all([api(`/eventi/${ev.id}/scene`), api(`/eventi/${ev.id}/squadre`)]);
+  const scAvail = scene.filter(s => s.schede && s.schede.length);
+  const nonArch = eventi.filter((e) => !e.archiviato || e.id === ev.id), titoloCorso = corso && corso.id !== ev.id ? corso : null;
+  $('#app').innerHTML = `<div class="card"><strong>${esc(titoloCorso ? titoloCorso.nome : ev.nome)}</strong><br><small>${esc((titoloCorso || ev).luogo || '')} ${esc((titoloCorso || ev).data || '')}</small>
+    ${nonArch.length > 1 ? `<label>${titoloCorso || ev.tipo === 'corso' ? 'Corso' : 'Evento'}</label>${menuGare(nonArch, ev)}` : ''}
+    ${mcDelCorso.length > 1 ? `<label>Mega Code</label><select id="selmc">${mcDelCorso.map((m) => `<option value="${m.id}" ${m.id === ev.id ? 'selected' : ''}>${esc(m.nome)}</option>`).join('')}</select>` : ''}
+    <label>Scena</label><select id="sc">${scAvail.map((s, i) => `<option value="${i}">${esc(s.codice)} – ${esc(s.titolo)}</option>`).join('')}</select>
+    <label>Scheda</label><select id="sk"></select>
+    <label>Squadra</label><select id="sq">${squadre.filter(s => s.attiva).map(s => `<option value="${s.id}">${s.numero} – ${esc(s.nome)}</option>`).join('')}</select>
+    <button class="btn" id="avvia">Inizia valutazione</button> <a class="btn sec" href="#">Home</a></div>`;
+  if ($('#selgara')) $('#selgara').onchange = () => { localStorage.setItem(org() && localStorage.getItem('mondo') === 'formazione' ? 'evF' : 'ev', $('#selgara').value); vistaSelezione(); };
+  if ($('#selmc')) $('#selmc').onchange = () => { localStorage.setItem('evF', $('#selmc').value); vistaSelezione(); };
+  const chiaveSel = `selezione_${me.id}_${ev.id}`;   // l'ultima scelta resta anche tornando indietro e dopo un riavvio
+  let ultima = {}; try { ultima = JSON.parse(localStorage.getItem(chiaveSel) || '{}'); } catch { /* ignora */ }
+  const salvaSel = () => { try { localStorage.setItem(chiaveSel, JSON.stringify({ scena: scAvail[$('#sc').value]?.id, scheda: $('#sk').value, squadra: $('#sq').value })); } catch { /* ignora */ } };
+  const aggSchede = () => { const s = scAvail[$('#sc').value]; $('#sk').innerHTML = (s ? s.schede : []).map(k => `<option value="${k.id}">${esc(k.titolo)}</option>`).join(''); };
+  const iScena = scAvail.findIndex(s => s.id === ultima.scena); if (iScena >= 0) $('#sc').value = String(iScena);
+  aggSchede();
+  if ([...$('#sk').options].some(o => o.value === ultima.scheda)) $('#sk').value = ultima.scheda;
+  if ([...$('#sq').options].some(o => o.value === ultima.squadra)) $('#sq').value = ultima.squadra;
+  if (!org() && !master() && scAvail.length === 1 && scAvail[0].schede.length === 1) {   // una sola postazione assegnata: niente scelte inutili
+    const sc = scAvail[0]; $('#sc').closest('.card').insertAdjacentHTML('afterbegin', `<div class="avviso"><strong>La tua postazione</strong><br>Scena ${esc(sc.codice)} – ${esc(sc.titolo)}<br>${esc(sc.schede[0].titolo)}</div>`);
+    for (const id of ['sc', 'sk']) { const e = $('#' + id); e.hidden = true; if (e.previousElementSibling && e.previousElementSibling.tagName === 'LABEL') e.previousElementSibling.hidden = true; }
+  }
+  $('#sc').onchange = () => { aggSchede(); salvaSel(); }; $('#sk').onchange = salvaSel; $('#sq').onchange = salvaSel;
+  $('#avvia').onclick = async () => {
+    salvaSel(); const vai = () => { location.hash = `#valuta/${$('#sk').value}/${$('#sq').value}/${ev.id}`; };
+    let c = null; try { const r = await api(`/compilazioni?scheda=${$('#sk').value}&squadra=${$('#sq').value}`); c = r.compilazione && { ...r.compilazione, puo_riaprire: r.puo_riaprire, ruolo_qui: r.ruolo_qui }; } catch { /* offline: si prosegue */ }
+    if (!c || !['completata', 'verificata'].includes(c.stato)) return vai();
+    const puoModificare = c.puo_riaprire ?? (org() || master());
+    $('#gia')?.remove();
+    $('#avvia').closest('.card').insertAdjacentHTML('beforeend', `<div class="avviso" id="gia"><strong>Già valutato</strong><br><small>${esc($('#sk').selectedOptions[0]?.textContent || '')} · squadra ${esc($('#sq').selectedOptions[0]?.textContent || '')}${c.giudice ? ' · da ' + esc(c.giudice) : ''}${c.completata_at ? ' · ' + new Date(c.completata_at).toLocaleDateString('it-IT') : ''}</small><br>
+      <button class="btn" id="gia_c" type="button">Consulta</button> ${puoModificare ? `<button class="btn sec" id="gia_m" type="button">${c.ruolo_qui === 'master' ? 'Riapri al giudice' : 'Modifica'}</button>` : '<small>Per correggerla la riapre il giudice master o la direzione gara.</small>'}</div>`);
+    $('#gia_c').onclick = vai;
+    if ($('#gia_m')) $('#gia_m').onclick = async () => { try { await api(`/compilazioni/${c.id}/riapri`, { body: {} }); if (c.ruolo_qui === 'master') { $('#gia')?.remove(); alert('Scheda riaperta: ora il giudice può correggerla.'); } else vai(); } catch (e) { alert(e.message); } };
+  };
+  if (ev.modalita === 'online') selezioneOnline(ev, scAvail, squadre.filter((x) => x.attiva));
+}
+
+// gara online: il giudice master apre la scena per una squadra e la chiude a schede consegnate; il giudice vede solo la squadra aperta
+let turniTimer = null;
+function selezioneOnline(ev, scAvail, squadre) {
+  const comanda = org() || master();
+  const nomeSq = (q) => `${q.numero} – ${esc(q.nome || '')}`;
+  $('#app').insertAdjacentHTML('beforeend', '<div class="card" id="onl"><strong>Gara online</strong><div id="onlC"><small>Carico…</small></div></div>');
+  const sceltaSq = () => $('#sq');
+  const disegna = async () => {
+    if (location.hash.slice(1).split('/')[0] !== 'valutazione') { clearInterval(turniTimer); return; }
+    const box = $('#onlC'); if (!box) { clearInterval(turniTimer); return; }
+    if (comanda) {
+      if (box.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return;   // non chiudere il menu mentre il master sceglie
+      let html = '';
+      for (const sc of scAvail) {
+        let t; try { t = await api(`/scene/${sc.id}/turno`); } catch { continue; }
+        if (!t.turno) {
+          html += `<div class="avviso"><b>${esc(sc.codice)} – ${esc(sc.titolo)}</b><br><small>Nessuna squadra in corso.${t.in_attesa.length ? ' <b>In attesa:</b> ' + t.in_attesa.map((q) => esc(q.numero)).join(', ') : ''}</small><br>
+            <select class="onlSq" data-s="${sc.id}">${squadre.map((q) => `<option value="${q.id}" ${t.in_attesa[0]?.squadra_id === q.id ? 'selected' : ''}>${nomeSq(q)}${t.in_attesa.some((a) => a.squadra_id === q.id) ? ' (in attesa)' : ''}</option>`).join('')}</select>
+            <button class="btn onlApri" data-s="${sc.id}" type="button">Apri valutazione</button></div>`;
+        } else {
+          const ok = (k) => k.stato === 'completata' || k.stato === 'verificata';
+          html += `<div class="avviso"><b>${esc(sc.codice)} – ${esc(sc.titolo)}</b> · squadra <b>${esc(t.turno.numero)} ${esc(t.turno.nome || '')}</b>
+            <ul style="margin:6px 0">${t.schede.map((k) => `<li>${ok(k) ? '✔' : '◐'} ${esc(k.titolo)}${k.giudici ? ' – ' + esc(k.giudici) : ''}${ok(k) ? '' : ' <small>(da consegnare)</small>'}</li>`).join('')}</ul>
+            <button class="btn onlChiudi" data-s="${sc.id}" type="button">Chiudi scena</button></div>`;
+        }
+      }
+      box.innerHTML = html || '<small>Nessuna scena da gestire.</small>';
+      box.querySelectorAll('.onlApri').forEach((b) => { b.onclick = async () => { try { await api(`/scene/${b.dataset.s}/apri`, { body: { squadra_id: box.querySelector(`.onlSq[data-s="${b.dataset.s}"]`).value } }); disegna(); } catch (e) { alert(e.message); } }; });
+      box.querySelectorAll('.onlChiudi').forEach((b) => { b.onclick = async () => { try { await api(`/scene/${b.dataset.s}/chiudi`, { body: {} }); disegna(); } catch (e) { alert(e.message); } }; });
+    } else {
+      const aperti = await api(`/eventi/${ev.id}/turni`).catch(() => null); if (!aperti) return;
+      const sc = scAvail[$('#sc').value];
+      const t = aperti.find((x) => x.scena_id === sc?.id && x.stato === 'aperta');
+      if (t) { sceltaSq().innerHTML = `<option value="${t.squadra_id}">${t.numero} – ${esc(t.nome || '')}</option>`; sceltaSq().disabled = false; $('#avvia').disabled = false; box.innerHTML = `<small>La scena è aperta per la squadra ${esc(t.numero)}.</small>`; }
+      else { sceltaSq().innerHTML = '<option value="">—</option>'; sceltaSq().disabled = true; $('#avvia').disabled = true; box.innerHTML = '<small>In attesa che il giudice master apra la scena.</small>'; }
+    }
+  };
+  if (!comanda) $('#sc').addEventListener('change', disegna);
+  disegna(); clearInterval(turniTimer); turniTimer = setInterval(() => disegna().catch(() => {}), 5000);
+}
+
+
+// ── accompagnatore: un grosso pulsante per scena; segna che la squadra è in posizione ──
+let accTimer = null;
+async function vistaAccompagnatore() {
+  $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'Accompagnatore';
+  const { ev } = await garaCorrente();
+  if (!ev) { location.hash = ''; return; }
+  const stile = '<style>.acc{display:flex;flex-direction:column;gap:12px}.acc button{width:100%;min-height:92px;border:0;border-radius:16px;font-size:20px;text-align:left;padding:14px 18px;background:#e8edf3;color:#1d2733}.acc button b{font-size:26px;display:block}.acc button small{display:block;font-size:15px;margin-top:4px}.acc button.att{background:#3AA6E0;color:#fff}.acc button.cor{background:#F5B800;color:#3a2c00}.acc button[disabled]{opacity:.8}</style>';
+  $('#app').innerHTML = stile + `<div class="card"><strong>${esc(ev.nome)}</strong><br><small>Premi la scena davanti alla quale la squadra è pronta. Per toglierla, premi di nuovo.</small></div><div class="acc" id="accL"><p>Carico…</p></div>`;
+  let scelta = null;     // squadra scelta a mano quando la rotazione non basta
+  const disegna = async () => {
+    if (location.hash.slice(1).split('/')[0] !== 'accompagnatore') { clearInterval(accTimer); return; }
+    const box = $('#accL'); if (!box) { clearInterval(accTimer); return; }
+    let d; try { d = await api(`/eventi/${ev.id}/accompagnatore`); } catch (e) { box.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
+    const nome = (q) => `${q.numero} ${esc(q.nome || '')}`;
+    box.innerHTML = d.scene.map((sc) => {
+      const cor = sc.in_corso[0], att = sc.in_attesa[0], prox = sc.attese[0];
+      const cls = cor ? 'cor' : att ? 'att' : '';
+      const riga = cor ? `In valutazione: squadra ${nome(cor)}` : att ? `In attesa: squadra ${nome(att)} · premi per annullare` : prox ? `Attesa: squadra ${nome(prox)}` : 'Premi e scegli la squadra';
+      return `<button type="button" class="${cls}" data-s="${sc.id}" ${cor ? 'disabled' : ''}><b>Scena ${esc(sc.codice)}</b>${esc(sc.titolo || '')}<small>${riga}</small></button>`;
+    }).join('') || '<div class="card">Questa gara non ha scene.</div>';
+    box.querySelectorAll('button').forEach((b) => { b.onclick = async () => {
+      const sc = d.scene.find((x) => x.id === b.dataset.s); if (!sc) return;
+      try {
+        if (sc.in_attesa.length) { await api(`/scene/${sc.id}/attesa?squadra_id=${sc.in_attesa[0].id}`, { method: 'DELETE' }); }
+        else {
+          try { await api(`/scene/${sc.id}/attesa`, { body: {} }); }
+          catch (e) {
+            if (e.stato !== 409) throw e;
+            const q = prompt(`${e.message}\nScrivi il numero della squadra davanti alla scena ${sc.codice}:`); if (!q) return;
+            const s = d.squadre.find((x) => String(x.numero) === q.trim()); if (!s) return alert('Squadra non trovata');
+            await api(`/scene/${sc.id}/attesa`, { body: { squadra_id: s.id } });
+          }
+        }
+        disegna();
+      } catch (e) { alert(e.message); }
+    }; });
+  };
+  await disegna(); clearInterval(accTimer); accTimer = setInterval(() => disegna().catch(() => {}), 5000);
+}
+
+// ── coda di salvataggio locale (modulo /coda.js, con test automatici) ──
+let coda = null;
+async function preparaCoda() {
+  if (!me) return null;
+  const { creaCoda } = await import('/coda.js');
+  coda = creaCoda({ storage: localStorage, chiave: 'coda_v2_' + me.id,      // una coda per utente
+    invia: async (payload) => {
+      const manda = () => api('/sync', { body: { ...payload, origine: 'tablet_online', ...(window.__sbloccoOff ? { sblocco: true } : {}) } });
+      try { return await manda(); }
+      catch (e) {   // scena segnata offline: solo la direzione gara può valutarla online, dopo aver confermato l'avviso
+        if (!/scena offline/.test(e.message) || !org()) throw e;
+        if (!confirm('Questa scena è segnata come OFFLINE: le valutazioni devono arrivare dai tablet preparati.\n\nVuoi valutarla comunque da qui, come direzione gara?')) throw e;
+        window.__sbloccoOff = true; return manda();
+      } } });
+  return coda;
+}
+addEventListener('online', () => coda && coda.svuota());
+
+async function vistaValuta(schedaId, squadraId) {
+  const [scheda, cur] = await Promise.all([api(`/schede/${schedaId}`), api(`/compilazioni?scheda=${schedaId}&squadra=${squadraId}`)]);
+  const squadreEv = await api(`/eventi/${scheda.evento?.id || window.__ev?.id || localStorage.getItem('ev')}/squadre`).catch(() => []);
+  const nomeSq = (squadreEv.find((x) => x.id === squadraId)?.nome || '').toUpperCase();
+  const stato = cur.compilazione?.stato || 'bozza';
+  const chiusa = stato !== 'bozza';                           // conferma del giudice = scheda chiusa
+  // chi può fare cosa lo decide il server: il giudice non riapre da solo; il master consulta e riapre al giudice; la direzione gara riapre e compila
+  const puoMod = cur.puo_modificare ?? (!chiusa || org() || master()), puoRiaprire = cur.puo_riaprire ?? (chiusa && (org() || master()));
+  const soloLettura = !puoMod;
+  const chiave = `${schedaId}|${squadraId}`;
+  const meta = { id: cur.compilazione?.id || coda.idPer(chiave) || crypto.randomUUID(), scheda_id: schedaId, squadra_id: squadraId };
+  const ris = new Map(cur.risposte.map(r => [r.voce_id, r.livello]));
+  for (const [v, p] of Object.entries(coda.pendenti(chiave))) { if (p.livello === null) ris.delete(v); else ris.set(v, p.livello); }   // mostra anche ciò che non è ancora partito
+  const pv = !!scheda.evento?.mostra_punteggi, soglia = scheda.evento?.soglia_pct ? Number(scheda.evento.soglia_pct) : null;
+  const pts = (v, k) => v.punti ? v.punti[k] : v[k.toLowerCase()];
+  const proprie = scheda.voci.filter((v) => !v.blocco_id), blocchi = scheda.blocchi || [];   // le skill incorporate hanno punteggio, fasce ed errori gravi propri
+  const maxTot = proprie.reduce((a, v) => a + Math.max(0, ...LIV.map(([k]) => Number(pts(v, k) ?? 0))), 0);
+  let sezione = null, html = '';
+  let bloccoAperto = null;
+  const chiudiBlocco = () => { if (bloccoAperto) { const b = blocchi.find((x) => x.id === bloccoAperto); html += `${b?.errori_gravi?.length ? `<p class="errgravi"><b>Errori gravi:</b> ${b.errori_gravi.map(esc).join(' · ')}</p>` : ''}</details>`; bloccoAperto = null; } };
+  for (const v of scheda.voci) {
+    if ((v.blocco_id || null) !== bloccoAperto) {
+      chiudiBlocco();
+      if (v.blocco_id) { bloccoAperto = v.blocco_id; html += `<details class="blocco" data-b="${v.blocco_id}"${scheda.voci.some((x) => x.blocco_id === v.blocco_id && ris.has(x.id)) ? ' open' : ''}><summary><span>${esc(v.blocco_nome)}</span><span class="riep vuoto" data-riep="${v.blocco_id}"></span></summary>`; }
+      sezione = null;
+    }
+    if (!v.blocco_id && v.sezione !== sezione) { sezione = v.sezione; html += `<div class="sezione">${esc(sezione)}</div>`; }
+    const tre = v.consentiti.length === 3 && !v.consentiti.includes('BE') && !v.consentiti.includes('IN');
+    html += `<div class="voce" data-id="${v.id}"><p>${esc(v.testo)}</p><div class="liv${tre ? ' tre' : ''}">` +
+      (tre
+        ? ['NE', 'SU', 'MB'].map((k) => `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${etSill(ET3[k])}${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`).concat('<button disabled class="ph" tabindex="-1" aria-hidden="true"></button>'.repeat(2))
+        : LIV.map(([k, et]) => !v.consentiti.includes(k) ? `<button disabled></button>` :
+        `<button data-l="${k}" class="${ris.get(v.id) === k ? 'on' : ''}">${etSill(et)}${pv ? ` <b>(${pts(v, k)})</b>` : ''}</button>`)).join('') + `</div></div>`;
+  }
+  chiudiBlocco();
+  $('#titolo').textContent = scheda.titolo;
+  const chi = cur.compilazione?.giudice ? ` · compilata da ${esc(cur.compilazione.giudice)}` : '';
+  const sq = nomeSq ? `${esc(nomeSq)} – ` : '';
+  const banner = chiusa ? `<div class="avviso"><strong>${sq}Scheda chiusa.</strong>${chi} ${puoRiaprire ? '' : 'Per correggerla la riapre il giudice master o la direzione gara.'}</div>`
+    : (soloLettura ? `<div class="avviso"><strong>${sq}Sola consultazione.</strong>${chi} Il giudice master consulta le schede degli altri giudici: per correggere la riapre al giudice.</div>` : master() && cur.compilazione ? `<div class="avviso"><strong>${sq}In compilazione</strong>${chi}.</div>` : (nomeSq ? `<div class="avviso"><strong>${esc(nomeSq)}</strong></div>` : ''));
+  $('#app').innerHTML = banner + (pv ? '<div class="esito" id="esito"></div>' : '') + html + `<div class="barra"><span class="stato" id="st"></span>
+    <button class="btn sec" id="indietro">Indietro</button>
+    ${pv ? '<button class="btn sec" id="pdfesito">PDF esito</button>' : ''}
+    ${org() && cur.compilazione ? '<button class="btn sec" id="elimina">Elimina valutazione</button>' : ''}
+    ${chiusa ? (puoRiaprire && cur.compilazione ? `<button class="btn" id="riapri">${cur.ruolo_qui === 'master' ? 'Riapri al giudice' : 'Riapri scheda'}</button>` : '')
+      : (soloLettura ? '' : `<button class="btn" id="verif">Conferma e chiudi</button>`)}</div>`;
+  if (soloLettura) $('#app').classList.add('sola-lettura');
+  else $('#app').classList.remove('sola-lettura');
+  const tot = proprie.length;
+  const aggBlocchi = () => blocchi.forEach((b) => {
+    const el = document.querySelector(`[data-riep="${b.id}"]`); if (!el) return;
+    const vb = scheda.voci.filter((v) => v.blocco_id === b.id), fatte = vb.filter((v) => ris.has(v.id)).length;
+    if (!fatte) { el.className = 'riep vuoto'; el.textContent = `da valutare · ${vb.length} voci`; return; }
+    if (!pv) { el.className = 'riep'; el.textContent = `${fatte}/${vb.length} voci`; return; }
+    const max = vb.reduce((a, v) => a + Math.max(0, ...LIV.map(([k]) => Number(pts(v, k) ?? 0))), 0), p = vb.reduce((a, v) => a + (ris.has(v.id) ? Number(pts(v, ris.get(v.id)) ?? 0) : 0), 0);
+    const f = [...b.fasce].sort((x, y) => x.da - y.da), suff = f.find((x) => /^sufficiente/i.test(x.nome)) || f[1] || f[0], giud = [...f].reverse().find((x) => p >= x.da)?.nome;
+    el.className = 'riep ' + (fatte < vb.length ? '' : p >= suff.da ? 'ok' : 'ko');
+    el.textContent = `${p}/${max} · ${giud}${fatte < vb.length ? ` · ${fatte}/${vb.length} voci` : ''}`;
+  });
+  aggBlocchi();
+  const riepBlocchi = () => {                                           // punteggio di ogni skill incorporata, sotto quello della scheda principale
+    const rr = blocchi.map((b) => { const vb = scheda.voci.filter((v) => v.blocco_id === b.id), fatte = vb.filter((v) => ris.has(v.id)).length; if (!fatte) return `<div class="esb"><span>${esc(b.nome)}</span><span>da valutare</span></div>`;
+      const max = vb.reduce((a, v) => a + Math.max(0, ...LIV.map(([k]) => Number(pts(v, k) ?? 0))), 0), p = vb.reduce((a, v) => a + (ris.has(v.id) ? Number(pts(v, ris.get(v.id)) ?? 0) : 0), 0);
+      const f = [...b.fasce].sort((x, y) => x.da - y.da), giud = [...f].reverse().find((x) => p >= x.da)?.nome;
+      return `<div class="esb"><span>${esc(b.nome)}</span><span><b>${p} / ${max}</b> · ${max ? (p / max * 100).toFixed(0) : 0}%${giud ? ' · ' + esc(giud) : ''}${fatte < vb.length ? ` · ${fatte}/${vb.length} voci` : ''}</span></div>`; });
+    return rr.length ? `<div class="esbs">${rr.join('')}</div>` : '';
+  };
+  const aggEsito = () => {
+    aggBlocchi();
+    if (!pv) return;
+    const p = proprie.reduce((a, v) => a + (ris.has(v.id) ? Number(pts(v, ris.get(v.id)) ?? 0) : 0), 0), perc = maxTot ? p / maxTot * 100 : 0;
+    const fasce = Array.isArray(scheda.fasce) && scheda.fasce.length ? [...scheda.fasce].sort((a, b) => a.da - b.da) : null;
+    const suff = fasce ? (fasce.find((x) => /^sufficiente/i.test(x.nome)) || fasce[1] || fasce[0]) : null;
+    const giud = fasce ? [...fasce].reverse().find((x) => p >= x.da)?.nome : null;
+    const ok = fasce ? p >= suff.da : (soglia ? perc >= soglia : null);
+    $('#esito').className = 'esito ' + (ok === null ? '' : ok ? 'si' : 'no');
+    $('#esito').innerHTML = `<b>${p} / ${maxTot}</b> · <b>${perc.toFixed(1)}%</b>${giud ? ` · <b>${esc(giud)}</b>` : ''}${fasce ? ` · sufficienza da ${suff.da} punti` : soglia ? ` · soglia ${soglia}%` : ''}${ok === null ? '' : ` → <b>${ok ? 'SUPERATO' : 'NON SUPERATO'}</b>`}` + riepBlocchi();
+  };
+  aggEsito();
+  const agg = (msg = '', errore = false) => { $('#st').innerHTML = `${proprie.filter((v) => ris.has(v.id)).length}/${tot} voci <span class="${errore ? 'err' : 'ok'}">${esc(msg)}</span>`; };
+  agg();
+  const invia = async () => {
+    const r = await coda.svuota();
+    if (r.ok) agg(r.scartate ? `⚠ ${r.scartate} modifiche scartate: ne esistono di più recenti o dell'organizzazione` : '✓ salvato', !!r.scartate);
+    else if (r.rifiutate) agg(`⚠ ${r.rifiutate} invii rifiutati dal server: ${r.errori.join('; ')} (i dati sono conservati, vedi Home)`, true);
+    else agg('! in coda, non ancora inviato: ' + r.errori.join('; '), true);
+    return r;
+  };
+  let timer;
+  $('#app').onclick = (ev) => {
+    const b = ev.target.closest('.liv button'); if (!b || b.disabled || soloLettura) return;
+    const id = b.closest('.voce').dataset.id, l = b.dataset.l;
+    const nuovo = ris.get(id) === l ? null : l;                       // toccare di nuovo la scelta la annulla
+    if (nuovo === null) ris.delete(id); else ris.set(id, nuovo);
+    aggEsito();
+    b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', nuovo !== null && x === b));
+    b.closest('.voce').classList.remove('manca');
+    if (!document.querySelector('.voce.manca')) agg('');
+    coda.voce(chiave, meta, id, nuovo);                                // subito su disco, poi invio ritardato
+    agg('…'); clearTimeout(timer); timer = setTimeout(() => invia().catch(() => {}), 600);
+  };
+  $('#indietro').onclick = () => { location.hash = '#valutazione'; };
+  // completamento: le voci non compilate vengono evidenziate e segnalate prima di chiudere
+  const chiudiScheda = (nuovoStato) => async () => {
+    document.querySelectorAll('.voce.manca').forEach(e => e.classList.remove('manca'));
+    const mancanti = proprie.filter(v => !ris.has(v.id));
+    if (mancanti.length) {          // la scheda non si chiude finché ogni voce non ha una valutazione: si resta qui
+      mancanti.forEach(v => document.querySelector(`.voce[data-id="${v.id}"]`).classList.add('manca'));
+      document.querySelector('.voce.manca').scrollIntoView({ block: 'center', behavior: 'smooth' });
+      $('#st').innerHTML = `<span class="msg-blocco">Mancano ${mancanti.length} voci (evidenziate in rosso): compilale per chiudere la scheda.</span>`;
+      return;
+    }
+    clearTimeout(timer); coda.stato(chiave, meta, nuovoStato);
+    const r = await invia();
+    if (r.ok) location.hash = '#valutazione'; else alert('Non ancora salvato: ' + r.errori.join('; ') + '\nI dati restano sul dispositivo e verranno rimandati.');
+  };
+  if ($('#verif')) $('#verif').onclick = chiudiScheda('verificata');
+  if ($('#pdfesito')) $('#pdfesito').onclick = async () => {
+    const manc = proprie.filter((v) => !ris.has(v.id)).length;          // basta che ogni voce abbia una risposta: non serve chiudere la scheda
+    if (manc) { $('#st').innerHTML = `<span class="msg-blocco">Il PDF si apre quando ogni voce è compilata: ne mancano ${manc}.</span>`; return; }
+    const w = window.open('', '_blank');
+    try { clearTimeout(timer); const inv = await invia(); if (!inv.ok) throw new Error('dati non ancora inviati al server'); const r = await fetch(`/api/schede/${schedaId}/esito.pdf?squadra=${squadraId}`, { headers: { Authorization: 'Bearer ' + token } }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).errore || 'errore'); w.location = URL.createObjectURL(await r.blob()); }
+    catch (e) { w.close(); alert('PDF non disponibile: ' + e.message); }
+  };
+  if ($('#elimina')) $('#elimina').onclick = async () => {
+    if (!confirm(`Eliminare la valutazione${nomeSq ? ' di ' + nomeSq : ''}? Tutte le risposte di questa scheda vengono cancellate e non si possono recuperare.`)) return;
+    try { clearTimeout(timer); await api(`/compilazioni/${cur.compilazione.id}`, { method: 'DELETE', body: {} }); coda.scarta(chiave); location.hash = '#valutazione'; }
+    catch (e) { alert(e.message); }
+  };
+  if ($('#riapri')) $('#riapri').onclick = async () => {
+    try { await api(`/compilazioni/${cur.compilazione.id}/riapri`, { method: 'POST', body: {} }); vistaValuta(schedaId, squadraId); }
+    catch (e) { alert(e.message); }
+  };
+  invia().catch(() => {});                                             // eventuali dati rimasti da una sessione precedente
+}
+
+// storico personale: gli esiti dei Mega Code a cui ho partecipato, visibili dopo la pubblicazione del docente
+async function vistaStorico() {
+  $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'I miei esiti';
+  const { righe } = await api('/me/storico');
+  const per = {}; for (const r of righe) (per[r.evento_id] ||= { nome: r.evento, data: r.data_evento, r: [] }).r.push(r);
+  const tot = righe.length ? Math.round(10 * righe.reduce((a, r) => a + r.perc, 0) / righe.length) / 10 : 0;
+  $('#app').innerHTML = righe.length ? `<div class="card"><b>${righe.length}</b> valutazioni · media <b>${tot}%</b></div>` + Object.values(per).map((g) => `<div class="card"><h3>${esc(g.nome)}</h3><small>${esc(g.data || '')}</small>
+      ${g.r.map((r) => `<div class="r" style="display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid #eee;padding:8px 0">
+        <div><b>${esc(r.scheda)}</b><br><small>Scena ${esc(r.scena)} · equipaggio ${esc(r.squadra)}${r.ruolo ? ' · ' + esc(r.ruolo) : ''}</small></div>
+        <div style="text-align:right"><b>${r.punti}/${r.massimo}</b> · ${r.perc}%<br><small>${esc(r.giudizio || '')}</small></div>
+        <button class="btn sec" data-pdf="${r.scheda_id}|${r.squadra_id}">PDF</button></div>`).join('')}</div>`).join('')
+    : '<div class="card">Non ci sono ancora esiti pubblicati. Compaiono qui quando il docente chiude e pubblica il Mega Code.</div>';
+  document.querySelectorAll('[data-pdf]').forEach((b) => b.onclick = async () => { const [s, q] = b.dataset.pdf.split('|'); const w = window.open('', '_blank');
+    try { const r = await fetch(`/api/me/storico/${s}/esito.pdf?squadra=${q}`, { headers: { Authorization: 'Bearer ' + token } }); if (!r.ok) throw new Error('PDF non disponibile'); w.location = URL.createObjectURL(await r.blob()); } catch (e) { w.close(); alert(e.message); } });
+}
+
+// richieste di collaborare a un corso come trainer / formatore (e valutatore): si accettano o si rifiutano
+async function vistaInviti() {
+  $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'Richieste per te';
+  const l = await api('/me/inviti');
+  const dt = (d) => (d ? d.split('-').reverse().join('/') : '');
+  $('#app').innerHTML = l.length ? l.map((i) => `<div class="card"><h3 style="margin:0 0 4px">${esc(i.corso)}</h3><small>${esc(i.comitato || '')}${i.luogo ? ' · ' + esc(i.luogo) : ''}${i.data ? ' · ' + dt(i.data) + (i.data_fine && i.data_fine !== i.data ? ' – ' + dt(i.data_fine) : '') : ''}</small>
+      <p>${esc(i.da || 'Un organizzatore')} ti chiede di collaborare come trainer / formatore. Se accetti diventi valutatore dei Mega Code del corso.</p>
+      <p style="text-align:right;margin:0"><button class="btn sec" data-r="rifiuta" data-e="${i.evento_id}">Rifiuta</button> <button class="btn" data-r="accetta" data-e="${i.evento_id}">Accetta</button></p></div>`).join('')
+    : '<div class="card">Nessuna richiesta in attesa.</div>';
+  document.querySelectorAll('[data-r]').forEach((b) => b.onclick = async () => { try { await api(`/me/inviti/${b.dataset.e}/${b.dataset.r}`, { body: {} }); vistaInviti(); } catch (e) { alert(e.message); } });
+}
+
+async function vistaDocumenti() {
+  $('#esci').hidden = false; $('#hhome').hidden = false; $('#titolo').textContent = 'Documentazione';
+  const d = await api('/documenti');
+  const blocchi = Object.entries(d.categorie).map(([k, n]) => [n, d.documenti.filter((x) => x.categoria === k)]).filter(([, l]) => l.length);
+  $('#app').innerHTML = blocchi.length ? blocchi.map(([n, l]) => `<div class="card"><h3>${esc(n)}</h3>${l.map((x) => `<div class="avv"><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(x.titolo)}</b></a>${x.descrizione ? `<br><small>${esc(x.descrizione)}</small>` : ''}</div>`).join('')}</div>`).join('')
+    : '<div class="card">Non ci sono ancora documenti. Li pubblica l\'organizzazione.</div>';
+}
+let monTimer = null;
+async function vistaMonitor() {
+  $('#esci').hidden = false; $('#hhome').hidden = true; $('#titolo').textContent = 'Monitor';
+  const tutti = (await api('/eventi')).filter((e) => !e.archiviato && ['gara', 'olimpiadi', 'allenamento', 'corso_giudici'].includes(e.tipo));
+  let id; try { id = localStorage.getItem('monEv'); } catch { /* niente */ }
+  let ev = tutti.find((e) => e.id === id) || window.__ev && tutti.find((e) => e.id === window.__ev.id) || tutti.find((e) => e.attivo) || tutti[0];
+  if (!ev) { $('#app').innerHTML = '<div class="card">Non ci sono gare da seguire. <a class="btn sec" href="/admin.html#hub:gara">Vai alla Gestione</a></div>'; return; }
+  const stile = '<style>.mon td,.mon th{text-align:center;padding:6px 8px}.mon td.sq,.mon th.sq{text-align:left;white-space:nowrap}.mon .p{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;font-weight:700;font-size:15px;color:#fff}'
+    + '.mon .p.da_fare{background:#d3d8e0;color:#5b6472}.mon .p.in_corso{background:#F5B800;color:#3a2c00}.mon .p.fatta{background:#2E9E5B}.mon .p.attesa{background:#3AA6E0}.mon .p.prossima{background:#fff;color:#8a6a00;box-shadow:inset 0 0 0 3px #F5B800}.mon .p.sosta.passata{opacity:.4}.mon .p.sosta.ora{box-shadow:inset 0 0 0 3px #3AA6E0;color:#0b4f78}.mon .p.sosta{background:repeating-linear-gradient(45deg,#e6edf7,#e6edf7 4px,#d3deef 4px,#d3deef 8px);color:#4b5d7a;border-radius:8px;width:30px}.mon th small{display:block;font-weight:400;color:#5b6472}'
+    + '.mon .leg span{margin-right:14px;white-space:nowrap}.mon .barra{height:6px;background:#e3e5ea;border-radius:3px;min-width:60px}.mon .barra i{display:block;height:6px;background:#2E9E5B;border-radius:3px}body.schermo .mon td,body.schermo .mon th{font-size:20px;padding:10px 12px}body.schermo .mon .p{width:44px;height:44px;font-size:22px}</style>';
+  const disegna = async () => {
+    const d = await api(`/eventi/${ev.id}/avanzamento`);
+    const gioco = d.scene.filter((x) => !x.sosta);
+    const simbolo = { da_fare: '·', in_corso: '◐', fatta: '✔', attesa: '⏳', prossima: '→' };
+    const cella = (n, sc) => { if (sc.sosta) { const so = d.celle[n]?.[sc.codice]?.stato; return `<span class="p sosta ${so === 'passata' || so === 'ora' ? so : ''}" title="Sosta: ${esc(sc.titolo)}${so === 'ora' ? ' (la squadra è qui)' : ''}">S</span>`; } const c = d.celle[n]?.[sc.codice]; const st = c?.stato || 'da_fare';
+      return `<span class="p ${st}" title="${esc(sc.titolo)}: ${c ? c.fatte + '/' + c.totali + ' schede chiuse' : 'nessuna scheda'}">${simbolo[st]}</span>`; };
+    const fatteSq = (n) => gioco.filter((sc) => d.celle[n]?.[sc.codice]?.stato === 'fatta').length;
+    const fatteSc = (sc) => d.squadre.filter((q) => d.celle[q.numero]?.[sc.codice]?.stato === 'fatta').length;
+    $('#monGriglia').innerHTML = !d.scene.length ? '<p>Questa gara non ha ancora scene.</p>' : `<div style="overflow:auto"><table class="mon"><tr><th class="sq">Squadra</th>${d.scene.map((sc) => `<th>${esc(sc.codice)}<small>${esc(sc.sosta ? 'sosta · ' + sc.titolo : sc.titolo)}</small></th>`).join('')}<th>Avanzamento</th></tr>
+      ${d.squadre.map((q) => { const f = fatteSq(q.numero); return `<tr><td class="sq"><b>${esc(q.numero)}</b> ${esc(q.nome || '')}</td>${d.scene.map((sc) => `<td>${cella(q.numero, sc)}</td>`).join('')}<td>${f}/${gioco.length}<div class="barra"><i style="width:${gioco.length ? Math.round(100 * f / gioco.length) : 0}%"></i></div></td></tr>`; }).join('')}
+      <tr><td class="sq"><small>Squadre che hanno finito</small></td>${d.scene.map((sc) => `<td><small>${sc.sosta ? '' : fatteSc(sc) + '/' + d.squadre.length}</small></td>`).join('')}<td></td></tr></table></div>
+      <p class="leg"><small><span><b class="p da_fare" style="width:16px;height:16px;font-size:10px"></b> non ancora</span><span><b class="p in_corso" style="width:16px;height:16px;font-size:10px"></b> in corso (scheda aperta)</span><span><b class="p fatta" style="width:16px;height:16px;font-size:10px"></b> fatta (schede chiuse)</span>${d.modalita === 'online' ? '<span><b class="p prossima" style="width:16px;height:16px;font-size:10px"></b> prossima scena</span><span><b class="p attesa" style="width:16px;height:16px;font-size:10px"></b> in attesa nell\'area</span>' : ''}<span><b class="p sosta" style="width:16px;height:16px;font-size:10px"></b> sosta</span> · aggiornato alle ${new Date(d.aggiornato).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small></p>`;
+  };
+  $('#app').classList.add('largo');
+  $('#app').innerHTML = stile + `<div class="card"><div class="riga" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap"><div><label>Gara</label><select id="monEv">${tutti.map((e) => `<option value="${e.id}" ${e.id === ev.id ? 'selected' : ''}>${esc(e.nome)}${e.attivo ? ' (attiva)' : ''}</option>`).join('')}</select></div>
+    <a class="btn sec" href="/admin.html#hub:gara">← Gestione</a><button class="btn sec" id="monFs" type="button">Schermo intero</button></div>
+    <div id="monGriglia" style="margin-top:12px"><p>Carico…</p></div></div>`;
+  $('#monEv').onchange = () => { try { localStorage.setItem('monEv', $('#monEv').value); } catch { /* niente */ } route(); };
+  $('#monFs').onclick = () => { document.body.classList.toggle('schermo'); if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {}); else document.exitFullscreen?.(); };
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.body.classList.remove('schermo'); });
+  await disegna();
+  clearInterval(monTimer);
+  monTimer = setInterval(() => { if (location.hash.slice(1).split('/')[0] !== 'monitor') { clearInterval(monTimer); document.body.classList.remove('schermo'); return; } disegna().catch(() => {}); }, 10000);
+}
+
+// ── modalità offline: preparazione del tablet, sblocco col codice, scelta della scheda, invio al rientro ──
+let meOnline = null;
+const flash2 = (t) => { const d = document.createElement('div'); d.textContent = t; d.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1b1f27;color:#fff;padding:10px 16px;border-radius:999px;z-index:99;font:600 14px sans-serif'; document.body.append(d); setTimeout(() => d.remove(), 2200); };
+async function vistaOffline() {
+  $('#titolo').textContent = 'Modalità offline'; $('#app').classList.remove('largo', 'sola-lettura'); $('#esci').hidden = !token;
+  const pk = await OFF.pacchetto(), sess = OFF.sessioneAttiva(), quando = (t) => new Date(t).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const ds = pk ? await OFF.daInviare() : { schede: 0, voci: 0, chiuse: 0 };
+  let h = '';
+  if (!pk) {
+    let ev = []; if (token) { try { ev = await api('/eventi'); } catch { /* senza rete */ } }
+    h = token ? `<div class="card"><h3>Prepara questo tablet</h3><p class="nota">Scarica le schede delle scene offline. Serve la rete e l'accesso di direzione gara o organizzazione. Prima segna le scene come offline e stampa i codici dal pannello di gestione (scheda Offline).</p>
+        <label>Gara</label><select id="of_ev">${ev.map((e) => `<option value="${e.id}" ${e.id === (localStorage.getItem('ev') || '') ? 'selected' : ''}>${esc(e.nome)} (${esc(TIPO_EV[e.tipo] || e.tipo)}${e.archiviato ? ', archiviata' : ''})</option>`).join('')}</select>
+        <p><button class="btn" id="of_prep" ${navigator.onLine ? '' : 'disabled'}>Prepara questo tablet</button></p><p class="err" id="of_e" hidden></p></div>`
+      : '<div class="card"><h3>Questo tablet non è preparato</h3><p>Per usarlo senza rete va prima preparato, con la rete, da un account di direzione gara o organizzazione.</p><p><a class="btn" href="#login">Accedi</a></p></div>';
+  } else if (!sess) {
+    h = `<div class="card"><h3>${esc(pk.evento.nome)}</h3><p class="nota">Tablet preparato il ${quando(pk.creato_il)}. Si lavora in locale anche se la rete c'è.</p>
+      <label>Il tuo codice temporaneo</label><input id="of_cod" autocomplete="off" autocapitalize="characters" placeholder="XXXX-XXXX" style="text-transform:uppercase;letter-spacing:3px;font-size:20px">
+      <p><button class="btn" id="of_sbl">Sblocca le mie schede</button></p><p class="err" id="of_e" hidden></p></div>`;
+  } else {
+    const d = sess.dati;
+    h = `<div class="card"><h3>${esc(sess.utente.nome)}${sess.utente.master ? ' (master)' : ''}</h3><p class="nota">${esc(d.evento.nome)}. Ciò che compili resta su questo tablet e parte al rientro.</p>
+      <p><button class="btn sec" id="of_blocca">Blocca (cambia giudice)</button></p></div>` + (d.scene || []).map((sc) => (sc.schede || []).length ? `<div class="card"><h3>Scena ${esc(sc.codice)} · ${esc(sc.titolo || '')}</h3>${sc.schede.map((k) => `<p style="margin:10px 0 4px"><b>${esc(k.titolo)}</b></p>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${(d.squadre || []).map((q) => { const st = OFF.statoScheda(k.id, q.id); return `<a class="btn ${st === 'chiusa' ? 'sec' : ''}" href="#valuta/${k.id}/${q.id}" style="min-width:130px;text-align:left">${esc(q.numero ?? '')} ${esc(q.nome)}<br><small>${esc(st)}</small></a>`; }).join('') || '<small>Nessuna squadra.</small>'}</div>`).join('')}</div>` : '').join('');
+  }
+  if (pk) h += `<div class="card"><h3>Direzione gara</h3><p class="nota">Da inviare: ${ds.schede} schede (${ds.voci} voci, ${ds.chiuse} chiuse). Al rientro, con la rete, accedi come direzione gara e sincronizza.</p>
+    <p><button class="btn" id="of_sync" ${token && navigator.onLine ? '' : 'disabled'}>Sincronizza ora</button> <button class="btn sec" id="of_esp">Esporta in un file</button> <button class="btn sec" id="of_dim">Togli il pacchetto dal tablet</button></p>
+    ${token ? '' : '<p class="nota">Per sincronizzare devi prima <a href="#login">accedere</a>.</p>'}<p id="of_r"></p></div>`;
+  $('#app').innerHTML = h;
+  const err = (m) => { const e = $('#of_e'); if (e) { e.textContent = m; e.hidden = false; } };
+  if ($('#of_prep')) $('#of_prep').onclick = async () => { $('#of_prep').disabled = true; try { await OFF.prepara(api, $('#of_ev').value); flash2('Tablet preparato'); vistaOffline(); } catch (e) { $('#of_prep').disabled = false; err(e.message); } };
+  if ($('#of_sbl')) $('#of_sbl').onclick = async () => { $('#of_sbl').disabled = true; $('#of_sbl').textContent = 'Controllo il codice…';
+    try { const s = await OFF.sblocca($('#of_cod').value); meOnline = me; me = { id: s.utente.id, nome: s.utente.nome, ruolo: s.utente.master ? 'giudice_master' : 'giudice', aree: ['valutazione'] };
+      const { creaCoda } = await import('/coda.js'); coda = creaCoda({ storage: localStorage, chiave: 'coda_off_' + s.utente.id, invia: OFF.inviaLocale }); vistaOffline(); }
+    catch (e) { $('#of_sbl').disabled = false; $('#of_sbl').textContent = 'Sblocca le mie schede'; err(e.message); } };
+  if ($('#of_blocca')) $('#of_blocca').onclick = async () => { OFF.blocca(); me = meOnline || JSON.parse(localStorage.getItem('me') || 'null'); coda = null; vistaOffline(); };
+  if ($('#of_esp')) $('#of_esp').onclick = () => OFF.esporta();
+  if ($('#of_dim')) $('#of_dim').onclick = async () => { if (ds.schede && !confirm(`Ci sono ${ds.schede} schede non ancora inviate. Toglierle dal tablet?`)) return; if (!confirm('Togliere il pacchetto offline da questo tablet?')) return; OFF.blocca(); await OFF.dimentica(); vistaOffline(); };
+  if ($('#of_sync')) $('#of_sync').onclick = async () => { $('#of_sync').disabled = true; $('#of_r').textContent = 'Invio in corso…';
+    try { const r = await OFF.sincronizza(api);
+      $('#of_r').innerHTML = r.errori ? `<span class="err">${r.errori} invii non accettati (${r.ok} ok). I dati restano sul tablet.</span>` : `<b>Inviato: ${r.ok} schede.</b> I dati sono archiviati e il tablet è di nuovo online.`;
+      if (!r.errori) setTimeout(vistaOffline, 2500); else $('#of_sync').disabled = false; }
+    catch (e) { $('#of_r').innerHTML = `<span class="err">${esc(e.message)}</span>`; $('#of_sync').disabled = false; } };
+}
+// ── materiali delle scene: chi organizza li scrive, la logistica li vede e segna quelli pronti (mai le schede) ──
+
+// ── Sopralluogo: scene sulla mappa e percorso, dal telefono (GPS) o dal PC (clic sulla mappa) ──
+let __leaf = null;
+const caricaLeaflet = () => __leaf || (__leaf = new Promise((ok, ko) => {
+  if (window.L) return ok(window.L);
+  const c = document.createElement('link'); c.rel = 'stylesheet'; c.href = '/vendor/leaflet/leaflet.css'; document.head.append(c);
+  const j = document.createElement('script'); j.src = '/vendor/leaflet/leaflet.js'; j.onload = () => ok(window.L); j.onerror = () => { __leaf = null; ko(new Error('mappa non raggiungibile')); }; document.head.append(j);
+}));
+let __gps = null;
+async function vistaSopralluogo() {
+  $('#titolo').textContent = 'Sopralluogo'; $('#app').classList.remove('largo');
+  if (__gps != null) { navigator.geolocation.clearWatch(__gps); __gps = null; }
+  const tutti = await api('/eventi').catch(() => []);
+  let evs = tutti.filter((e) => ['gara', 'olimpiadi', 'allenamento'].includes(e.tipo) && !e.archiviato);
+  if (!org()) evs = evs.filter((e) => (me.logistica || []).includes(e.id));
+  if (!evs.length) { $('#app').innerHTML = '<div class="card">Nessuna gara per il sopralluogo.</div>'; return; }
+  let id = localStorage.getItem('ev_mat') || localStorage.getItem('ev'); if (!evs.some((e) => e.id === id)) id = (evs.find((e) => e.attivo) || evs[0]).id;
+  const D = await api(`/eventi/${id}/sopralluogo`).catch((e) => ({ errore: e.message }));
+  if (D.errore) { $('#app').innerHTML = `<div class="card err">${esc(D.errore)}</div>`; return; }
+  const gestore = D.ruolo === 'gestore';
+  let percorso = (D.percorso || []).map((p) => [Number(p[0]), Number(p[1])]), sporco = false, armata = null, modoDisegno = false;
+  const scene = D.scene.map((s) => ({ ...s, lat: s.lat == null ? null : Number(s.lat), lng: s.lng == null ? null : Number(s.lng) }));
+  $('#app').innerHTML = `<div class="card"><h3>Sopralluogo</h3><label>Gara</label><select id="so_ev">${evs.map((e) => `<option value="${e.id}" ${e.id === id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select>
+    <p class="nota">${gestore ? 'Dal telefono: cammina il percorso e segna ogni scena dove si trova. Dal PC: tocca la mappa per disegnare il percorso e per mettere le scene.' : 'Percorso e posizione delle scene.'}</p></div>
+    <div class="card"><div id="so_mappa" style="isolation:isolate;position:relative;z-index:0;overflow:hidden;height:56vh;min-height:320px;border-radius:12px;background:#e8eaee"></div><p class="nota" id="so_st"></p>
+    ${gestore ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"><button id="so_rec" class="btn">Registra il percorso</button><button id="so_dis" class="btn sec">Disegna a mano</button><button id="so_undo" class="btn sec">Annulla ultimo punto</button><button id="so_clr" class="btn sec">Cancella percorso</button><button id="so_save" class="btn" disabled>Salva</button></div>` : ''}</div>
+    <div class="card"><h3>Scene</h3>${scene.map((s) => `<div class="so-r" data-id="${s.id}" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 0;border-top:1px solid #eceef1"><b style="min-width:150px">Scena ${esc(s.codice)} · ${esc(s.titolo)}</b><small class="so-s"></small>${gestore ? '<button class="btn sec so-g">Sono qui</button><button class="btn sec so-m">Sulla mappa</button><button class="btn sec so-x">Togli</button>' : ''}</div>`).join('') || '<p class="nota"><em>Nessuna scena.</em></p>'}</div>`;
+  $('#so_ev').onchange = () => { localStorage.setItem('ev_mat', $('#so_ev').value); vistaSopralluogo(); };
+  let L; try { L = await caricaLeaflet(); } catch (e) { $('#so_mappa').innerHTML = `<p style="padding:16px">${esc(e.message)}. Serve la rete per vedere la mappa.</p>`; return; }
+  const mappa = L.map('so_mappa', { zoomControl: true }).setView([42.5, 12.5], 6);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(mappa);
+  const linea = L.polyline(percorso, { color: '#C8102E', weight: 4 }).addTo(mappa), marcatori = {};
+  const icona = (c) => L.divIcon({ className: '', html: `<div style="background:#C8102E;color:#fff;border:2px solid #fff;border-radius:50%;width:30px;height:30px;line-height:26px;text-align:center;font-weight:700;box-shadow:0 1px 4px #0006">${esc(c)}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] });
+  const stato = (t) => { $('#so_st').textContent = t || ''; };
+  const dirty = () => { sporco = true; if ($('#so_save')) $('#so_save').disabled = false; };
+  const aggRighe = () => scene.forEach((s) => { const r = document.querySelector(`.so-r[data-id="${s.id}"] .so-s`); if (r) r.textContent = s.lat == null ? 'non posizionata' : `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`; });
+  const metti = (s) => {
+    marcatori[s.id]?.remove(); delete marcatori[s.id];
+    if (s.lat == null) return;
+    const m = L.marker([s.lat, s.lng], { icon: icona(s.codice), draggable: gestore, title: s.titolo }).addTo(mappa);
+    if (gestore) m.on('dragend', () => { const p = m.getLatLng(); s.lat = p.lat; s.lng = p.lng; aggRighe(); dirty(); });
+    marcatori[s.id] = m;
+  };
+  const inquadra = () => { const pts = [...percorso, ...scene.filter((s) => s.lat != null).map((s) => [s.lat, s.lng])]; if (pts.length) mappa.fitBounds(pts, { padding: [30, 30], maxZoom: 18 }); else if (D.evento.lat != null) mappa.setView([Number(D.evento.lat), Number(D.evento.lng)], 15); };
+  scene.forEach(metti); aggRighe(); inquadra();
+  setTimeout(() => mappa.invalidateSize(), 200);
+  if (!gestore) return;
+  const aggLinea = () => linea.setLatLngs(percorso);
+  const gpsUna = () => new Promise((ok, ko) => navigator.geolocation ? navigator.geolocation.getCurrentPosition((p) => ok([p.coords.latitude, p.coords.longitude]), () => ko(new Error('posizione non disponibile: consenti la posizione al browser')), { enableHighAccuracy: true, timeout: 15000 }) : ko(new Error('questo dispositivo non ha il GPS')));
+  mappa.on('click', (e) => {
+    if (armata) { const s = scene.find((x) => x.id === armata); s.lat = e.latlng.lat; s.lng = e.latlng.lng; armata = null; metti(s); aggRighe(); dirty(); stato('Scena posizionata. Trascinala per spostarla.'); mappa.getContainer().style.cursor = ''; return; }
+    if (modoDisegno) { percorso.push([e.latlng.lat, e.latlng.lng]); aggLinea(); dirty(); }
+  });
+  document.querySelectorAll('.so-r').forEach((r) => {
+    const s = scene.find((x) => x.id === r.dataset.id);
+    r.querySelector('.so-g').onclick = async () => { try { stato('Cerco la posizione…'); const p = await gpsUna(); s.lat = p[0]; s.lng = p[1]; metti(s); aggRighe(); dirty(); mappa.setView(p, 18); stato(`Scena ${s.codice} segnata qui.`); } catch (e) { stato(e.message); } };
+    r.querySelector('.so-m').onclick = () => { armata = s.id; modoDisegno = false; $('#so_dis').classList.add('sec'); mappa.getContainer().style.cursor = 'crosshair'; stato(`Tocca la mappa dove sta la scena ${s.codice}.`); };
+    r.querySelector('.so-x').onclick = () => { s.lat = null; s.lng = null; metti(s); aggRighe(); dirty(); };
+  });
+  $('#so_dis').onclick = () => { modoDisegno = !modoDisegno; armata = null; $('#so_dis').classList.toggle('sec', !modoDisegno); stato(modoDisegno ? 'Tocca la mappa per aggiungere i punti del percorso.' : ''); mappa.getContainer().style.cursor = modoDisegno ? 'crosshair' : ''; };
+  $('#so_undo').onclick = () => { percorso.pop(); aggLinea(); dirty(); };
+  $('#so_clr').onclick = () => { if (!percorso.length || !confirm('Cancello tutto il percorso?')) return; percorso = []; aggLinea(); dirty(); };
+  $('#so_rec').onclick = () => {
+    if (__gps != null) { navigator.geolocation.clearWatch(__gps); __gps = null; $('#so_rec').textContent = 'Registra il percorso'; stato(`Registrazione ferma: ${percorso.length} punti. Ricorda di salvare.`); return; }
+    if (!navigator.geolocation) { stato('Questo dispositivo non ha il GPS.'); return; }
+    if (percorso.length && !confirm('Il percorso c\'è già: aggiungo i nuovi punti in coda?')) return;
+    $('#so_rec').textContent = 'Ferma la registrazione'; stato('Registro… cammina lungo il percorso.');
+    __gps = navigator.geolocation.watchPosition((p) => {
+      const q = [p.coords.latitude, p.coords.longitude], u = percorso[percorso.length - 1];
+      if (!u || km({ lat: u[0], lng: u[1] }, { lat: q[0], lng: q[1] }) > 0.005) { percorso.push(q); aggLinea(); dirty(); mappa.setView(q, Math.max(mappa.getZoom(), 17)); stato(`Registro… ${percorso.length} punti.`); }
+    }, (e) => stato('Posizione non disponibile: ' + e.message), { enableHighAccuracy: true, maximumAge: 2000 });
+  };
+  $('#so_save').onclick = async () => {
+    try { await api(`/eventi/${id}/sopralluogo`, { method: 'PUT', body: { percorso, scene: scene.map((s) => ({ id: s.id, lat: s.lat, lng: s.lng })) } }); sporco = false; $('#so_save').disabled = true; stato('Salvato.'); } catch (e) { stato('Non salvato: ' + e.message); }
+  };
+  window.addEventListener('beforeunload', (e) => { if (sporco) { e.preventDefault(); e.returnValue = ''; } });
+}
+async function vistaMateriali() {
+  $('#titolo').textContent = 'Materiali'; $('#app').classList.remove('largo');
+  const tutti = await api('/eventi').catch(() => []);
+  let evs = tutti.filter((e) => ['gara', 'olimpiadi', 'allenamento'].includes(e.tipo) && !e.archiviato);
+  if (!org()) evs = evs.filter((e) => (me.logistica || []).includes(e.id));
+  if (!evs.length) { $('#app').innerHTML = '<div class="card">Nessuna gara con materiali da gestire.</div>'; return; }
+  let id = localStorage.getItem('ev_mat') || localStorage.getItem('ev'); if (!evs.some((e) => e.id === id)) id = (evs.find((e) => e.attivo) || evs[0]).id;
+  const D = await api(`/eventi/${id}/materiali`).catch((e) => ({ errore: e.message }));
+  if (D.errore) { $('#app').innerHTML = `<div class="card err">${esc(D.errore)}</div>`; return; }
+  const gestore = D.ruolo === 'gestore';
+  const PASSI = [['pronto', 'Preparato'], ['caricato', 'Caricato'], ['montato', 'Montato'], ['ritirato', 'Ritirato']];
+  const colonne = `repeat(4,52px) 1fr 76px ${gestore ? '1fr 40px' : '1fr'}`;
+  const riga = (m) => `<div class="mat" data-id="${m.id}" style="display:grid;grid-template-columns:${colonne};gap:8px;align-items:center;padding:6px 0;border-top:1px solid #eceef1">
+      ${PASSI.map(([k, t]) => `<input type="checkbox" class="m_c" data-k="${k}" ${m[k] ? 'checked' : ''} aria-label="${t}" title="${t}" style="width:24px;height:24px;justify-self:center">`).join('')}
+      ${gestore ? `<input class="m_n" value="${esc(m.nome)}"><input class="m_q num" type="number" min="1" value="${m.quantita}"><input class="m_t" placeholder="nota" value="${esc(m.nota || '')}"><button class="x p m_d" title="Elimina" aria-label="Elimina">×</button>`
+        : `<b>${esc(m.nome)}</b><span>× ${m.quantita}</span><small>${esc(m.nota || '')}</small>`}</div>`;
+  const testata = `<div style="display:grid;grid-template-columns:${colonne};gap:8px;font-size:12px;color:#555;text-align:center">${PASSI.map(([, t]) => `<span>${t}</span>`).join('')}<span></span></div>`;
+  const nuovo = (sid) => gestore ? `<div class="mat-n" data-s="${sid || ''}" style="display:grid;grid-template-columns:1fr 76px 1fr auto;gap:8px;margin-top:8px"><input class="n_n" list="m_nomi" placeholder="Nuovo materiale"><input class="n_q num" type="number" min="1" value="1"><input class="n_t" placeholder="nota"><button class="b p n_ok">Aggiungi</button></div>` : '';
+  const blocco = (tit, lista, sid, nota) => `<div class="card"><h3>${tit}</h3>${nota ? `<p class="nota">${nota}</p>` : ''}${lista.length ? testata + lista.map(riga).join('') : '<p class="nota"><em>Nessun materiale.</em></p>'}${nuovo(sid)}</div>`;
+  $('#app').innerHTML = `<div class="card"><h3>Materiali</h3><label>Gara</label><select id="m_ev">${evs.map((e) => `<option value="${e.id}" ${e.id === id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select>
+      <p class="nota">${gestore ? 'Scrivi cosa serve in ogni scena. La logistica vede questo elenco e spunta i passaggi: preparato, caricato, montato, ritirato; non vede le schede di valutazione.' : 'Spunta i passaggi: preparato, caricato, montato in scena, ritirato a fine gara.'}</p>${gestore ? '<button class="btn" id="m_multi">Aggiungi a più scene</button> ' : ''}<button class="btn sec" id="m_stp">Stampa la lista</button></div>
+    <div class="card"><h3>Totale da preparare</h3>${D.totali.length ? `<table>${D.totali.map((t) => `<tr><td>${esc(t.nome)}</td><td>× ${t.quantita}</td><td><small>preparati ${t.pronti} · caricati ${t.caricati} · montati ${t.montati} · ritirati ${t.ritirati} (su ${t.righe})</small></td></tr>`).join('')}</table>` : '<p class="nota"><em>Ancora nessun materiale.</em></p>'}</div>
+    ${blocco('Generici della gara', D.generici, null, 'Valgono per tutta la gara: per esempio i gazebo dell\'attesa davanti alle scene.')}
+    ${D.scene.map((sc) => blocco(`Scena ${esc(sc.codice)} · ${esc(sc.titolo)}`, sc.materiali, sc.id)).join('')}`;
+  $('#m_ev').onchange = () => { localStorage.setItem('ev_mat', $('#m_ev').value); vistaMateriali(); };
+  document.body.querySelector('#m_nomi')?.remove(); { const dl = document.createElement('datalist'); dl.id = 'm_nomi'; dl.innerHTML = D.totali.map((t) => `<option value="${esc(t.nome)}">`).join(''); $('#app').append(dl); }
+  if ($('#m_multi')) $('#m_multi').onclick = () => {
+    const d = document.createElement('dialog'); d.style.cssText = 'border:0;border-radius:14px;max-width:460px;width:92vw;padding:16px';
+    d.innerHTML = `<h3 style="margin-top:0">Materiale su più scene</h3><label>Nome</label><input id="mm_n" list="m_nomi" placeholder="per esempio Gazebo"><label>Quantità per ogni scena</label><input id="mm_q" class="num" type="number" min="1" value="1"><label>Nota</label><input id="mm_t" placeholder="nota">
+      <p style="margin:12px 0 4px"><b>Scene</b> <label style="font-weight:400"><input type="checkbox" id="mm_tutte"> tutte</label></p>${D.scene.map((s) => `<label style="display:block;font-weight:400;padding:4px 0"><input type="checkbox" class="mm_s" value="${s.id}"> Scena ${esc(s.codice)} · ${esc(s.titolo)}</label>`).join('')}
+      <p class="nota" id="mm_e" style="color:#C62828"></p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="mm_x">Annulla</button><button class="btn" id="mm_ok">Aggiungi</button></div>`;
+    document.body.append(d); d.showModal();
+    d.querySelector('#mm_tutte').onchange = (e) => d.querySelectorAll('.mm_s').forEach((c) => { c.checked = e.target.checked; });
+    d.querySelector('#mm_x').onclick = () => { d.close(); d.remove(); };
+    d.querySelector('#mm_ok').onclick = async () => {
+      const nome = d.querySelector('#mm_n').value.trim(), ids = [...d.querySelectorAll('.mm_s:checked')].map((c) => c.value);
+      if (!nome) { d.querySelector('#mm_e').textContent = 'Scrivi il nome del materiale.'; return; } if (!ids.length) { d.querySelector('#mm_e').textContent = 'Scegli almeno una scena.'; return; }
+      try { await api(`/eventi/${id}/materiali`, { body: { scena_ids: ids, nome, quantita: d.querySelector('#mm_q').value, nota: d.querySelector('#mm_t').value } }); d.close(); d.remove(); vistaMateriali(); } catch (e) { d.querySelector('#mm_e').textContent = e.message; }
+    };
+  };
+  const salva = (el, body) => api(`/materiali/${el.closest('.mat').dataset.id}`, { method: 'PATCH', body }).catch((e) => alert(e.message));
+  document.querySelectorAll('.m_c').forEach((c) => { c.onchange = async () => { await salva(c, { [c.dataset.k]: c.checked }); vistaMateriali(); }; });
+  $('#m_stp').onclick = () => {
+    const nomeG = evs.find((e) => e.id === id)?.nome || '', tab = (tit, l) => l.length ? `<h3>${tit}</h3><table class="stp-t"><tr><th>Nome</th><th>Qtà</th><th>Nota</th>${PASSI.map(([, t]) => `<th>${t}</th>`).join('')}</tr>${l.map((m) => `<tr><td>${esc(m.nome)}</td><td>${m.quantita}</td><td>${esc(m.nota || '')}</td>${PASSI.map(([k]) => `<td class="c">${m[k] ? '☑' : '☐'}</td>`).join('')}</tr>`).join('')}</table>` : '';
+    const d = document.createElement('div'); d.id = 'stp'; d.innerHTML = `<h2>Materiali · ${esc(nomeG)}</h2>${tab('Generici della gara', D.generici)}${D.scene.map((sc) => tab(`Scena ${esc(sc.codice)} · ${esc(sc.titolo)}`, sc.materiali)).join('')}`;
+    const st = document.createElement('style'); st.textContent = '#stp{display:none}@media print{body>*:not(#stp){display:none!important}#stp{display:block!important;color:#000;font:13px sans-serif}.stp-t{border-collapse:collapse;width:100%;margin-bottom:12px}.stp-t td,.stp-t th{border:1px solid #888;padding:5px 7px;text-align:left}.stp-t .c{text-align:center;font-size:18px}}';
+    document.body.append(st, d); window.print(); setTimeout(() => { d.remove(); st.remove(); }, 1000);
+  };
+  document.querySelectorAll('.m_n').forEach((i) => { i.onchange = () => salva(i, { nome: i.value }); });
+  document.querySelectorAll('.m_q').forEach((i) => { i.onchange = async () => { await salva(i, { quantita: i.value }); vistaMateriali(); }; });
+  document.querySelectorAll('.m_t').forEach((i) => { i.onchange = () => salva(i, { nota: i.value }); });
+  document.querySelectorAll('.m_d').forEach((b) => { b.onclick = async () => { if (!confirm('Eliminare questo materiale?')) return; await api(`/materiali/${b.closest('.mat').dataset.id}`, { method: 'DELETE' }).catch((e) => alert(e.message)); vistaMateriali(); }; });
+  document.querySelectorAll('.n_ok').forEach((b) => { b.onclick = async () => { const r = b.closest('.mat-n'), nome = r.querySelector('.n_n').value.trim(); if (!nome) return r.querySelector('.n_n').focus();
+    await api(`/eventi/${id}/materiali`, { body: { scena_id: r.dataset.s || null, nome, quantita: r.querySelector('.n_q').value, nota: r.querySelector('.n_t').value } }).catch((e) => alert(e.message)); vistaMateriali(); }; });
+}
+async function route() {
+  await OFFP;
+  if (OFF) {
+    const v0 = location.hash.slice(1).split('/')[0];
+    if (OFF.sessioneAttiva()) { if (v0 === 'valuta') { const [, a, b] = location.hash.slice(1).split('/'); $('#app').classList.add('largo'); try { return await vistaValuta(a, b); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } } return vistaOffline(); }
+    if (v0 === 'offline') return vistaOffline();
+    if (await OFF.pacchetto()) {   // tablet preparato: se il sito non risponde (anche con il wifi acceso ma senza internet) si apre la pagina offline
+      let su = navigator.onLine; if (su) { try { const c = new AbortController(), t = setTimeout(() => c.abort(), 3000); const r = await fetch('/salute', { cache: 'no-store', signal: c.signal }); clearTimeout(t); su = r.ok; } catch { su = false; } }
+      if (!su) return vistaOffline();
+    }
+  }
+  if (location.hash.startsWith('#sso=')) {           // ritorno da Google/Microsoft: il ticket monouso diventa la sessione
+    const t = location.hash.slice(5); history.replaceState(null, '', location.pathname);
+    try { return await avviaSessione(await api('/auth/ticket', { body: { ticket: t } })); } catch (e) { return vistaLogin(e.message); }
+  }
+  if (location.hash.startsWith('#sso-errore=')) { const c = location.hash.slice(12); history.replaceState(null, '', location.pathname + '#login'); return vistaLogin(ERR_SSO[c] || 'Accesso non riuscito.'); }
+  $('#hsic').hidden = !token || !!(me && me.in_attesa); if (me && me.nome) $('#hsic').textContent = me.nome;
+  if (!token) { await (location.hash === '#login' ? vistaLogin() : location.hash === '#registrati' ? vistaRegistrati() : vistaPubblica());
+    if (OFF && location.hash !== '#login' && await OFF.pacchetto()) $('#app').insertAdjacentHTML('afterbegin', '<div class="card"><b>Questo tablet è preparato per la modalità offline.</b> <a class="btn" href="#offline">Apri la modalità offline</a></div>');
+    return; }
+  if (OFF && !window.__devOk) { window.__devOk = true; OFF.registraDispositivo(api).catch(() => {}); }
+  if (!window.__meOk) { window.__meOk = true; try { me = await api('/me'); localStorage.setItem('me', JSON.stringify(me)); } catch { /* offline: resta il profilo salvato */ } }
+  if (me.in_attesa) { try { return await vistaRegistrazione(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
+  if (me.mfa_da_configurare) return vistaSicurezza();
+  if (!coda) { try { await preparaCoda(); } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; } }
+  const [v, a, b] = location.hash.slice(1).split('/');
+  $('#app').classList.toggle('largo', v === 'valuta' || v === 'monitor'); if (v !== 'valuta') $('#app').classList.remove('sola-lettura');
+  try {
+    if (v === 'valuta') return await vistaValuta(a, b);
+    if (v === 'sicurezza' || v === 'account') return await vistaSicurezza();
+    if (v === 'valutazione') return await vistaSelezione();
+    if (v === 'accompagnatore') return await vistaAccompagnatore();
+    if (v === 'classifica') { location.href = '/admin.html#classifiche'; return; }
+    if (v === 'monitor') return await vistaMonitor();
+    if (v === 'documenti') return await vistaDocumenti();
+    if (v === 'storico') return await vistaStorico();
+    if (v === 'inviti') return await vistaInviti();
+    if (v === 'materiali') return await vistaMateriali();
+    if (v === 'sopralluogo') return await vistaSopralluogo();
+    return await vistaHome();
+  } catch (e) { $('#app').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+}
+const routeB = async () => { await route(); window.Barra && Barra.disegna('index'); window.Layout && Layout.disegna(); };
+addEventListener('hashchange', routeB); routeB();
+if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));

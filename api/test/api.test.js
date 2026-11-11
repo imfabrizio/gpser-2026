@@ -9,6 +9,7 @@ import { SQL_UTENTE } from '../src/routes-auth.js';
 import { fileURLToPath } from 'node:url';
 import { importaExcel } from '../src/services/import-excel.js';
 
+process.env.PUBLIC_URL ||= 'http://localhost:80';   // l'indirizzo del sito è obbligatorio e non si ricava più dalla richiesta
 process.env.MFA_ORG = '0';   // i test storici usano utenti org senza MFA; i test MFA la riattivano
 const ADMIN_URL = process.env.TEST_ADMIN_URL || 'postgres://postgres@localhost:5433/postgres';
 const TEST_URL = ADMIN_URL.replace(/\/[^/]*$/, '/garecri_test');
@@ -17,6 +18,11 @@ let pool, app, ev, tok = {};
 const chiama = (method, url, { token, body, headers } = {}) => app.inject({
   method, url, payload: body, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(headers || {}) } });
 const json = (r) => JSON.parse(r.body);
+// mette per la durata del test un utente in un comitato (l'anagrafica e i canovacci sono divisi per regione: senza comitato lo staff non assegna nulla)
+const nelComitato = async (t, email, comitato) => {
+  const { rows: [p] } = await pool.query(`insert into partecipante (cognome, nome, comitato, utente_id) select 'Di Prova', 'Staff', $2, id from utente where email=$1 returning id`, [email, comitato]);
+  t.after(() => pool.query('delete from partecipante where id=$1', [p.id]));
+};
 
 before(async () => {
   const adm = new pg.Client({ connectionString: ADMIN_URL }); await adm.connect();
@@ -174,15 +180,18 @@ test('scheda chiusa: il giudice che conferma la chiude; poi non può né modific
   assert.equal((await chiama('POST', `/api/compilazioni/${cid}/riapri`, { token: tok['org@t'] })).statusCode, 200);
 });
 
-test('squadre: il numero non viene mai riusato; un solo evento attivo', async () => {
+test('squadre: il numero non viene mai riusato; più eventi attivi insieme, attivarne uno non spegne gli altri', async () => {
   const s = json(await chiama('POST', `/api/eventi/${ev}/squadre`, { token: tok['org@t'], body: { nome: 'Nuova' } }));
   assert.equal(s.numero, 6);
   await pool.query('delete from squadra where id=$1', [s.id]);
   await pool.query(`insert into evento (codice, nome, attivo) values ('T-2','Altro', false)`);
   const { rows: [e2] } = await pool.query(`select id from evento where codice='T-2'`);
-  await chiama('POST', `/api/eventi/${e2.id}/attiva`, { token: tok['org@t'] });
-  assert.equal((await pool.query('select count(*)::int n from evento where attivo')).rows[0].n, 1);
-  await chiama('POST', `/api/eventi/${ev}/attiva`, { token: tok['org@t'] });   // la gara di prova torna aperta
+  assert.equal((await chiama('POST', `/api/eventi/${e2.id}/attiva`, { token: tok['org@t'] })).statusCode, 200);
+  assert.deepEqual((await pool.query('select codice from evento where attivo order by codice')).rows.map((r) => r.codice), ['T-1', 'T-2']);   // la gara di prova resta aperta
+  assert.equal((await chiama('POST', `/api/eventi/${e2.id}/disattiva`, { token: tok['giu@t'] })).statusCode, 403);
+  assert.equal((await chiama('POST', `/api/eventi/${e2.id}/disattiva`, { token: tok['org@t'] })).statusCode, 200);
+  assert.deepEqual((await pool.query('select codice from evento where attivo')).rows.map((r) => r.codice), ['T-1']);
+  assert.equal((await pool.query(`select count(*)::int n from audit_log where azione in ('evento_attivato','evento_disattivato') and entita_id=$1`, [e2.id])).rows[0].n, 2);
 });
 
 test('libreria: stessa voce con punteggi diversi in due patologie; la scena è uno snapshot', async () => {
@@ -275,8 +284,15 @@ test('REV-2 l\'avvio rifiuta un JWT_SECRET debole o mancante', async () => {
   const prima = process.env.JWT_SECRET;
   delete process.env.JWT_SECRET; assert.throws(verificaConfigurazione);
   process.env.JWT_SECRET = 'corto'; assert.throws(verificaConfigurazione);
-  process.env.JWT_SECRET = 'x'.repeat(40); assert.doesNotThrow(verificaConfigurazione);
-  if (prima === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = prima;
+  const url = process.env.PUBLIC_URL;
+  try {
+    process.env.JWT_SECRET = 'x'.repeat(40); assert.doesNotThrow(verificaConfigurazione);
+    for (const u of [undefined, '', 'gare.example.invalid', 'https://gare.example.invalid/percorso', 'http://gare.example.invalid', 'javascript:alert(1)']) {   // PUBLIC_URL: obbligatorio, https, senza percorso
+      if (u === undefined) delete process.env.PUBLIC_URL; else process.env.PUBLIC_URL = u;
+      assert.throws(verificaConfigurazione, /PUBLIC_URL/, String(u));
+    }
+    for (const u of ['https://gare.example.invalid', 'https://gare.example.invalid/', 'http://localhost:3000']) { process.env.PUBLIC_URL = u; assert.doesNotThrow(verificaConfigurazione); }
+  } finally { process.env.PUBLIC_URL = url; if (prima === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = prima; }
 });
 
 test('REV-3 il giudice non scrive né legge schede non assegnate', async () => {
@@ -377,8 +393,7 @@ test('REV-9 modifica di organizzazione su scheda chiusa lascia traccia in audit'
   await chiama('POST', `/api/compilazioni/${cid9}/riapri`, { token: tok['org@t'] });   // lascia la scheda aperta per gli altri test
 });
 
-test('REV-10 un solo evento attivo anche a livello DB; attiva evento inesistente → 404; login con limite tentativi', async () => {
-  await assert.rejects(pool.query(`insert into evento (codice, nome, attivo) values ('DOPPIO','x',true)`));
+test('REV-10 attiva evento inesistente → 404; login con limite tentativi', async () => {
   const prima = (await pool.query('select id from evento where attivo')).rows[0].id;
   assert.equal((await chiama('POST', `/api/eventi/${U(123)}/attiva`, { token: tok['org@t'], body: {} })).statusCode, 404);
   assert.equal((await pool.query('select id from evento where attivo')).rows[0].id, prima);
@@ -529,7 +544,8 @@ test('M-2 giudice master: vede e corregge tutte le schede della sua scena, verif
   void altroId;
 });
 
-test('M-3 anagrafica: persone, squadre con comitato e componenti; solo organizzazione', async () => {
+test('M-3 anagrafica: persone, squadre con comitato e componenti; solo organizzazione', async (t) => {
+  await nelComitato(t, 'org@t', 'Modena');
   const P = (b) => chiama('POST', '/api/persone', { token: tok['org@t'], body: b });
   assert.equal((await chiama('GET', '/api/persone', { token: tok['giu@t'] })).statusCode, 403);
   assert.equal((await P({ cognome: 'Rossi' })).statusCode, 400);                                           // nome mancante
@@ -852,7 +868,8 @@ test('R-2 ruoli con aree, admin come spunta, anagrafica collegata agli utenti', 
   assert.equal((await chiama('DELETE', `/api/persone/${(await pool.query('select id from partecipante where utente_id=$1', [ap.id])).rows[0].id}`, { token: A })).statusCode, 409);   // è in una squadra
 });
 
-test('S-1 segreteria: iscritti, arrivi con ora e operatore, formati e PDF dei badge, area dedicata', async () => {
+test('S-1 segreteria: iscritti, arrivi con ora e operatore, formati e PDF dei badge, area dedicata', async (t) => {
+  await nelComitato(t, 'org@t', 'Modena');
   const O = tok['org@t'], A = tok['adm@t'];
   const base = `/api/eventi/${ev}`;
   const sq = json(await chiama('POST', `${base}/squadre`, { token: O, body: { nome: 'Squadra Badge', comitato: 'Modena' } }));
@@ -1020,7 +1037,8 @@ test('COMP-1: scheda composta — la skill incorporata si apre dopo la voce indi
   assert.equal(st.pagine, nsq * 2);      // per ogni squadra: la scheda e il foglio della skill incorporata
 });
 
-test('CAN-3: canovaccio di Mega Code creato da modulo — descrizione scenario, PDF, collegamento alla scena', async () => {
+test('CAN-3: canovaccio di Mega Code creato da modulo — descrizione scenario, PDF, collegamento alla scena', async (t) => {
+  await nelComitato(t, 'org@t', 'Modena');
   const O = tok['org@t'], G = tok['giu@t'];
   const body = { versione: 'megacode', codice: 'S1', gara_codice: 'mc-2026', titolo: 'Infortunio domestico', tempo_min: 15, dati: { dispatch: 'Uomo di 45 anni caduto da una scala', scena: 'Ripostiglio stretto', racconto: 'Sono caduto',
     quick_look: ['Cosciente', 'Respira'], abcde: { A: 'pervie', B: 'FR 20', C: 'FC 90', D: 'AVPU A', E: 'dolore dorso-lombare' }, sample: { S: 'mal di schiena' }, trucchi: 'lividi sulla schiena', presidi: ['Collare', 'Spinale'] } };
@@ -1077,8 +1095,11 @@ test('ESA-1 area Esami: sessione, principale + secondari, valore diverso per un 
 });
 
 test('COM-1 comitati: import, ricerca con suggerimenti, nomi liberi ricondotti al nome ufficiale', async () => {
-  const O = tok['org@t'], G = tok['giu@t'];
+  const O = tok['adm@t'], G = tok['giu@t'];   // l'elenco ufficiale decide la regione di persone ed eventi: lo gestisce solo l'amministratore
   assert.equal((await chiama('POST', '/api/comitati/importa', { token: G, body: { testo: 'x' } })).statusCode, 403);
+  for (const [m, u] of [['POST', '/api/comitati/importa'], ['POST', '/api/comitati'], ['POST', '/api/comitati/ricondurre'], ['GET', '/api/comitati/da-ricondurre']])
+    assert.equal((await chiama(m, u, { token: tok['org@t'], body: m === 'POST' ? { testo: 'x' } : undefined })).statusCode, 403, u);
+  assert.equal((await chiama('GET', '/api/comitati', { token: tok['org@t'] })).statusCode, 200);                    // la lettura resta allo staff
   const imp = json(await chiama('POST', '/api/comitati/importa', { token: O, body: { testo: 'Comitato;Provincia;Regione;Unità\nPrignano sulla Secchia;MO;Emilia-Romagna;Prignano|Pavullo\nRubiera;RE;Emilia-Romagna;\nModena;MO;Emilia-Romagna;Modena' } }));
   assert.equal(imp.importati, 3);
   const c1 = json(await chiama('GET', '/api/comitati/cerca?q=pri', { token: G })); assert.equal(c1[0].nome, 'Prignano sulla Secchia'); assert.deepEqual(c1[0].unita, ['Pavullo', 'Prignano']);
@@ -1218,8 +1239,8 @@ test('AMB-1 ambito dei corsi: trainer locale solo per il proprio comitato, forma
   const crea = async (email, nome, comitato, qual) => {
     const u = json(await chiama('POST', '/api/utenti', { token: A, body: { email, nome, ruolo: 'istruttore_du', password: 'password-lunga' } }));
     const pe = json(await chiama('GET', `/api/persone?q=${encodeURIComponent(nome.split(' ')[1])}`, { token: O })).find((x) => x.utente_id === u.id);
-    { const r = await chiama('PATCH', `/api/persone/${pe.id}`, { token: O, body: { cognome: pe.cognome, nome: pe.nome, email, comitato } }); assert.equal(r.statusCode, 200, r.body); }
-    await chiama('PUT', `/api/persone/${pe.id}/qualifiche`, { token: O, body: { qualifiche: [qual] } });
+    { const r = await chiama('PATCH', `/api/persone/${pe.id}`, { token: A, body: { cognome: pe.cognome, nome: pe.nome, email, comitato } }); assert.equal(r.statusCode, 200, r.body); }
+    await chiama('PUT', `/api/persone/${pe.id}/qualifiche`, { token: A, body: { qualifiche: [qual] } });
     return { pe, tk: json(await chiama('POST', '/api/login', { body: { email, password: 'password-lunga' } })).token };
   };
   await chiama('POST', '/api/comitati/importa', { token: O, body: { testo: 'Piacenza;PC;Emilia-Romagna;\nParma;PR;Emilia-Romagna;' } });
@@ -1369,7 +1390,8 @@ test('GRV-1 categorie e gravità: proposta dalla categoria, modificabile, e elen
   assert.equal(g.gravita, 'rosso');
 });
 
-test('CAN-1 canovaccio: import da .docx, lettura di pazienti/triage/logistica, PDF e collegamento alla scena', async () => {
+test('CAN-1 canovaccio: import da .docx, lettura di pazienti/triage/logistica, PDF e collegamento alla scena', async (t) => {
+  await nelComitato(t, 'org@t', 'Modena');
   const { default: JSZip } = await import('jszip');
   const p = (t) => `<w:p><w:r><w:t xml:space="preserve">${t}</w:t></w:r></w:p>`;
   const tc = (t) => `<w:tc>${t.split('\n').map(p).join('')}</w:tc>`;
@@ -1566,7 +1588,10 @@ test('REG-1: registrazione con email, password e MFA, poi approvazione', async (
   assert.equal((await chiama('POST', '/api/login', { body: { email: 'nuovo@t.it', password: 'password-lunga-1' } })).statusCode, 401);   // non approvata: nessun accesso
   const rq = json(await chiama('GET', '/api/richieste', { token: adm })).find((x) => x.email === 'nuovo@t.it'); assert.ok(rq);
   assert.deepEqual(rq.qualifiche.sort(), ['giudice', 'trainer_ms']); assert.equal(rq.ruolo_proposto, 'giudice'); assert.deepEqual(rq.cf_avvisi, []);
-  assert.equal((await chiama('POST', `/api/richieste/${rq.id}/approva`, { token: adm, body: { ruolo: 'giudice', qualifiche: ['giudice'] } })).statusCode, 200);   // l'admin conferma solo il giudice
+  // senza servizio di posta l'email resta non verificata: l'admin la vede e approva solo dichiarando di aver controllato la persona
+  assert.equal(rq.email_verificata, false); assert.equal(form.verifica_email, false);
+  { const no = await chiama('POST', `/api/richieste/${rq.id}/approva`, { token: adm, body: { ruolo: 'giudice', qualifiche: ['giudice'] } }); assert.equal(no.statusCode, 409); assert.equal(json(no).dettaglio.email_non_verificata, true); }
+  assert.equal((await chiama('POST', `/api/richieste/${rq.id}/approva`, { token: adm, body: { ruolo: 'giudice', qualifiche: ['giudice'], conferma_email: true } })).statusCode, 200);   // l'admin conferma solo il giudice
   assert.deepEqual((await pool.query(`select pq.qualifica from persona_qualifica pq join partecipante p on p.id=pq.partecipante_id join utente u on u.id=p.utente_id where u.email='nuovo@t.it'`)).rows.map((x) => x.qualifica), ['giudice']);
   const lg = json(await chiama('POST', '/api/login', { body: { email: 'nuovo@t.it', password: 'password-lunga-1' } }));
   assert.equal(lg.mfa, true);                                                                                                       // la MFA scelta in registrazione è già attiva
@@ -1583,6 +1608,17 @@ test('NOT-1: notifiche per utente ed email di esito (con Resend simulato)', asyn
     const form = json(await chiama('GET', '/api/registrazione', { token: r.token }));
     const { totp } = await import('../src/mfa.js');
     await chiama('POST', '/api/registrazione/mfa', { token: r.token, body: { codice: totp(form.mfa.segreto) } });
+    // verifica dell'email: il modulo non parte finché non si scrive il codice spedito all'indirizzo
+    const modulo = { tipo: 'supporter', nome: 'Mario', cognome: 'Rossi', squadra_id: (await pool.query('select id from squadra limit 1')).rows[0].id };
+    assert.equal(form.verifica_email, true); assert.equal(form.email_verificata, false);
+    assert.equal((await chiama('POST', '/api/registrazione', { token: r.token, body: modulo })).statusCode, 400);
+    const codice = () => mail.filter((m) => m.to[0] === 'notifica@t.it' && /conferma/.test(m.subject)).at(-1).text.match(/\b(\d{6})\b/)[1];
+    assert.equal((await chiama('POST', '/api/registrazione/email', { token: r.token, body: { codice: codice() === '000000' ? '000001' : '000000' } })).statusCode, 400);
+    assert.equal((await chiama('POST', '/api/registrazione/email', { token: r.token, body: { rinvia: true } })).statusCode, 200);
+    assert.equal(mail.filter((m) => /conferma/.test(m.subject)).length, 2);
+    assert.ok(!JSON.stringify((await pool.query(`select verifica_hash from richiesta_accesso where email='notifica@t.it'`)).rows).includes(codice()));   // nel database c'è solo l'impronta
+    assert.equal(json(await chiama('POST', '/api/registrazione/email', { token: r.token, body: { codice: codice() } })).verificata, true);
+    assert.equal(json(await chiama('GET', '/api/registrazione', { token: r.token })).email_verificata, true);
     const antes = json(await chiama('GET', '/api/me/notifiche', { token: adm })).non_lette;
     assert.equal((await chiama('POST', '/api/registrazione', { token: r.token, body: { tipo: 'volontario', nome: 'Mario', cognome: 'Rossi', codice_fiscale: 'RSSMRA85T10A562S', comitato: 'Modena', provincia: 'mo', data_nascita: '1985-12-10', luogo_nascita: 'San Giuliano Terme' } })).statusCode, 200);
     const dopo = json(await chiama('GET', '/api/me/notifiche', { token: adm }));
@@ -1591,7 +1627,7 @@ test('NOT-1: notifiche per utente ed email di esito (con Resend simulato)', asyn
     await chiama('POST', '/api/me/notifiche/lette', { token: adm, body: {} });
     assert.equal(json(await chiama('GET', '/api/me/notifiche', { token: adm })).non_lette, 0);
     const rq = json(await chiama('GET', '/api/richieste', { token: adm })).find((x) => x.email === 'notifica@t.it');
-    assert.ok(rq);
+    assert.ok(rq); assert.equal(rq.email_verificata, true);
     assert.equal((await chiama('DELETE', `/api/richieste/${rq.id}`, { token: adm, body: { motivo: 'dati non corretti' } })).statusCode, 200);
     assert.ok(mail.some((m) => /non approvata/.test(m.subject) && /dati non corretti/.test(m.text)));
   } finally { globalThis.fetch = f0; delete process.env.RESEND_API_KEY; }
@@ -2016,7 +2052,11 @@ test('BAK-1 backup cifrato su GitHub (simulato), registro, download solo admin, 
     assert.equal((await chiama('POST', '/api/backup', { token: O, body: {} })).statusCode, 403);
     assert.equal((await chiama('GET', '/api/backup', { token: O })).statusCode, 403);
     assert.equal((await chiama('GET', '/api/backup/scarica?tipo=db', { token: O })).statusCode, 403);
+    assert.equal((await chiama('GET', '/api/backup/scarica?tipo=db', { token: A })).statusCode, 400);                 // senza frase il database non si scarica: mai in chiaro
+    process.env.BACKUP_PASSPHRASE = 'frase-solo-per-lo-scarico';
     const dl = await chiama('GET', '/api/backup/scarica?tipo=db', { token: A }); assert.equal(dl.statusCode, 200);
+    assert.equal(dl.rawPayload.subarray(0, 5).toString(), 'GPSB1'); assert.ok(decifra(dl.rawPayload, 'frase-solo-per-lo-scarico').length > 100);
+    delete process.env.BACKUP_PASSPHRASE;
     assert.equal((await chiama('GET', '/api/backup/scarica?tipo=sito', { token: A })).statusCode, 200);
     // con la configurazione: database cifrato + sito su GitHub, potatura dei vecchi
     process.env.BACKUP_GITHUB_TOKEN = 'ghp_finto'; process.env.BACKUP_GITHUB_REPO = 'imfabrizio/gpser-backup'; process.env.BACKUP_PASSPHRASE = 'frase-di-prova-lunga';
@@ -2152,7 +2192,8 @@ test('ELV-1 eliminare una valutazione: solo organizzazione, risposte cancellate,
   assert.equal((await pool.query(`select 1 from audit_log where azione='elimina_valutazione' and entita_id=$1`, [id])).rowCount, 1);
 });
 
-test('CAN-4: canovaccio di gara da modulo — pazienti in ordine di gravità, triage e fabbisogno ricavati, modifica senza perdere i pazienti', async () => {
+test('CAN-4: canovaccio di gara da modulo — pazienti in ordine di gravità, triage e fabbisogno ricavati, modifica senza perdere i pazienti', async (t) => {
+  await nelComitato(t, 'org@t', 'Modena');
   const O = tok['org@t'];
   const body = { versione: 'gara', codice: 'Q', gara_codice: 'cn4-2031', titolo: 'Incidente', tempo_min: 20, dati: { sottotitolo: 'Via Roma', briefing: 'Entrate in scena', logistica: 'Manichini RCP: 1',
     pazienti: [{ nome: 'Uomo 40', patologia: 'Arresto', gravita: 'rosso', righe: 'Allergie: nessuna' }, { nome: 'Donna 30', patologia: 'Contusione', gravita: 'verde' }] } };
@@ -2231,6 +2272,13 @@ test('OFF-1: scena offline — blocco online, codici, pacchetto cifrato, disposi
   assert.equal(c.giudice_id, giuId); assert.equal(c.origine, 'tablet_offline'); assert.equal(c.stato, 'verificata');
   assert.equal(json(await chiama('GET', '/api/dispositivi', { token: O })).find((d) => d.id === dev).modalita, 'online');
   assert.equal(json(await chiama('POST', '/api/offline/sync', { token: O, body: { evento_id: ev, invii: [{ utente_id: giuId, payload: { ...corpo(), scheda_id: randomUUID() } }] } })).errori, 1);
+  // non si inviano valutazioni né riaperture a nome di chi non lavora su quella scheda (es. un amministratore)
+  const admId = (await pool.query(`select id from utente where email='adm@t'`)).rows[0].id;
+  const finto = json(await chiama('POST', '/api/offline/sync', { token: O, body: { evento_id: ev, invii: [{ utente_id: admId, payload: corpo() }] } }));
+  assert.equal(finto.errori, 1); assert.match(finto.risultati[0].errore, /non è giudice/);
+  const fintaRiap = json(await chiama('POST', '/api/offline/sync', { token: O, body: { evento_id: ev, invii: [{ utente_id: giuId, payload: corpo(), riaperture: [{ master_id: admId }] }] } }));
+  assert.equal(fintaRiap.errori, 1); assert.match(fintaRiap.risultati[0].errore, /giudice master/);
+  assert.equal((await pool.query('select stato from compilazione where scheda_id=$1 and squadra_id=$2', [scheda, sq.id])).rows[0].stato, 'verificata');
   await chiama('PUT', `/api/scene/${scena.id}/offline`, { token: O, body: { offline: false } });
 });
 
@@ -2329,4 +2377,157 @@ test('SOP-1: sopralluogo — il gestore salva percorso e posizioni, la logistica
   await chiama('PUT', `/api/eventi/${ev}/staff`, { token: O, body: { direzione: [], logistica: [lid] } });
   const lg = await chiama('GET', `/api/eventi/${ev}/sopralluogo`, { token: tok['log@t'] }); assert.equal(json(lg).ruolo, 'logistica');
   assert.equal((await chiama('PUT', `/api/eventi/${ev}/sopralluogo`, { token: tok['log@t'], body: { percorso: [] } })).statusCode, 403);
+});
+
+test('SEC-UUID: gli identificatori non canonici sono rifiutati e non aggirano il controllo di ente', async () => {
+  const { rows: com } = await pool.query(`select nome, regione from comitato where regione is not null order by regione, nome`);
+  const cA = com[0], cB = com.find((c) => c.regione !== cA.regione);
+  await pool.query(`insert into ruolo (codice, nome, aree) values ('staff_uuid','Staff UUID','{gara,squadre,classifiche}') on conflict do nothing`);
+  const { rows: [u] } = await pool.query(`insert into utente (email,nome,ruolo,password_hash) values ('uuid@sec.invalid','U','staff_uuid',$1) returning id`, [hashPassword('password-uuid-1')]);
+  await pool.query(`insert into partecipante (cognome,nome,comitato,utente_id) values ('U','U',$1,$2)`, [cA.nome, u.id]);
+  const { rows: [{ id: evB }] } = await pool.query(`insert into evento (codice,nome,tipo,livello,comitato,regione) values ('SEC-UUID','Allenamento di un altro comitato','allenamento','comitato',$1,$2) returning id`, [cB.nome, cB.regione]);
+  const T = json(await chiama('POST', '/api/login', { body: { email: 'uuid@sec.invalid', password: 'password-uuid-1' } })).token;
+  assert.equal((await chiama('GET', `/api/eventi/${evB}/squadre`, { token: T })).statusCode, 403);
+  assert.equal((await chiama('GET', `/api/eventi/${evB.toUpperCase()}/squadre`, { token: T })).statusCode, 403);              // maiuscole: stesso evento, stesso divieto
+  for (const alt of [evB.replace(/-/g, ''), `%7B${evB}%7D`, evB.replace(/-/g, '').replace(/(.{4})(?=.)/g, '$1-').slice(0, 36)]) {
+    assert.equal((await chiama('GET', `/api/eventi/${alt}/squadre`, { token: T })).statusCode, 400, alt);
+    assert.equal((await chiama('PATCH', `/api/eventi/${alt}`, { token: T, body: { nome: 'x' } })).statusCode, 400, alt);
+  }
+  assert.equal((await pool.query('select nome from evento where id=$1', [evB])).rows[0].nome, 'Allenamento di un altro comitato');
+  assert.equal((await chiama('GET', `/api/eventi/${ev.toUpperCase()}/squadre`, { token: tok['adm@t'] })).statusCode, 200);    // la forma canonica in maiuscolo resta valida
+});
+
+test('SEC-LIMITI: cambiare indirizzo non dà tentativi illimitati su password e secondo fattore', async () => {
+  const { cifra, nuovoSegreto } = await import('../src/mfa.js');
+  const { rows: [u] } = await pool.query(`insert into utente (email,nome,ruolo,password_hash,mfa_attiva,mfa_secret) values ('limiti@sec.invalid','L','giudice',$1,true,$2) returning id`, [hashPassword('password-limiti-1'), cifra(nuovoSegreto())]);
+  const prima = process.env.TRUST_PROXY; process.env.TRUST_PROXY = '1';
+  const app2 = buildApp(pool);
+  const post = (url, body, headers) => app2.inject({ method: 'POST', url, payload: body, headers });
+  try {
+    // secondo fattore: ogni richiesta dichiara un indirizzo diverso in X-Forwarded-For
+    const ticket = JSON.parse((await post('/api/login', { email: 'limiti@sec.invalid', password: 'password-limiti-1' }, { 'x-forwarded-for': '198.51.100.1' })).body).ticket;
+    const mfa = []; for (let i = 0; i < 12; i++) mfa.push((await post('/api/login/mfa', { ticket, codice: '000000' }, { 'x-forwarded-for': `203.0.113.${i}, 10.0.0.1` })).statusCode);
+    assert.deepEqual(mfa.slice(0, 10), Array(10).fill(401)); assert.deepEqual(mfa.slice(10), [429, 429]);
+    // password: stesso trucco, il tetto per account scatta comunque
+    const pw = []; for (let i = 0; i < 22; i++) pw.push((await post('/api/login', { email: 'LIMITI@sec.invalid', password: 'sbagliata-' + i }, { 'x-forwarded-for': `203.0.113.${100 + i}` })).statusCode);
+    assert.deepEqual(pw.slice(0, 20), Array(20).fill(401)); assert.deepEqual(pw.slice(20), [429, 429]);
+    // l'indirizzo scritto da Cloudflare prevale su X-Forwarded-For
+    const cf = []; for (let i = 0; i < 9; i++) cf.push((await post('/api/login', { email: 'altro@sec.invalid', password: 'x' }, { 'x-forwarded-for': `203.0.113.${200 + i}`, 'cf-connecting-ip': '192.0.2.77' })).statusCode);
+    assert.deepEqual(cf, [...Array(8).fill(401), 429]);
+  } finally { await app2.close(); if (prima === undefined) delete process.env.TRUST_PROXY; else process.env.TRUST_PROXY = prima; }
+  // disattivazione della MFA: con una sessione valida i tentativi sul codice sono limitati
+  const T = firmaToken({ id: u.id, via: 'sso' });
+  const dis = []; for (let i = 0; i < 9; i++) dis.push((await chiama('POST', '/api/mfa/disattiva', { token: T, body: { codice: '000000' } })).statusCode);
+  assert.deepEqual(dis, [...Array(8).fill(400), 429]);
+});
+
+test('SEC-REGIONI: anagrafica e canovacci divisi per regione; il proprio comitato e le proprie qualifiche non si cambiano da soli', async () => {
+  const { rows: com } = await pool.query(`select nome, regione from comitato where regione is not null and regione not ilike 'trentino%' order by regione, nome`);
+  const cA = com.find((c) => c.regione === 'Emilia-Romagna'), cA2 = com.find((c) => c.regione === 'Emilia-Romagna' && c.nome !== cA.nome), cB = com.find((c) => c.regione === 'Lombardia');
+  await pool.query(`insert into ruolo (codice, nome, aree) values ('staff_reg','Staff regione','{anagrafiche,scene,importa,gara}') on conflict do nothing`);
+  const staff = async (email, comitato) => {
+    const { rows: [u] } = await pool.query(`insert into utente (email,nome,ruolo,password_hash) values ($1,$1,'staff_reg',$2) returning id`, [email, hashPassword('password-regioni-1')]);
+    const { rows: [p] } = await pool.query(`insert into partecipante (cognome,nome,comitato,utente_id) values ($1,'Staff',$2,$3) returning id`, [email, comitato, u.id]);
+    return { id: u.id, pid: p.id, T: json(await chiama('POST', '/api/login', { body: { email, password: 'password-regioni-1' } })).token };
+  };
+  const er = await staff('er@reg.invalid', cA.nome), lo = await staff('lo@reg.invalid', cB.nome), A = tok['adm@t'];
+  const persona = async (cognome, comitato) => (await pool.query(`insert into partecipante (cognome,nome,comitato,email) values ($1,'Persona',$2,$3) returning id`, [cognome, comitato, cognome.toLowerCase() + '@reg.invalid'])).rows[0].id;
+  const pEr = await persona('Regioemilia', cA2.nome), pLo = await persona('Regiolombardia', cB.nome), pNo = await persona('Regionessuna', null);
+  // elenco: ciascuno vede la propria regione e chi non ha ancora un comitato riconosciuto; l'amministratore tutti
+  const vede = async (T) => json(await chiama('GET', '/api/persone?q=Regio', { token: T })).map((x) => x.cognome).sort();
+  assert.deepEqual(await vede(er.T), ['Regioemilia', 'Regionessuna']);
+  assert.deepEqual(await vede(lo.T), ['Regiolombardia', 'Regionessuna']);
+  assert.deepEqual(await vede(A), ['Regioemilia', 'Regiolombardia', 'Regionessuna']);
+  // modifica, qualifiche ed eliminazione di una persona di un'altra regione: no
+  const corpo = (cognome, comitato) => ({ cognome, nome: 'Persona', comitato });
+  assert.equal((await chiama('PATCH', `/api/persone/${pLo}`, { token: er.T, body: corpo('Regiolombardia', cB.nome) })).statusCode, 403);
+  assert.equal((await chiama('PUT', `/api/persone/${pLo}/qualifiche`, { token: er.T, body: { qualifiche: [] } })).statusCode, 403);
+  assert.equal((await chiama('DELETE', `/api/persone/${pLo}`, { token: er.T })).statusCode, 403);
+  assert.equal((await pool.query('select 1 from partecipante where id=$1', [pLo])).rowCount, 1);
+  // dentro la propria regione sì, ma senza portare nessuno in un'altra regione
+  assert.equal((await chiama('PATCH', `/api/persone/${pEr}`, { token: er.T, body: corpo('Regioemilia', cA.nome) })).statusCode, 200);
+  assert.equal((await chiama('PATCH', `/api/persone/${pEr}`, { token: er.T, body: corpo('Regioemilia', cB.nome) })).statusCode, 403);
+  assert.equal((await chiama('PATCH', `/api/persone/${pNo}`, { token: er.T, body: corpo('Regionessuna', cB.nome) })).statusCode, 403);
+  assert.equal((await chiama('POST', '/api/persone', { token: er.T, body: corpo('Regionuova', cB.nome) })).statusCode, 403);
+  assert.equal((await chiama('PATCH', `/api/persone/${pNo}`, { token: er.T, body: corpo('Regionessuna', cA.nome) })).statusCode, 200);
+  // il proprio comitato decide a quali eventi si accede: non lo si cambia da soli, nemmeno dentro la regione; idem le proprie qualifiche (danno ruoli)
+  assert.equal((await chiama('PATCH', `/api/persone/${er.pid}`, { token: er.T, body: { cognome: 'er@reg.invalid', nome: 'Staff', comitato: cA2.nome } })).statusCode, 403);
+  assert.equal((await chiama('PATCH', `/api/persone/${er.pid}`, { token: er.T, body: { cognome: 'Rinominato', nome: 'Staff', comitato: cA.nome } })).statusCode, 200);   // gli altri dati sì
+  assert.equal((await chiama('PUT', `/api/persone/${er.pid}/qualifiche`, { token: er.T, body: { qualifiche: ['formatore_tssa'] } })).statusCode, 403);
+  assert.equal((await chiama('PATCH', `/api/persone/${er.pid}`, { token: A, body: { cognome: 'Rinominato', nome: 'Staff', comitato: cA2.nome } })).statusCode, 200);       // l'amministratore sì
+  await pool.query('update partecipante set comitato=$2 where id=$1', [er.pid, cA.nome]);
+  // l'evento di un comitato lombardo resta chiuso a chi è in Emilia-Romagna, anche dopo i tentativi qui sopra
+  const { rows: [{ id: evLo }] } = await pool.query(`insert into evento (codice,nome,tipo,livello,comitato,regione) values ('SEC-REG','Allenamento lombardo','allenamento','comitato',$1,$2) returning id`, [cB.nome, cB.regione]);
+  assert.equal((await chiama('GET', `/api/eventi/${evLo}/squadre`, { token: er.T })).statusCode, 403);
+  assert.equal((await chiama('GET', `/api/eventi/${evLo}/squadre`, { token: lo.T })).statusCode, 200);
+
+  // ── canovacci ──
+  const cn = (codice) => ({ versione: 'gara', codice, gara_codice: 'SEC-REG-31', titolo: 'Scenario riservato', tempo_min: 15, dati: { briefing: 'Riservato', pazienti: [{ nome: 'Uomo', patologia: 'Trauma', gravita: 'rosso' }] } });
+  const cEr = json(await chiama('POST', '/api/canovacci', { token: er.T, body: cn('X') })), cLo = json(await chiama('POST', '/api/canovacci', { token: lo.T, body: cn('X') }));   // stessa lettera e stessa gara in due regioni: nessun conflitto
+  assert.ok(cEr.id && cLo.id && cEr.id !== cLo.id);
+  const cGen = json(await chiama('POST', '/api/canovacci', { token: A, body: { ...cn('Y'), regione: '' } }));                                 // generale: lo crea solo l'amministratore
+  const elenco = async (T) => json(await chiama('GET', '/api/canovacci', { token: T })).filter((c) => c.gara_codice === 'SEC-REG-31').map((c) => c.id).sort();
+  assert.deepEqual(await elenco(er.T), [cEr.id, cGen.id].sort()); assert.deepEqual(await elenco(lo.T), [cLo.id, cGen.id].sort()); assert.equal((await elenco(A)).length, 3);
+  for (const [m, u, b] of [['GET', `/api/canovacci/${cLo.id}`], ['GET', `/api/canovacci/${cLo.id}/canovaccio.pdf`], ['PUT', `/api/canovacci/${cLo.id}`, cn('X')], ['PATCH', `/api/canovacci/${cLo.id}`, { gara_codice: 'RUBATO' }], ['DELETE', `/api/canovacci/${cLo.id}`]])
+    assert.equal((await chiama(m, u, { token: er.T, body: b })).statusCode, 404, `${m} ${u}`);
+  assert.equal((await pool.query('select gara_codice, regione from canovaccio where id=$1', [cLo.id])).rows[0].regione, 'Lombardia');
+  assert.equal((await chiama('GET', `/api/canovacci/${cLo.id}`, { token: lo.T })).statusCode, 200);
+  assert.equal((await chiama('PUT', `/api/canovacci/${cEr.id}`, { token: er.T, body: { ...cn('X'), regione: 'Lombardia' } })).statusCode, 200);                // chi non è amministratore non sposta un canovaccio in un'altra regione
+  assert.equal((await pool.query('select regione from canovaccio where id=$1', [cEr.id])).rows[0].regione, 'Emilia-Romagna');
+  // a una propria scena non si collega il canovaccio di un'altra regione
+  const { rows: [{ id: evEr }] } = await pool.query(`insert into evento (codice,nome,tipo,livello,comitato,regione) values ('SEC-REG-31','Allenamento emiliano','allenamento','comitato',$1,$2) returning id`, [cA.nome, cA.regione]);
+  const sc = json(await chiama('POST', `/api/eventi/${evEr}/scene`, { token: er.T, body: { codice: 'X', titolo: 'Scena X' } }));
+  assert.equal((await chiama('PATCH', `/api/scene/${sc.id}`, { token: er.T, body: { canovaccio_id: cLo.id } })).statusCode, 404);
+  assert.deepEqual(json(await chiama('POST', `/api/eventi/${evEr}/collega-canovacci`, { token: er.T, body: {} })).collegate, ['X']);
+  assert.equal((await pool.query('select canovaccio_id from scena where id=$1', [sc.id])).rows[0].canovaccio_id, cEr.id);                                    // ha preso quello della sua regione, non l'omonimo lombardo
+});
+
+test('SEC-SESSIONI: cambio password → le altre sessioni decadono; un codice OTP non si usa due volte; PUBLIC_URL non si ricava dalla richiesta; CSP senza script inline', async () => {
+  const { cifra, nuovoSegreto, totp } = await import('../src/mfa.js');
+  const entra = async (email, password) => json(await chiama('POST', '/api/login', { body: { email, password } }));
+  // sessioni
+  await pool.query(`insert into utente (email,nome,ruolo,password_hash) values ('sess@sec.invalid','S','giudice',$1)`, [hashPassword('password-vecchia-1')]);
+  const t1 = (await entra('sess@sec.invalid', 'password-vecchia-1')).token, t2 = (await entra('sess@sec.invalid', 'password-vecchia-1')).token;   // due dispositivi
+  await new Promise((ok) => setTimeout(ok, 5));
+  const cambio = json(await chiama('POST', '/api/me/password', { token: t1, body: { attuale: 'password-vecchia-1', nuova: 'password-nuova-22' } }));
+  assert.ok(cambio.ok && cambio.token && cambio.token !== t1);
+  assert.equal((await chiama('GET', '/api/me', { token: t1 })).statusCode, 401); assert.equal((await chiama('GET', '/api/me', { token: t2 })).statusCode, 401);
+  assert.equal((await chiama('GET', '/api/me', { token: cambio.token })).statusCode, 200);                                                             // chi ha cambiato la password continua
+  assert.equal((await chiama('GET', '/api/me', { token: (await entra('sess@sec.invalid', 'password-nuova-22')).token })).statusCode, 200);
+  // password reimpostata dall'amministratore: stesso effetto
+  const { rows: [{ id: sid }] } = await pool.query(`select id from utente where email='sess@sec.invalid'`);
+  await new Promise((ok) => setTimeout(ok, 5));
+  assert.equal((await chiama('PATCH', `/api/utenti/${sid}`, { token: tok['adm@t'], body: { password: 'password-admin-333' } })).statusCode, 200);
+  assert.equal((await chiama('GET', '/api/me', { token: cambio.token })).statusCode, 401);
+  // OTP: lo stesso codice, intercettato, non apre una seconda sessione
+  const segreto = nuovoSegreto();
+  await pool.query(`insert into utente (email,nome,ruolo,password_hash,mfa_attiva,mfa_secret) values ('otp@sec.invalid','O','giudice',$1,true,$2)`, [hashPassword('password-otp-1'), cifra(segreto)]);
+  const codice = totp(segreto);
+  const primo = await chiama('POST', '/api/login/mfa', { body: { ticket: (await entra('otp@sec.invalid', 'password-otp-1')).ticket, codice } });
+  assert.equal(primo.statusCode, 200);
+  assert.equal((await chiama('POST', '/api/login/mfa', { body: { ticket: (await entra('otp@sec.invalid', 'password-otp-1')).ticket, codice } })).statusCode, 401);
+  assert.equal((await chiama('POST', '/api/login/mfa', { body: { ticket: (await entra('otp@sec.invalid', 'password-otp-1')).ticket, codice: totp(segreto, Date.now() - 30000) } })).statusCode, 401);   // nemmeno quello del passo precedente
+  assert.equal((await chiama('POST', '/api/login/mfa', { body: { ticket: (await entra('otp@sec.invalid', 'password-otp-1')).ticket, codice: totp(segreto, Date.now() + 30000) } })).statusCode, 200);   // il successivo sì
+  // l'indirizzo di ritorno di Google non segue le intestazioni della richiesta
+  const prima = { id: process.env.GOOGLE_CLIENT_ID, s: process.env.GOOGLE_CLIENT_SECRET };
+  Object.assign(process.env, { GOOGLE_CLIENT_ID: 'gid', GOOGLE_CLIENT_SECRET: 'gs' });
+  try {
+    const r = await chiama('GET', '/api/auth/google/inizio', { headers: { host: 'localhost:80', 'x-forwarded-host': 'sito-malevolo.invalid', 'x-forwarded-proto': 'https' } });
+    assert.equal(r.statusCode, 302); assert.ok(!String(r.headers.location).includes('sito-malevolo'));
+    const diretto = await chiama('GET', '/api/auth/google/inizio');
+    assert.equal(new URL(diretto.headers.location).searchParams.get('redirect_uri'), process.env.PUBLIC_URL + '/api/auth/google/callback');
+    const url = process.env.PUBLIC_URL; delete process.env.PUBLIC_URL;
+    try { assert.deepEqual(json(await chiama('GET', '/api/auth/config')), { google: false, microsoft: false }); assert.equal((await chiama('GET', '/api/auth/google/inizio')).statusCode, 404); }   // senza PUBLIC_URL l'accesso esterno resta spento
+    finally { process.env.PUBLIC_URL = url; }
+  } finally { for (const [k, v] of [['GOOGLE_CLIENT_ID', prima.id], ['GOOGLE_CLIENT_SECRET', prima.s]]) if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  // CSP: gli script arrivano solo da file del sito; nelle pagine non c'è codice né un gestore scritto nell'HTML
+  const pagina = await chiama('GET', '/admin.html');
+  const csp = pagina.headers['content-security-policy'];
+  assert.match(csp, /script-src 'self';/); assert.ok(!/script-src[^;]*unsafe-inline/.test(csp));
+  for (const f of fs.readdirSync(new URL('../../web/', import.meta.url)).filter((x) => /\.(html|js)$/.test(x))) {
+    const s = fs.readFileSync(new URL('../../web/' + f, import.meta.url), 'utf8');
+    if (f.endsWith('.html')) assert.ok(!/<script(?![^>]*\ssrc=)[^>]*>/.test(s), `${f}: script scritto nella pagina`);
+    assert.ok(!/\son[a-z]+\s*=\s*["'`]/.test(s.replace(/\.on[a-z]+\s*=/g, '')), `${f}: gestore di eventi scritto nell'HTML`);
+    assert.ok(!/href\s*=\s*["']javascript:/i.test(s), `${f}: collegamento javascript:`);
+  }
 });
